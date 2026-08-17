@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { expenseService } from '../../services/admin-reports.service';
 import type { Expense, ExpenseCategory } from '../../types';
+import { formatCurrency, formatDate, formatExpenseCategory } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -78,11 +79,11 @@ function openCreateModal() {
 
 async function handleSave() {
   if (form.value.amount <= 0) {
-    errorMessage.value = 'Amount must be strictly greater than 0';
+    errorMessage.value = 'Le montant doit être strictement supérieur à 0';
     return;
   }
   if (!form.value.description.trim()) {
-    errorMessage.value = 'Description is required';
+    errorMessage.value = 'La description est obligatoire';
     return;
   }
 
@@ -93,19 +94,10 @@ async function handleSave() {
     showModal.value = false;
     await fetchExpenses();
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to record expense';
+    errorMessage.value = err.response?.data?.message || "Échec de l'enregistrement de la dépense";
   } finally {
     saving.value = false;
   }
-}
-
-function formatCurrency(val?: number) {
-  if (val === undefined || val === null) return '0.00 DZD';
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'decimal',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val) + ' DZD';
 }
 </script>
 
@@ -113,8 +105,8 @@ function formatCurrency(val?: number) {
   <div class="expenses-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Operating Expenses</h1>
-        <p class="text-muted">Warehouse utility bills, fuel, rent, and maintenance logs</p>
+        <h1 class="page-title">Dépenses d'Exploitation</h1>
+        <p class="text-muted">Factures de services, carburant, loyers et charges de maintenance des entrepôts</p>
       </div>
       <div class="header-actions">
         <AppButton variant="primary" @click="openCreateModal">
@@ -122,7 +114,7 @@ function formatCurrency(val?: number) {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          Record Expense
+          Enregistrer une Dépense
         </AppButton>
       </div>
     </div>
@@ -137,48 +129,48 @@ function formatCurrency(val?: number) {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search expenses by description, warehouse..."
+          placeholder="Rechercher par description, entrepôt..."
           class="search-input"
         />
       </div>
 
       <div class="type-filter">
         <select v-model="categoryFilter" class="filter-select">
-          <option value="">All Categories</option>
-          <option value="ELECTRICITY">ELECTRICITY</option>
-          <option value="WATER">WATER</option>
-          <option value="RENT">RENT</option>
-          <option value="FUEL">FUEL</option>
-          <option value="MAINTENANCE">MAINTENANCE</option>
-          <option value="OTHER">OTHER</option>
+          <option value="">Toutes les catégories</option>
+          <option value="ELECTRICITY">Électricité</option>
+          <option value="WATER">Eau</option>
+          <option value="RENT">Loyer</option>
+          <option value="FUEL">Carburant</option>
+          <option value="MAINTENANCE">Entretien & Maintenance</option>
+          <option value="OTHER">Autre charge</option>
         </select>
       </div>
 
       <div class="total-badge font-mono">
-        Total: <strong>{{ formatCurrency(totalExpensesAmount) }}</strong>
+        Total : <strong>{{ formatCurrency(totalExpensesAmount) }}</strong>
       </div>
     </div>
 
     <!-- Expenses Table -->
-    <AppTable :loading="loading" :empty="!filteredExpenses.length" empty-text="No expenses recorded" :columns-count="6">
+    <AppTable :loading="loading" :empty="!filteredExpenses.length" empty-text="Aucune dépense enregistrée" :columns-count="6">
       <template #header>
         <th>Date</th>
-        <th>Warehouse</th>
-        <th>Category</th>
+        <th>Entrepôt</th>
+        <th>Catégorie</th>
         <th>Description</th>
-        <th>Amount</th>
-        <th>Recorded By</th>
+        <th>Montant</th>
+        <th>Enregistré par</th>
       </template>
       <template #body>
         <tr v-for="e in filteredExpenses" :key="e.id">
-          <td class="font-mono text-caption">{{ e.expenseDate }}</td>
+          <td class="font-mono text-caption">{{ formatDate(e.expenseDate) }}</td>
           <td><strong>{{ e.warehouseName }}</strong></td>
           <td>
-            <AppBadge variant="neutral" size="sm">{{ e.category }}</AppBadge>
+            <AppBadge variant="neutral" size="sm">{{ formatExpenseCategory(e.category) }}</AppBadge>
           </td>
           <td>{{ e.description }}</td>
           <td class="font-mono font-bold">{{ formatCurrency(e.amount) }}</td>
-          <td class="text-caption">{{ e.createdByName || 'System' }}</td>
+          <td class="text-caption">{{ e.createdByName || 'Système' }}</td>
         </tr>
       </template>
     </AppTable>
@@ -186,7 +178,7 @@ function formatCurrency(val?: number) {
     <!-- Create Modal -->
     <AppModal
       v-model="showModal"
-      title="Record Operating Expense"
+      title="Enregistrer une Dépense d'Exploitation"
       max-width="480px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
@@ -195,7 +187,7 @@ function formatCurrency(val?: number) {
 
       <form class="modal-form" @submit.prevent="handleSave">
         <div class="app-input-group">
-          <label class="input-label">Warehouse</label>
+          <label class="input-label">Entrepôt</label>
           <select v-model.number="form.warehouseId" class="app-select" required>
             <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
               {{ w.name }} ({{ w.code }})
@@ -204,44 +196,44 @@ function formatCurrency(val?: number) {
         </div>
 
         <div class="app-input-group">
-          <label class="input-label">Category</label>
+          <label class="input-label">Catégorie</label>
           <select v-model="form.category" class="app-select" required>
-            <option value="ELECTRICITY">ELECTRICITY</option>
-            <option value="WATER">WATER</option>
-            <option value="RENT">RENT</option>
-            <option value="FUEL">FUEL</option>
-            <option value="MAINTENANCE">MAINTENANCE</option>
-            <option value="OTHER">OTHER</option>
+            <option value="ELECTRICITY">Électricité</option>
+            <option value="WATER">Eau</option>
+            <option value="RENT">Loyer</option>
+            <option value="FUEL">Carburant</option>
+            <option value="MAINTENANCE">Entretien & Maintenance</option>
+            <option value="OTHER">Autre charge</option>
           </select>
         </div>
 
         <AppInput
           v-model="form.amount"
           type="number"
-          label="Expense Amount (DZD)"
+          label="Montant de la Dépense (DA)"
           placeholder="0.00"
           required
         />
 
         <AppInput
           v-model="form.description"
-          label="Description / Invoice Reference"
-          placeholder="e.g. Sonelgaz Electricity bill Q3 2026"
+          label="Description / Réf Facture"
+          placeholder="ex. Facture électricité Sonelgaz T3 2026"
           required
         />
 
         <AppInput
           v-model="form.expenseDate"
           type="date"
-          label="Expense Date"
+          label="Date de la Dépense"
           required
         />
       </form>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSave">
-          Record Expense
+          Enregistrer la Dépense
         </AppButton>
       </template>
     </AppModal>

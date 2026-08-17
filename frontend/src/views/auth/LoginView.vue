@@ -16,7 +16,7 @@ const loading = ref(false);
 async function handleLogin() {
   error.value = '';
   if (!username.value || !password.value) {
-    error.value = 'Please enter both username and password';
+    error.value = 'Veuillez saisir votre identifiant et votre mot de passe';
     return;
   }
 
@@ -28,7 +28,7 @@ async function handleLogin() {
     });
     router.push('/dashboard');
   } catch (err: any) {
-    error.value = err.response?.data?.message || 'Invalid credentials. Please try again.';
+    error.value = err.response?.data?.message || 'Identifiants invalides. Veuillez réessayer.';
   } finally {
     loading.value = false;
   }
@@ -44,8 +44,8 @@ function quickLogin(user: string, pass: string) {
 <template>
   <div class="login-view">
     <div class="login-header">
-      <h2>Welcome Back</h2>
-      <p class="text-muted">Sign in to your distributor portal</p>
+      <h2>Bienvenue</h2>
+      <p class="text-muted">Connectez-vous à votre portail de distribution</p>
     </div>
 
     <form class="login-form" @submit.prevent="handleLogin">
@@ -55,15 +55,15 @@ function quickLogin(user: string, pass: string) {
 
       <AppInput
         v-model="username"
-        label="Username"
-        placeholder="e.g. admin or manager_algiers"
+        label="Nom d'utilisateur"
+        placeholder="ex. admin ou manager_algiers"
         required
       />
 
       <AppInput
         v-model="password"
         type="password"
-        label="Password"
+        label="Mot de passe"
         placeholder="••••••••"
         required
       />
@@ -74,13 +74,13 @@ function quickLogin(user: string, pass: string) {
         size="lg"
         :loading="loading"
       >
-        Sign In
+        Se connecter
       </AppButton>
     </form>
 
     <div class="quick-login-section">
       <div class="quick-title">
-        <span>DEMO QUICK ACCESS</span>
+        <span>ACCÈS RAPIDE DÉMO</span>
       </div>
       <div class="quick-grid">
         <button
@@ -88,8 +88,8 @@ function quickLogin(user: string, pass: string) {
           class="quick-btn"
           @click="quickLogin('admin', 'AdminPass123!')"
         >
-          <strong>Admin</strong>
-          <span>Global Access</span>
+          <strong>Administrateur</strong>
+          <span>Accès Global</span>
         </button>
 
         <button
@@ -97,8 +97,8 @@ function quickLogin(user: string, pass: string) {
           class="quick-btn"
           @click="quickLogin('manager_algiers', 'ManagerPass123!')"
         >
-          <strong>Manager</strong>
-          <span>Algiers Hub</span>
+          <strong>Responsable</strong>
+          <span>Hub d'Alger</span>
         </button>
 
         <button
@@ -106,8 +106,8 @@ function quickLogin(user: string, pass: string) {
           class="quick-btn"
           @click="quickLogin('super_oran', 'SuperPass123!')"
         >
-          <strong>Super Manager</strong>
-          <span>Oran Hub</span>
+          <strong>Super Gestionnaire</strong>
+          <span>Hub d'Oran</span>
         </button>
 
         <button
@@ -115,8 +115,8 @@ function quickLogin(user: string, pass: string) {
           class="quick-btn"
           @click="quickLogin('accountant_constantine', 'AccountantPass123!')"
         >
-          <strong>Accountant</strong>
-          <span>Constantine</span>
+          <strong>Comptable</strong>
+          <span>Hub de Constantine</span>
         </button>
       </div>
     </div>

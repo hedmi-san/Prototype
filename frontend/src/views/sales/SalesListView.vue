@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { saleService } from '../../services/operations.service';
 import { productService } from '../../services/catalog.service';
 import type { Sale, Product } from '../../types';
+import { formatCurrency, formatDateTime, formatNumber, formatSaleStatus } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -114,7 +115,7 @@ async function handleSaveEdit() {
     showEditModal.value = false;
     await fetchSales();
   } catch (err: any) {
-    editError.value = err.response?.data?.message || 'Failed to update sale';
+    editError.value = err.response?.data?.message || 'Échec de la mise à jour de la vente';
   } finally {
     saving.value = false;
   }
@@ -138,34 +139,14 @@ async function handleConfirmCancel() {
     cancelling.value = false;
   }
 }
-
-function formatCurrency(val?: number) {
-  if (val === undefined || val === null) return '0.00 DZD';
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'decimal',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val) + ' DZD';
-}
-
-function formatDate(dateStr: string) {
-  if (!dateStr) return '';
-  return new Date(dateStr).toLocaleDateString('fr-DZ', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 </script>
 
 <template>
   <div class="sales-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Sales & Invoices</h1>
-        <p class="text-muted">Customer billing, invoice records, and delta adjustments</p>
+        <h1 class="page-title">Ventes & Factures</h1>
+        <p class="text-muted">Facturation clients, historique des ventes et réajustements de stock</p>
       </div>
       <div class="header-actions">
         <router-link to="/sales/new">
@@ -174,7 +155,7 @@ function formatDate(dateStr: string) {
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            New Sale (POS)
+            Nouvelle Vente (Caisse)
           </AppButton>
         </router-link>
       </div>
@@ -190,24 +171,24 @@ function formatDate(dateStr: string) {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search sales by invoice #, customer name, warehouse..."
+          placeholder="Rechercher par n° facture, nom client, entrepôt..."
           class="search-input"
         />
       </div>
       <div class="count-badge text-muted font-mono">
-        {{ filteredSales.length }} invoices
+        {{ filteredSales.length }} {{ filteredSales.length > 1 ? 'factures' : 'facture' }}
       </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!filteredSales.length" empty-text="No sales records found" :columns-count="7">
+    <AppTable :loading="loading" :empty="!filteredSales.length" empty-text="Aucune vente enregistrée" :columns-count="7">
       <template #header>
-        <th>Invoice Number</th>
-        <th>Warehouse</th>
-        <th>Customer</th>
-        <th>Total Amount</th>
-        <th>Sale Date</th>
-        <th>Status</th>
+        <th>N° Facture</th>
+        <th>Entrepôt</th>
+        <th>Client</th>
+        <th>Montant Total</th>
+        <th>Date de Vente</th>
+        <th>Statut</th>
         <th>Actions</th>
       </template>
       <template #body>
@@ -215,21 +196,21 @@ function formatDate(dateStr: string) {
           <td class="font-mono font-bold">{{ sale.invoiceNumber }}</td>
           <td>{{ sale.warehouseName }}</td>
           <td>
-            <strong>{{ sale.customerName || 'General Customer' }}</strong>
+            <strong>{{ sale.customerName || 'Client Comptoir' }}</strong>
             <span v-if="sale.customerPhone" class="text-caption text-muted" style="display: block;">
               {{ sale.customerPhone }}
             </span>
           </td>
           <td class="font-mono font-bold">{{ formatCurrency(sale.totalAmount) }}</td>
-          <td class="font-mono text-caption">{{ formatDate(sale.saleDate) }}</td>
+          <td class="font-mono text-caption">{{ formatDateTime(sale.saleDate) }}</td>
           <td>
             <AppBadge :variant="sale.status === 'COMPLETED' ? 'success' : 'danger'" size="sm">
-              {{ sale.status }}
+              {{ formatSaleStatus(sale.status) }}
             </AppBadge>
           </td>
           <td>
             <div class="action-buttons">
-              <button class="icon-action-btn" title="View / Print Invoice" @click="viewInvoice(sale)">
+              <button class="icon-action-btn" title="Afficher / Imprimer la facture" @click="viewInvoice(sale)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <polyline points="14 2 14 8 20 8" />
@@ -237,25 +218,25 @@ function formatDate(dateStr: string) {
                   <line x1="16" y1="17" x2="8" y2="17" />
                   <polyline points="10 9 9 9 8 9" />
                 </svg>
-                Invoice
+                Facture
               </button>
 
               <template v-if="sale.status === 'COMPLETED'">
-                <button class="icon-action-btn" title="Edit Line Items" @click="openEditModal(sale)">
+                <button class="icon-action-btn" title="Modifier les lignes de vente" @click="openEditModal(sale)">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                   </svg>
-                  Edit
+                  Modifier
                 </button>
 
-                <button class="icon-action-btn btn-danger-action" title="Cancel / Void Sale" @click="promptCancelSale(sale)">
+                <button class="icon-action-btn btn-danger-action" title="Annuler / Invalider la vente" @click="promptCancelSale(sale)">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10" />
                     <line x1="15" y1="9" x2="9" y2="15" />
                     <line x1="9" y1="9" x2="15" y2="15" />
                   </svg>
-                  Void
+                  Annuler
                 </button>
               </template>
             </div>
@@ -267,7 +248,7 @@ function formatDate(dateStr: string) {
     <!-- Invoice Viewer Modal -->
     <AppModal
       v-model="showInvoiceModal"
-      :title="`Tax Invoice: ${selectedSale?.invoiceNumber || ''}`"
+      :title="`Facture Fiscale : ${selectedSale?.invoiceNumber || ''}`"
       max-width="680px"
     >
       <div v-if="selectedSale" class="invoice-container">
@@ -275,15 +256,15 @@ function formatDate(dateStr: string) {
         <div class="inv-header">
           <div class="inv-brand">
             <h2>DISTRI-TOOLS DZ</h2>
-            <p class="text-caption">Industrial Tool Distribution & Equipment SARL</p>
-            <p class="text-caption">Algiers / Oran / Constantine Hubs</p>
+            <p class="text-caption">Distribution d'Outillage Industriel & Équipements SARL</p>
+            <p class="text-caption">Hubs d'Alger / Oran / Constantine</p>
           </div>
           <div class="inv-meta">
             <h3 class="font-mono">{{ selectedSale.invoiceNumber }}</h3>
-            <p class="text-caption">Date: {{ formatDate(selectedSale.saleDate) }}</p>
-            <p class="text-caption">Warehouse: {{ selectedSale.warehouseName }} ({{ selectedSale.warehouseCode }})</p>
+            <p class="text-caption">Date : {{ formatDateTime(selectedSale.saleDate) }}</p>
+            <p class="text-caption">Entrepôt : {{ selectedSale.warehouseName }} ({{ selectedSale.warehouseCode }})</p>
             <AppBadge :variant="selectedSale.status === 'COMPLETED' ? 'success' : 'danger'" size="sm">
-              {{ selectedSale.status }}
+              {{ formatSaleStatus(selectedSale.status) }}
             </AppBadge>
           </div>
         </div>
@@ -293,15 +274,15 @@ function formatDate(dateStr: string) {
         <!-- Customer Details -->
         <div class="inv-customer">
           <div>
-            <span class="text-caption text-muted">Billed To:</span>
-            <h4>{{ selectedSale.customerName || 'General Customer (Walk-in)' }}</h4>
+            <span class="text-caption text-muted">Facturé à :</span>
+            <h4>{{ selectedSale.customerName || 'Client Comptoir (Passage)' }}</h4>
             <p v-if="selectedSale.customerPhone" class="text-caption text-muted">
-              Phone: {{ selectedSale.customerPhone }}
+              Tél : {{ selectedSale.customerPhone }}
             </p>
           </div>
           <div>
-            <span class="text-caption text-muted">Issued By:</span>
-            <h4>{{ selectedSale.createdByName }}</h4>
+            <span class="text-caption text-muted">Émise par :</span>
+            <h4>{{ selectedSale.createdByName || 'Système' }}</h4>
           </div>
         </div>
 
@@ -309,11 +290,11 @@ function formatDate(dateStr: string) {
         <table class="inv-table">
           <thead>
             <tr>
-              <th>Ref</th>
-              <th>Description</th>
-              <th>Unit Price</th>
-              <th>Qty</th>
-              <th>Total (DZD)</th>
+              <th>Réf</th>
+              <th>Désignation</th>
+              <th>Prix Unitaire</th>
+              <th>Qté</th>
+              <th>Total (DA)</th>
             </tr>
           </thead>
           <tbody>
@@ -321,7 +302,7 @@ function formatDate(dateStr: string) {
               <td class="font-mono">{{ item.productReference }}</td>
               <td>{{ item.productName }} ({{ item.productBrand }})</td>
               <td class="font-mono">{{ formatCurrency(item.unitPrice) }}</td>
-              <td class="font-mono">{{ item.quantity }}</td>
+              <td class="font-mono">{{ formatNumber(item.quantity) }}</td>
               <td class="font-mono font-bold">{{ formatCurrency(item.subtotal) }}</td>
             </tr>
           </tbody>
@@ -330,21 +311,21 @@ function formatDate(dateStr: string) {
         <!-- Totals -->
         <div class="inv-totals">
           <div class="total-row">
-            <span>Total Payable Amount:</span>
+            <span>Montant Total à Payer :</span>
             <strong class="font-mono font-bold text-h2">{{ formatCurrency(selectedSale.totalAmount) }}</strong>
           </div>
         </div>
       </div>
       <template #footer>
-        <AppButton variant="secondary" @click="showInvoiceModal = false">Close</AppButton>
-        <AppButton variant="primary" onclick="window.print()">Print Invoice</AppButton>
+        <AppButton variant="secondary" @click="showInvoiceModal = false">Fermer</AppButton>
+        <AppButton variant="primary" onclick="window.print()">Imprimer la Facture</AppButton>
       </template>
     </AppModal>
 
     <!-- Edit Sale Modal -->
     <AppModal
       v-model="showEditModal"
-      :title="`Edit Sale: ${editingSale?.invoiceNumber || ''}`"
+      :title="`Modifier la Vente : ${editingSale?.invoiceNumber || ''}`"
       max-width="640px"
     >
       <div v-if="editError" class="modal-error mb-3">
@@ -355,21 +336,21 @@ function formatDate(dateStr: string) {
         <div class="form-row">
           <AppInput
             v-model="editForm.customerName"
-            label="Customer Name"
+            label="Nom du Client"
             placeholder="Client SARL"
           />
           <AppInput
             v-model="editForm.customerPhone"
-            label="Customer Phone"
+            label="Téléphone du Client"
             placeholder="+213 550 00 00 00"
           />
         </div>
 
         <div class="items-editor">
           <div class="editor-header">
-            <h4>Invoice Line Items</h4>
+            <h4>Lignes de Facture</h4>
             <button type="button" class="icon-action-btn" @click="addEditItem">
-              + Add Item
+              + Ajouter un Article
             </button>
           </div>
 
@@ -399,9 +380,9 @@ function formatDate(dateStr: string) {
       </div>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showEditModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showEditModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSaveEdit">
-          Save & Reconcile Stock
+          Enregistrer & Réconcilier le Stock
         </AppButton>
       </template>
     </AppModal>
@@ -409,9 +390,10 @@ function formatDate(dateStr: string) {
     <!-- Cancel Dialog -->
     <ConfirmDialog
       v-model="showCancelDialog"
-      title="Cancel & Void Sale Invoice"
-      :message="`Are you sure you want to void invoice ${cancellingSale?.invoiceNumber}? This action cannot be undone and will automatically restore all line item quantities back into physical stock.`"
-      confirm-text="Void Sale & Restore Stock"
+      title="Annuler & Invalider la Facture de Vente"
+      :message="`Êtes-vous sûr de vouloir annuler la facture ${cancellingSale?.invoiceNumber} ? Cette action est irréversible et réintégrera automatiquement toutes les quantités d'articles dans le stock physique.`"
+      confirm-text="Annuler la Vente & Réintégrer le Stock"
+      cancel-text="Conserver la Vente"
       variant="danger"
       :loading="cancelling"
       @confirm="handleConfirmCancel"

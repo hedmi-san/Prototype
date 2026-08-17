@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { productService } from '../../services/catalog.service';
 import type { Product } from '../../types';
+import { formatCurrency } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -126,23 +127,14 @@ async function handleUpdatePrice() {
     saving.value = false;
   }
 }
-
-function formatCurrency(val?: number) {
-  if (val === undefined || val === null) return '0.00 DZD';
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'decimal',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val) + ' DZD';
-}
 </script>
 
 <template>
   <div class="products-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Product Catalog</h1>
-        <p class="text-muted">Master industrial tool repository & pricing matrix</p>
+        <h1 class="page-title">Catalogue Produits</h1>
+        <p class="text-muted">Référentiel des outillages industriels & grille tarifaire</p>
       </div>
       <div class="header-actions">
         <AppButton v-if="authStore.isAdmin" variant="primary" @click="openCreateModal">
@@ -150,7 +142,7 @@ function formatCurrency(val?: number) {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          New Product
+          Nouveau Produit
         </AppButton>
       </div>
     </div>
@@ -165,24 +157,24 @@ function formatCurrency(val?: number) {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search by reference, product name, or brand..."
+          placeholder="Rechercher par référence, désignation ou marque..."
           class="search-input"
         />
       </div>
       <div class="count-badge text-muted font-mono">
-        {{ filteredProducts.length }} products
+        {{ filteredProducts.length }} {{ filteredProducts.length > 1 ? 'produits' : 'produit' }}
       </div>
     </div>
 
     <!-- Products Table -->
-    <AppTable :loading="loading" :empty="!filteredProducts.length" empty-text="No products found" :columns-count="7">
+    <AppTable :loading="loading" :empty="!filteredProducts.length" empty-text="Aucun produit trouvé" :columns-count="7">
       <template #header>
-        <th>Reference</th>
-        <th>Product Name</th>
-        <th>Brand</th>
-        <th>Purchase Price</th>
-        <th>Sale Price</th>
-        <th>Margin</th>
+        <th>Référence</th>
+        <th>Désignation Produit</th>
+        <th>Marque</th>
+        <th>Prix d'Achat</th>
+        <th>Prix de Vente</th>
+        <th>Marge Brute</th>
         <th>Actions</th>
       </template>
       <template #body>
@@ -190,7 +182,7 @@ function formatCurrency(val?: number) {
           <td class="font-mono font-bold">{{ product.reference }}</td>
           <td>
             <strong>{{ product.name }}</strong>
-            <span class="text-caption" style="display: block;">Unit: {{ product.unit }}</span>
+            <span class="text-caption" style="display: block;">Unité : {{ product.unit }}</span>
           </td>
           <td>
             <AppBadge variant="neutral" size="sm">{{ product.brand }}</AppBadge>
@@ -204,26 +196,26 @@ function formatCurrency(val?: number) {
             <div class="action-buttons">
               <button
                 class="icon-action-btn"
-                title="Update Price"
+                title="Mettre à jour le tarif"
                 @click="openPriceModal(product)"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="12" y1="1" x2="12" y2="23" />
                   <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                 </svg>
-                Price
+                Tarif
               </button>
               <button
                 v-if="authStore.isAdmin"
                 class="icon-action-btn"
-                title="Edit Product Details"
+                title="Modifier la fiche produit"
                 @click="openEditModal(product)"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                 </svg>
-                Edit
+                Modifier
               </button>
             </div>
           </td>
@@ -234,56 +226,56 @@ function formatCurrency(val?: number) {
     <!-- Create/Edit Product Modal -->
     <AppModal
       v-model="showProductModal"
-      :title="editingProduct ? 'Edit Tool Product' : 'Add New Tool Product'"
+      :title="editingProduct ? 'Modifier la Fiche Produit' : 'Ajouter un Nouveau Produit'"
       max-width="500px"
     >
       <form class="modal-form" @submit.prevent="handleSaveProduct">
         <AppInput
           v-model="productForm.reference"
-          label="Product Reference / SKU"
-          placeholder="e.g. DRILL-HD-850"
+          label="Référence Produit / SKU"
+          placeholder="ex. DRILL-HD-850"
           :disabled="!!editingProduct"
           required
         />
         <AppInput
           v-model="productForm.name"
-          label="Product Name"
-          placeholder="e.g. Heavy Duty Rotary Hammer Drill 850W"
+          label="Désignation du Produit"
+          placeholder="ex. Marteau Perforateur Professionnel 850W"
           required
         />
         <AppInput
           v-model="productForm.brand"
-          label="Brand / Manufacturer"
-          placeholder="e.g. KRAFT"
+          label="Marque / Fabricant"
+          placeholder="ex. KRAFT"
           required
         />
         <div class="form-row">
           <AppInput
             v-model="productForm.purchasePrice"
             type="number"
-            label="Purchase Price (DZD)"
+            label="Prix d'Achat (DA)"
             placeholder="0.00"
             required
           />
           <AppInput
             v-model="productForm.salePrice"
             type="number"
-            label="Sale Price (DZD)"
+            label="Prix de Vente (DA)"
             placeholder="0.00"
             required
           />
         </div>
         <AppInput
           v-model="productForm.unit"
-          label="Unit of Measurement"
-          placeholder="PIECE, SET, BOX"
+          label="Unité de Mesure"
+          placeholder="PIECE, JEU, BOITE"
           required
         />
       </form>
       <template #footer>
-        <AppButton variant="secondary" @click="showProductModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showProductModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSaveProduct">
-          {{ editingProduct ? 'Save Changes' : 'Create Product' }}
+          {{ editingProduct ? 'Enregistrer les modifications' : 'Créer le produit' }}
         </AppButton>
       </template>
     </AppModal>
@@ -291,32 +283,32 @@ function formatCurrency(val?: number) {
     <!-- Update Price Modal -->
     <AppModal
       v-model="showPriceModal"
-      :title="`Update Price: ${priceUpdatingProduct?.name || ''}`"
+      :title="`Mise à jour tarifaire : ${priceUpdatingProduct?.name || ''}`"
       max-width="440px"
     >
       <div class="price-update-box">
         <p class="text-caption text-muted mb-3">
-          Reference: <strong class="font-mono">{{ priceUpdatingProduct?.reference }}</strong>
+          Référence : <strong class="font-mono">{{ priceUpdatingProduct?.reference }}</strong>
         </p>
         <div class="form-row">
           <AppInput
             v-model="priceForm.purchasePrice"
             type="number"
-            label="Purchase Price (DZD)"
-            hint="For inventory valuation"
+            label="Prix d'Achat (DA)"
+            hint="Pour la valorisation des stocks"
           />
           <AppInput
             v-model="priceForm.salePrice"
             type="number"
-            label="Sale Price (DZD)"
-            hint="Default invoice price"
+            label="Prix de Vente (DA)"
+            hint="Prix de facturation par défaut"
           />
         </div>
       </div>
       <template #footer>
-        <AppButton variant="secondary" @click="showPriceModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showPriceModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleUpdatePrice">
-          Update Prices
+          Mettre à jour les tarifs
         </AppButton>
       </template>
     </AppModal>

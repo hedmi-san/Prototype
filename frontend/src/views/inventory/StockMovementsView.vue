@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { inventoryService } from '../../services/operations.service';
 import type { StockMovement } from '../../types';
+import { formatDateTime, formatNumber, formatMovementType } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
 
@@ -44,17 +45,6 @@ const filteredMovements = computed(() => {
   });
 });
 
-function formatDate(dateStr: string) {
-  if (!dateStr) return '';
-  return new Date(dateStr).toLocaleDateString('fr-DZ', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 function getBadgeVariant(type: string): 'neutral' | 'success' | 'danger' | 'warning' | 'info' {
   switch (type) {
     case 'INITIAL_STOCK': return 'info';
@@ -71,8 +61,8 @@ function getBadgeVariant(type: string): 'neutral' | 'success' | 'danger' | 'warn
   <div class="movements-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Stock Movement Ledger</h1>
-        <p class="text-muted">Immutable audit log of all inventory inflows, outflows, and adjustments</p>
+        <h1 class="page-title">Grand Livre des Mouvements de Stock</h1>
+        <p class="text-muted">Journal d'audit exhaustif des entrées, sorties et ajustements de stock</p>
       </div>
       <div class="header-actions">
         <button class="refresh-btn" @click="fetchMovements">
@@ -80,7 +70,7 @@ function getBadgeVariant(type: string): 'neutral' | 'success' | 'danger' | 'warn
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
-          Refresh
+          Actualiser
         </button>
       </div>
     </div>
@@ -95,37 +85,37 @@ function getBadgeVariant(type: string): 'neutral' | 'success' | 'danger' | 'warn
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search movements by product, ref, warehouse, reason, user..."
+          placeholder="Rechercher par produit, référence, entrepôt, motif, utilisateur..."
           class="search-input"
         />
       </div>
 
       <div class="type-filter">
         <select v-model="typeFilter" class="filter-select">
-          <option value="">All Movement Types</option>
-          <option value="INITIAL_STOCK">INITIAL_STOCK</option>
-          <option value="SALE">SALE</option>
-          <option value="TRANSFER_IN">TRANSFER_IN</option>
-          <option value="TRANSFER_OUT">TRANSFER_OUT</option>
-          <option value="ADJUSTMENT">ADJUSTMENT</option>
+          <option value="">Tous les types de mouvement</option>
+          <option value="INITIAL_STOCK">Stock initial</option>
+          <option value="SALE">Sortie Vente</option>
+          <option value="TRANSFER_IN">Transfert entrant</option>
+          <option value="TRANSFER_OUT">Transfert sortant</option>
+          <option value="ADJUSTMENT">Ajustement inventaire</option>
         </select>
       </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!filteredMovements.length" empty-text="No stock movements found" :columns-count="7">
+    <AppTable :loading="loading" :empty="!filteredMovements.length" empty-text="Aucun mouvement de stock trouvé" :columns-count="7">
       <template #header>
-        <th>Date & Time</th>
-        <th>Warehouse</th>
-        <th>Product</th>
+        <th>Date & Heure</th>
+        <th>Entrepôt</th>
+        <th>Produit</th>
         <th>Type</th>
-        <th>Quantity Delta</th>
-        <th>Reason / Reference</th>
-        <th>Created By</th>
+        <th>Quantité Delta</th>
+        <th>Motif / Référence</th>
+        <th>Enregistré par</th>
       </template>
       <template #body>
         <tr v-for="m in filteredMovements" :key="m.id">
-          <td class="font-mono text-caption">{{ formatDate(m.createdAt) }}</td>
+          <td class="font-mono text-caption">{{ formatDateTime(m.createdAt) }}</td>
           <td>
             <strong>{{ m.warehouseName }}</strong>
           </td>
@@ -135,20 +125,20 @@ function getBadgeVariant(type: string): 'neutral' | 'success' | 'danger' | 'warn
           </td>
           <td>
             <AppBadge :variant="getBadgeVariant(m.type)" size="sm">
-              {{ m.type }}
+              {{ formatMovementType(m.type) }}
             </AppBadge>
           </td>
           <td :class="['font-mono', 'font-bold', m.quantity > 0 ? 'text-success' : 'text-danger']">
-            {{ m.quantity > 0 ? '+' : '' }}{{ m.quantity }}
+            {{ m.quantity > 0 ? '+' : '' }}{{ formatNumber(m.quantity) }}
           </td>
           <td>
             <div class="reason-cell">
               <span class="reason-text">{{ m.reason || '—' }}</span>
-              <span v-if="m.referenceType" class="text-caption text-muted">Ref: {{ m.referenceType }} #{{ m.referenceId || '' }}</span>
+              <span v-if="m.referenceType" class="text-caption text-muted">Réf : {{ m.referenceType }} #{{ m.referenceId || '' }}</span>
             </div>
           </td>
           <td>
-            <span class="text-caption">{{ m.createdByName || 'System' }}</span>
+            <span class="text-caption">{{ m.createdByName || 'Système' }}</span>
           </td>
         </tr>
       </template>

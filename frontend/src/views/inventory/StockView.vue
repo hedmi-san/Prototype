@@ -5,6 +5,7 @@ import { useWarehouseStore } from '../../stores/warehouse.store';
 import { inventoryService } from '../../services/operations.service';
 import { productService } from '../../services/catalog.service';
 import type { Stock, Product } from '../../types';
+import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -102,11 +103,11 @@ function openReceiptModal() {
 
 async function handleSaveAdjustment() {
   if (!adjustForm.value.reason.trim()) {
-    errorMessage.value = 'A mandatory reason is required for manual stock adjustments';
+    errorMessage.value = 'Un motif obligatoire est requis pour les ajustements manuels de stock';
     return;
   }
   if (adjustForm.value.quantity === 0) {
-    errorMessage.value = 'Adjustment quantity cannot be 0';
+    errorMessage.value = "La quantité d'ajustement ne peut pas être égale à 0";
     return;
   }
 
@@ -117,7 +118,7 @@ async function handleSaveAdjustment() {
     showAdjustModal.value = false;
     await fetchStock();
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to adjust stock';
+    errorMessage.value = err.response?.data?.message || "Échec de l'ajustement du stock";
   } finally {
     saving.value = false;
   }
@@ -125,7 +126,7 @@ async function handleSaveAdjustment() {
 
 async function handleSaveReceipt() {
   if (!receiptForm.value.reference.trim()) {
-    errorMessage.value = 'Batch / Shipment reference is required';
+    errorMessage.value = "La référence du lot / expédition est obligatoire";
     return;
   }
 
@@ -136,19 +137,10 @@ async function handleSaveReceipt() {
     showReceiptModal.value = false;
     await fetchStock();
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to receive stock';
+    errorMessage.value = err.response?.data?.message || 'Échec de la réception du stock';
   } finally {
     saving.value = false;
   }
-}
-
-function formatCurrency(val?: number) {
-  if (val === undefined || val === null) return '0.00 DZD';
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'decimal',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val) + ' DZD';
 }
 </script>
 
@@ -156,15 +148,15 @@ function formatCurrency(val?: number) {
   <div class="inventory-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Warehouse Inventory</h1>
-        <p class="text-muted">Real-time physical, reserved, and available stock levels</p>
+        <h1 class="page-title">Gestion des Stocks & Inventaire</h1>
+        <p class="text-muted">Niveaux de stocks physiques, réservés et disponibles en temps réel</p>
       </div>
       <div class="header-actions">
         <AppButton variant="secondary" @click="openReceiptModal">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="20 6 9 17 4 12" />
           </svg>
-          Receive Stock Inflow
+          Réception de Stock Fournisseur
         </AppButton>
       </div>
     </div>
@@ -179,25 +171,25 @@ function formatCurrency(val?: number) {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search inventory by reference, product, warehouse..."
+          placeholder="Rechercher par référence, produit, entrepôt..."
           class="search-input"
         />
       </div>
       <div class="count-badge text-muted font-mono">
-        {{ filteredStock.length }} stock entries
+        {{ filteredStock.length }} {{ filteredStock.length > 1 ? 'articles en stock' : 'article en stock' }}
       </div>
     </div>
 
     <!-- Stock Table -->
-    <AppTable :loading="loading" :empty="!filteredStock.length" empty-text="No stock records found" :columns-count="8">
+    <AppTable :loading="loading" :empty="!filteredStock.length" empty-text="Aucun enregistrement de stock trouvé" :columns-count="8">
       <template #header>
-        <th>Warehouse</th>
-        <th>Reference</th>
-        <th>Product</th>
-        <th>Physical Qty</th>
-        <th>Reserved Qty</th>
-        <th>Available Qty</th>
-        <th>Valuation</th>
+        <th>Entrepôt</th>
+        <th>Référence</th>
+        <th>Produit</th>
+        <th>Stock Physique</th>
+        <th>Réservé</th>
+        <th>Disponible</th>
+        <th>Valorisation</th>
         <th>Actions</th>
       </template>
       <template #body>
@@ -209,31 +201,31 @@ function formatCurrency(val?: number) {
           <td class="font-mono font-bold">{{ stock.productReference }}</td>
           <td>
             <strong>{{ stock.productName }}</strong>
-            <span class="text-caption text-muted" style="display: block;">Brand: {{ stock.productBrand }}</span>
+            <span class="text-caption text-muted" style="display: block;">Marque : {{ stock.productBrand }}</span>
           </td>
-          <td class="font-mono font-bold">{{ stock.physicalQuantity }}</td>
+          <td class="font-mono font-bold">{{ formatNumber(stock.physicalQuantity) }}</td>
           <td class="font-mono text-muted">
             <span v-if="stock.reservedQuantity > 0" class="reserved-pill">
-              {{ stock.reservedQuantity }} reserved
+              {{ formatNumber(stock.reservedQuantity) }} réservé(s)
             </span>
             <span v-else>0</span>
           </td>
           <td>
             <div class="available-cell">
-              <span class="font-mono font-bold">{{ stock.availableQuantity }}</span>
+              <span class="font-mono font-bold">{{ formatNumber(stock.availableQuantity) }}</span>
               <AppBadge
                 v-if="stock.availableQuantity === 0"
                 variant="danger"
                 size="sm"
               >
-                OUT OF STOCK
+                RUPTURE
               </AppBadge>
               <AppBadge
                 v-else-if="stock.availableQuantity <= 10"
                 variant="warning"
                 size="sm"
               >
-                LOW
+                FAIBLE
               </AppBadge>
             </div>
           </td>
@@ -241,14 +233,14 @@ function formatCurrency(val?: number) {
           <td>
             <button
               class="icon-action-btn"
-              title="Manual Stock Adjustment"
+              title="Ajustement manuel de stock"
               @click="openAdjustModal(stock)"
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="23 4 23 10 17 10" />
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
               </svg>
-              Adjust
+              Ajuster
             </button>
           </td>
         </tr>
@@ -258,7 +250,7 @@ function formatCurrency(val?: number) {
     <!-- Stock Adjustment Modal -->
     <AppModal
       v-model="showAdjustModal"
-      :title="`Manual Adjustment: ${adjustStockTarget?.productName || ''}`"
+      :title="`Ajustement Manuel : ${adjustStockTarget?.productName || ''}`"
       max-width="480px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
@@ -267,20 +259,20 @@ function formatCurrency(val?: number) {
 
       <div class="adjust-info-box mb-3">
         <div class="info-item">
-          <span class="info-label">Warehouse:</span>
+          <span class="info-label">Entrepôt :</span>
           <strong>{{ adjustStockTarget?.warehouseName }}</strong>
         </div>
         <div class="info-item">
-          <span class="info-label">Physical Stock:</span>
-          <strong class="font-mono">{{ adjustStockTarget?.physicalQuantity }}</strong>
+          <span class="info-label">Stock Physique :</span>
+          <strong class="font-mono">{{ formatNumber(adjustStockTarget?.physicalQuantity) }}</strong>
         </div>
         <div class="info-item">
-          <span class="info-label">Reserved for Transfers:</span>
-          <strong class="font-mono">{{ adjustStockTarget?.reservedQuantity }}</strong>
+          <span class="info-label">Réservé pour Transferts :</span>
+          <strong class="font-mono">{{ formatNumber(adjustStockTarget?.reservedQuantity) }}</strong>
         </div>
         <div class="info-item">
-          <span class="info-label">Currently Available:</span>
-          <strong class="font-mono text-success">{{ adjustStockTarget?.availableQuantity }}</strong>
+          <span class="info-label">Actuellement Disponible :</span>
+          <strong class="font-mono text-success">{{ formatNumber(adjustStockTarget?.availableQuantity) }}</strong>
         </div>
       </div>
 
@@ -288,30 +280,30 @@ function formatCurrency(val?: number) {
         <AppInput
           v-model="adjustForm.quantity"
           type="number"
-          label="Adjustment Delta Quantity (+ or -)"
-          hint="Positive number to add stock, negative to deduct stock"
+          label="Quantité Delta d'Ajustement (+ ou -)"
+          hint="Nombre positif pour ajouter du stock, négatif pour en déduire"
           required
         />
 
         <div class="app-input-group">
           <label class="input-label">
-            Mandatory Adjustment Reason
+            Motif Obligatoire d'Ajustement
             <span class="required-star">*</span>
           </label>
           <textarea
             v-model="adjustForm.reason"
             rows="3"
             class="app-textarea"
-            placeholder="Document mandatory audit justification (e.g. Annual physical inventory recount, damaged unit replacement)..."
+            placeholder="Justification d'audit obligatoire (ex. Inventaire physique annuel, remplacement d'unité défectueuse)..."
             required
           />
         </div>
       </form>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showAdjustModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showAdjustModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSaveAdjustment">
-          Apply Adjustment
+          Appliquer l'Ajustement
         </AppButton>
       </template>
     </AppModal>
@@ -319,7 +311,7 @@ function formatCurrency(val?: number) {
     <!-- Initial Receipt Modal -->
     <AppModal
       v-model="showReceiptModal"
-      title="Record Manufacturer Stock Inflow"
+      title="Enregistrer une Entrée de Stock Fabricant"
       max-width="500px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
@@ -328,7 +320,7 @@ function formatCurrency(val?: number) {
 
       <form class="modal-form" @submit.prevent="handleSaveReceipt">
         <div class="app-input-group">
-          <label class="input-label">Destination Warehouse</label>
+          <label class="input-label">Entrepôt de Destination</label>
           <select v-model="receiptForm.warehouseId" class="app-select" required>
             <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
               {{ w.name }} ({{ w.code }})
@@ -337,7 +329,7 @@ function formatCurrency(val?: number) {
         </div>
 
         <div class="app-input-group">
-          <label class="input-label">Product</label>
+          <label class="input-label">Produit</label>
           <select v-model="receiptForm.productId" class="app-select" required>
             <option v-for="p in products" :key="p.id" :value="p.id">
               [{{ p.reference }}] {{ p.name }}
@@ -348,29 +340,29 @@ function formatCurrency(val?: number) {
         <AppInput
           v-model="receiptForm.quantity"
           type="number"
-          label="Inflow Quantity"
-          placeholder="e.g. 50"
+          label="Quantité Entrante"
+          placeholder="ex. 50"
           required
         />
 
         <AppInput
           v-model="receiptForm.reference"
-          label="Shipment / Batch Reference"
-          placeholder="e.g. SHIP-ALG-2026-08"
+          label="Référence Expédition / Lot"
+          placeholder="ex. SHIP-ALG-2026-08"
           required
         />
 
         <AppInput
           v-model="receiptForm.notes"
-          label="Notes / Supplier Info"
-          placeholder="e.g. Direct factory delivery Container #4"
+          label="Notes / Infos Fournisseur"
+          placeholder="ex. Livraison directe usine Conteneur #4"
         />
       </form>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showReceiptModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showReceiptModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSaveReceipt">
-          Confirm Inflow Receipt
+          Confirmer la Réception
         </AppButton>
       </template>
     </AppModal>

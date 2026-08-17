@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
 import { useWarehouseStore } from '../stores/warehouse.store';
+import { formatRole } from '../utils/formatters';
 import AppBadge from '../components/common/AppBadge.vue';
 import AppButton from '../components/common/AppButton.vue';
 
@@ -47,20 +48,20 @@ function handleLogout() {
         </button>
         <div class="brand">
           <div class="brand-mark" />
-          <span class="brand-title">DISTRI-TOOLS</span>
+          <span class="brand-title">DISTRI-TOOLS DZ</span>
         </div>
       </div>
 
       <div class="header-right">
         <!-- Warehouse Context Selector -->
         <div v-if="authStore.canSwitchWarehouse" class="warehouse-switcher">
-          <label class="switcher-label">Warehouse Scope:</label>
+          <label class="switcher-label">Périmètre Entrepôt :</label>
           <select
             class="warehouse-select"
             :value="authStore.selectedWarehouseId || ''"
             @change="handleWarehouseChange"
           >
-            <option value="">All Warehouses (Consolidated)</option>
+            <option value="">Tous les entrepôts (Consolidé)</option>
             <option
               v-for="w in warehouseStore.warehouses"
               :key="w.id"
@@ -71,8 +72,8 @@ function handleLogout() {
           </select>
         </div>
         <div v-else class="warehouse-badge-scope">
-          <span class="scope-label">Warehouse:</span>
-          <span class="scope-val">{{ authStore.user?.warehouseName || 'Assigned' }}</span>
+          <span class="scope-label">Entrepôt :</span>
+          <span class="scope-val">{{ authStore.user?.warehouseName || 'Assigné' }}</span>
         </div>
 
         <!-- User Profile Pill -->
@@ -83,10 +84,10 @@ function handleLogout() {
           <div class="user-info">
             <span class="user-name">{{ authStore.user?.fullName }}</span>
             <AppBadge size="sm" :variant="authStore.isAdmin ? 'neutral' : 'info'">
-              {{ authStore.role }}
+              {{ formatRole(authStore.role) }}
             </AppBadge>
           </div>
-          <button class="logout-btn" title="Logout" @click="handleLogout">
+          <button class="logout-btn" title="Déconnexion" @click="handleLogout">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />
@@ -101,7 +102,7 @@ function handleLogout() {
       <!-- Left Sidebar Navigation -->
       <aside :class="['sidebar', { 'is-collapsed': !isSidebarOpen }]">
         <nav class="nav-list">
-          <div class="nav-section-title">CORE OPERATIONS</div>
+          <div class="nav-section-title">OPÉRATIONS PRINCIPALES</div>
           <router-link to="/dashboard" class="nav-item" active-class="active">
             <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect width="7" height="9" x="3" y="3" rx="1" />
@@ -109,7 +110,7 @@ function handleLogout() {
               <rect width="7" height="9" x="14" y="12" rx="1" />
               <rect width="7" height="5" x="3" y="16" rx="1" />
             </svg>
-            <span>Dashboard</span>
+            <span>Tableau de bord</span>
           </router-link>
 
           <router-link to="/inventory" class="nav-item" active-class="active">
@@ -118,7 +119,7 @@ function handleLogout() {
               <path d="m3.3 7 8.7 5 8.7-5" />
               <path d="M12 22V12" />
             </svg>
-            <span>Inventory Stock</span>
+            <span>Stock & Inventaire</span>
           </router-link>
 
           <router-link to="/movements" class="nav-item" active-class="active">
@@ -128,7 +129,7 @@ function handleLogout() {
               <polyline points="7 23 3 19 7 15" />
               <path d="M21 13v2a4 4 0 0 1-4 4H3" />
             </svg>
-            <span>Stock Movements</span>
+            <span>Mouvements de Stock</span>
           </router-link>
 
           <router-link to="/sales" class="nav-item" active-class="active">
@@ -137,7 +138,7 @@ function handleLogout() {
               <circle cx="19" cy="21" r="1" />
               <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
             </svg>
-            <span>Sales & Invoices</span>
+            <span>Ventes & Factures</span>
           </router-link>
 
           <router-link to="/transfers" class="nav-item" active-class="active">
@@ -147,16 +148,16 @@ function handleLogout() {
               <polyline points="11 6 7 2 3 6" />
               <polyline points="13 18 17 22 21 18" />
             </svg>
-            <span>Inter-Warehouse Transfers</span>
+            <span>Transferts Inter-Entrepôts</span>
           </router-link>
 
-          <div class="nav-section-title">MANAGEMENT & HR</div>
+          <div class="nav-section-title">GESTION & RH</div>
           <router-link to="/products" class="nav-item" active-class="active">
             <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect width="20" height="14" x="2" y="7" rx="2" ry="2" />
               <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
             </svg>
-            <span>Product Catalog</span>
+            <span>Catalogue Produits</span>
           </router-link>
 
           <router-link to="/expenses" class="nav-item" active-class="active">
@@ -164,7 +165,7 @@ function handleLogout() {
               <line x1="12" y1="1" x2="12" y2="23" />
               <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
             </svg>
-            <span>Operating Expenses</span>
+            <span>Dépenses d'Exploitation</span>
           </router-link>
 
           <router-link to="/employees" class="nav-item" active-class="active">
@@ -174,7 +175,7 @@ function handleLogout() {
               <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
-            <span>Employees (HR)</span>
+            <span>Personnel (RH)</span>
           </router-link>
 
           <router-link to="/salaries" class="nav-item" active-class="active">
@@ -182,16 +183,16 @@ function handleLogout() {
               <rect width="20" height="14" x="2" y="5" rx="2" />
               <line x1="2" y1="10" x2="22" y2="10" />
             </svg>
-            <span>Salary Disbursements</span>
+            <span>Paiement des Salaires</span>
           </router-link>
 
-          <div class="nav-section-title">REPORTS & ANALYTICS</div>
+          <div class="nav-section-title">RAPPORTS & ANALYSE</div>
           <router-link to="/reports/valuation" class="nav-item" active-class="active">
             <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M3 3v18h18" />
               <path d="m19 9-5 5-4-4-3 3" />
             </svg>
-            <span>Stock Valuation</span>
+            <span>Valorisation du Stock</span>
           </router-link>
 
           <router-link to="/reports/financial" class="nav-item" active-class="active">
@@ -199,7 +200,7 @@ function handleLogout() {
               <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
               <path d="M22 12A10 10 0 0 0 12 2v10z" />
             </svg>
-            <span>Financial Statements</span>
+            <span>États Financiers</span>
           </router-link>
 
           <template v-if="authStore.isAdmin">
@@ -212,7 +213,7 @@ function handleLogout() {
                 <line x1="16" y1="17" x2="8" y2="17" />
                 <polyline points="10 9 9 9 8 9" />
               </svg>
-              <span>Audit Logs</span>
+              <span>Journaux d'Audit</span>
             </router-link>
 
             <router-link to="/admin/users" class="nav-item" active-class="active">
@@ -220,7 +221,7 @@ function handleLogout() {
                 <circle cx="12" cy="12" r="3" />
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
-              <span>User Accounts</span>
+              <span>Comptes Utilisateurs</span>
             </router-link>
 
             <router-link to="/admin/warehouses" class="nav-item" active-class="active">
@@ -234,7 +235,7 @@ function handleLogout() {
                 <path d="M14 16h1" />
                 <path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
               </svg>
-              <span>Warehouses</span>
+              <span>Gestion des Entrepôts</span>
             </router-link>
           </template>
         </nav>

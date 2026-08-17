@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { salaryService, employeeService } from '../../services/admin-reports.service';
 import type { SalaryRecord, Employee } from '../../types';
+import { formatCurrency, formatDate } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -102,19 +103,10 @@ async function handleSaveSalary() {
     showModal.value = false;
     await fetchSalaries();
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to record salary payment';
+    errorMessage.value = err.response?.data?.message || 'Échec de l\'enregistrement du versement de salaire';
   } finally {
     saving.value = false;
   }
-}
-
-function formatCurrency(val?: number) {
-  if (val === undefined || val === null) return '0.00 DZD';
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'decimal',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val) + ' DZD';
 }
 </script>
 
@@ -122,8 +114,8 @@ function formatCurrency(val?: number) {
   <div class="salaries-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Salary Disbursements</h1>
-        <p class="text-muted">Monthly payroll processing, performance bonuses, and compensation audit</p>
+        <h1 class="page-title">Gestion des Salaires</h1>
+        <p class="text-muted">Traitement de la paie mensuelle, primes de performance et audit des rémunérations</p>
       </div>
       <div class="header-actions">
         <AppButton variant="primary" @click="openDisburseModal">
@@ -131,7 +123,7 @@ function formatCurrency(val?: number) {
             <rect width="20" height="14" x="2" y="5" rx="2" />
             <line x1="2" y1="10" x2="22" y2="10" />
           </svg>
-          Disburse Salary
+          Verser un Salaire
         </AppButton>
       </div>
     </div>
@@ -146,27 +138,27 @@ function formatCurrency(val?: number) {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search salary records by staff name, warehouse, period..."
+          placeholder="Rechercher par nom d'employé, entrepôt, période..."
           class="search-input"
         />
       </div>
 
       <div class="total-badge font-mono">
-        Total Payroll: <strong>{{ formatCurrency(totalDisbursed) }}</strong>
+        Masse salariale totale : <strong>{{ formatCurrency(totalDisbursed) }}</strong>
       </div>
     </div>
 
     <!-- Salaries Table -->
-    <AppTable :loading="loading" :empty="!filteredSalaries.length" empty-text="No salary records found" :columns-count="8">
+    <AppTable :loading="loading" :empty="!filteredSalaries.length" empty-text="Aucun historique de salaire trouvé" :columns-count="8">
       <template #header>
-        <th>Period</th>
-        <th>Employee</th>
-        <th>Warehouse</th>
-        <th>Base Salary</th>
-        <th>Bonus 1</th>
-        <th>Bonus 2</th>
-        <th>Total Disbursed</th>
-        <th>Payment Date</th>
+        <th>Période</th>
+        <th>Employé</th>
+        <th>Entrepôt</th>
+        <th>Salaire de Base</th>
+        <th>Prime 1</th>
+        <th>Prime 2</th>
+        <th>Total Versé</th>
+        <th>Date de Paiement</th>
       </template>
       <template #body>
         <tr v-for="s in filteredSalaries" :key="s.id">
@@ -180,7 +172,7 @@ function formatCurrency(val?: number) {
           <td class="font-mono text-muted">{{ formatCurrency(s.bonus1) }}</td>
           <td class="font-mono text-muted">{{ formatCurrency(s.bonus2) }}</td>
           <td class="font-mono font-bold text-success">{{ formatCurrency(s.totalAmount) }}</td>
-          <td class="font-mono text-caption">{{ s.paymentDate }}</td>
+          <td class="font-mono text-caption">{{ formatDate(s.paymentDate) }}</td>
         </tr>
       </template>
     </AppTable>
@@ -188,7 +180,7 @@ function formatCurrency(val?: number) {
     <!-- Disburse Salary Modal -->
     <AppModal
       v-model="showModal"
-      title="Disburse Monthly Staff Salary"
+      title="Verser le Salaire Mensuel de l'Employé"
       max-width="500px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
@@ -197,7 +189,7 @@ function formatCurrency(val?: number) {
 
       <form class="modal-form" @submit.prevent="handleSaveSalary">
         <div class="app-input-group">
-          <label class="input-label">Select Employee</label>
+          <label class="input-label">Sélectionner l'Employé</label>
           <select
             v-model.number="form.employeeId"
             class="app-select"
@@ -213,14 +205,14 @@ function formatCurrency(val?: number) {
         <div class="form-row">
           <AppInput
             v-model="form.period"
-            label="Payroll Period (YYYY-MM)"
+            label="Période de Paie (AAAA-MM)"
             placeholder="2026-08"
             required
           />
           <AppInput
             v-model="form.paymentDate"
             type="date"
-            label="Disbursement Date"
+            label="Date de Paiement"
             required
           />
         </div>
@@ -228,7 +220,7 @@ function formatCurrency(val?: number) {
         <AppInput
           v-model="form.baseSalary"
           type="number"
-          label="Base Salary (DZD)"
+          label="Salaire de Base (DA)"
           placeholder="0.00"
           required
         />
@@ -237,27 +229,27 @@ function formatCurrency(val?: number) {
           <AppInput
             v-model="form.bonus1"
             type="number"
-            label="Performance Bonus (DZD)"
+            label="Prime de Performance (DA)"
             placeholder="0.00"
           />
           <AppInput
             v-model="form.bonus2"
             type="number"
-            label="Overtime / Other Bonus (DZD)"
+            label="Heures Supp. / Autre Prime (DA)"
             placeholder="0.00"
           />
         </div>
 
         <div class="salary-total-preview">
-          <span>Net Disbursed Amount:</span>
+          <span>Montant Net Versé :</span>
           <strong class="font-mono font-bold text-h2">{{ formatCurrency(computedTotal) }}</strong>
         </div>
       </form>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSaveSalary">
-          Confirm Disbursement
+          Confirmer le Paiement
         </AppButton>
       </template>
     </AppModal>

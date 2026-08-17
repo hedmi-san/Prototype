@@ -6,6 +6,7 @@ import { useWarehouseStore } from '../../stores/warehouse.store';
 import { productService } from '../../services/catalog.service';
 import { saleService, inventoryService } from '../../services/operations.service';
 import type { Product, Stock } from '../../types';
+import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppButton from '../../components/common/AppButton.vue';
 import AppInput from '../../components/common/AppInput.vue';
 
@@ -104,14 +105,14 @@ async function handleSubmitSale() {
     const avail = getAvailableStock(item.productId);
     const prod = getProductById(item.productId);
     if (item.quantity > avail) {
-      errorMessage.value = `Insufficient stock for ${prod?.name || 'product'}. Available: ${avail}, Requested: ${item.quantity}`;
+      errorMessage.value = `Stock insuffisant pour ${prod?.name || 'le produit'}. Disponible : ${avail}, Demandé : ${item.quantity}`;
       return;
     }
   }
 
   submitting.value = true;
   try {
-    const created = await saleService.createSale({
+    await saleService.createSale({
       warehouseId: selectedWarehouseId.value,
       customerName: customerName.value.trim() || undefined,
       customerPhone: customerPhone.value.trim() || undefined,
@@ -123,19 +124,10 @@ async function handleSubmitSale() {
 
     router.push('/sales');
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to complete sale transaction';
+    errorMessage.value = err.response?.data?.message || "Échec de l'enregistrement de la vente";
   } finally {
     submitting.value = false;
   }
-}
-
-function formatCurrency(val?: number) {
-  if (val === undefined || val === null) return '0.00 DZD';
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'decimal',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val) + ' DZD';
 }
 </script>
 
@@ -143,12 +135,12 @@ function formatCurrency(val?: number) {
   <div class="pos-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Point of Sale & Invoicing</h1>
-        <p class="text-muted">Issue new customer sale invoice with atomic inventory deduction</p>
+        <h1 class="page-title">Point de Vente & Facturation (Caisse)</h1>
+        <p class="text-muted">Émission de nouvelles factures clients avec déduction atomique des stocks</p>
       </div>
       <div class="header-actions">
         <router-link to="/sales">
-          <AppButton variant="secondary">&larr; Back to Sales</AppButton>
+          <AppButton variant="secondary">&larr; Retour aux Ventes</AppButton>
         </router-link>
       </div>
     </div>
@@ -161,9 +153,9 @@ function formatCurrency(val?: number) {
       <!-- Left Column: Items Builder -->
       <div class="pos-main card">
         <div class="card-header">
-          <h3>Line Items</h3>
+          <h3>Lignes de Produits</h3>
           <button type="button" class="add-row-btn" @click="addLineItem">
-            + Add Product Line
+            + Ajouter une Ligne de Produit
           </button>
         </div>
 
@@ -171,11 +163,11 @@ function formatCurrency(val?: number) {
           <table class="items-table">
             <thead>
               <tr>
-                <th>Product</th>
-                <th>Available</th>
-                <th>Unit Price</th>
-                <th style="width: 100px;">Quantity</th>
-                <th>Subtotal</th>
+                <th>Produit</th>
+                <th>Disponible</th>
+                <th>Prix Unitaire</th>
+                <th style="width: 100px;">Quantité</th>
+                <th>Sous-total</th>
                 <th style="width: 40px;"></th>
               </tr>
             </thead>
@@ -190,7 +182,7 @@ function formatCurrency(val?: number) {
                 </td>
                 <td class="font-mono">
                   <span :class="getAvailableStock(item.productId) < item.quantity ? 'text-danger font-bold' : 'text-success'">
-                    {{ getAvailableStock(item.productId) }} units
+                    {{ formatNumber(getAvailableStock(item.productId)) }} unités
                   </span>
                 </td>
                 <td class="font-mono">
@@ -226,11 +218,11 @@ function formatCurrency(val?: number) {
 
       <!-- Right Column: Summary & Confirmation -->
       <div class="pos-sidebar card">
-        <h3>Invoice Details</h3>
+        <h3>Détails de la Facture</h3>
 
         <div class="sidebar-form">
           <div class="app-input-group">
-            <label class="input-label">Warehouse</label>
+            <label class="input-label">Entrepôt</label>
             <select
               v-model.number="selectedWarehouseId"
               class="app-select"
@@ -245,13 +237,13 @@ function formatCurrency(val?: number) {
 
           <AppInput
             v-model="customerName"
-            label="Customer Name"
-            placeholder="Client SARL / Person Name"
+            label="Nom du Client"
+            placeholder="Client SARL / Nom du particulier"
           />
 
           <AppInput
             v-model="customerPhone"
-            label="Customer Phone"
+            label="Téléphone du Client"
             placeholder="+213 550 00 00 00"
           />
         </div>
@@ -260,11 +252,11 @@ function formatCurrency(val?: number) {
 
         <div class="summary-totals">
           <div class="summary-row">
-            <span>Total Items:</span>
-            <strong>{{ lineItems.length }} lines</strong>
+            <span>Nombre d'articles :</span>
+            <strong>{{ lineItems.length }} {{ lineItems.length > 1 ? 'lignes' : 'ligne' }}</strong>
           </div>
           <div class="summary-row total-highlight">
-            <span>Total Payable:</span>
+            <span>Total à Payer :</span>
             <span class="font-mono text-h2 font-bold">{{ formatCurrency(totalAmount) }}</span>
           </div>
         </div>
@@ -275,7 +267,7 @@ function formatCurrency(val?: number) {
           size="lg"
           :loading="submitting"
         >
-          Confirm & Issue Invoice
+          Confirmer & Émettre la Facture
         </AppButton>
       </div>
     </form>

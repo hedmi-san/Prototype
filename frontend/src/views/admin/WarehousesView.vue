@@ -74,7 +74,7 @@ async function handleSave() {
     showModal.value = false;
     await fetchWarehouses();
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to save warehouse';
+    errorMessage.value = err.response?.data?.message || "Échec de l'enregistrement de l'entrepôt";
   } finally {
     saving.value = false;
   }
@@ -85,8 +85,8 @@ async function handleSave() {
   <div class="warehouses-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Warehouse Hubs</h1>
-        <p class="text-muted">Manage distribution facilities, storage hubs, and location codes</p>
+        <h1 class="page-title">Sites & Entrepôts</h1>
+        <p class="text-muted">Gestion des installations de distribution, plateformes de stockage et codes d'entrepôts</p>
       </div>
       <div class="header-actions">
         <AppButton variant="primary" @click="openCreateModal">
@@ -94,19 +94,19 @@ async function handleSave() {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          New Warehouse Hub
+          Nouvel Entrepôt
         </AppButton>
       </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!warehouses.length" empty-text="No warehouses found" :columns-count="6">
+    <AppTable :loading="loading" :empty="!warehouses.length" empty-text="Aucun entrepôt trouvé" :columns-count="6">
       <template #header>
-        <th>Hub Code</th>
-        <th>Warehouse Name</th>
-        <th>Physical Address</th>
-        <th>Phone</th>
-        <th>Status</th>
+        <th>Code Entrepôt</th>
+        <th>Nom de l'Entrepôt</th>
+        <th>Adresse Physique</th>
+        <th>Téléphone</th>
+        <th>Statut</th>
         <th>Actions</th>
       </template>
       <template #body>
@@ -117,16 +117,16 @@ async function handleSave() {
           <td class="font-mono">{{ w.phone || '—' }}</td>
           <td>
             <AppBadge :variant="w.active ? 'success' : 'danger'" size="sm">
-              {{ w.active ? 'OPERATIONAL' : 'INACTIVE' }}
+              {{ w.active ? 'OPÉRATIONNEL' : 'INACTIF' }}
             </AppBadge>
           </td>
           <td>
-            <button class="icon-action-btn" title="Edit Hub" @click="openEditModal(w)">
+            <button class="icon-action-btn" title="Modifier le site" @click="openEditModal(w)">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
-              Edit
+              Modifier
             </button>
           </td>
         </tr>
@@ -136,7 +136,7 @@ async function handleSave() {
     <!-- Modal -->
     <AppModal
       v-model="showModal"
-      :title="editingWarehouse ? 'Edit Warehouse Hub' : 'Register New Warehouse Hub'"
+      :title="editingWarehouse ? 'Modifier l\'Entrepôt' : 'Enregistrer un Nouvel Entrepôt'"
       max-width="480px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
@@ -146,36 +146,36 @@ async function handleSave() {
       <form class="modal-form" @submit.prevent="handleSave">
         <AppInput
           v-model="form.name"
-          label="Warehouse Hub Name"
-          placeholder="e.g. Sétif Central Distribution Hub"
+          label="Nom de l'Entrepôt"
+          placeholder="ex. Plateforme Centrale de Distribution Sétif"
           required
         />
 
         <AppInput
           v-model="form.code"
-          label="Unique Hub Code"
-          placeholder="e.g. WH-SETIF"
+          label="Code Unique de l'Entrepôt"
+          placeholder="ex. WH-SETIF"
           :disabled="!!editingWarehouse"
           required
         />
 
         <AppInput
           v-model="form.address"
-          label="Physical Address / Zone Industrielle"
+          label="Adresse Physique / Zone Industrielle"
           placeholder="Zone Industrielle Sétif, Lot 45"
         />
 
         <AppInput
           v-model="form.phone"
-          label="Contact Phone"
+          label="Téléphone de Contact"
           placeholder="+213 36 00 11 22"
         />
       </form>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSave">
-          {{ editingWarehouse ? 'Save Changes' : 'Create Warehouse' }}
+          {{ editingWarehouse ? 'Enregistrer les modifications' : 'Créer l\'Entrepôt' }}
         </AppButton>
       </template>
     </AppModal>

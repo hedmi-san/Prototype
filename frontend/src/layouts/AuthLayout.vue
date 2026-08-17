@@ -6,13 +6,13 @@
           <div class="logo-mark" />
           <span class="logo-text">DISTRI-TOOLS DZ</span>
         </div>
-        <p class="brand-tagline">Multi-Warehouse Industrial Tool Distribution Management</p>
+        <p class="brand-tagline">Gestion Multi-Entrepôts de Distribution d'Outillage Industriel</p>
       </div>
       <div class="auth-card">
         <router-view />
       </div>
       <div class="auth-footer">
-        <span>© 2026 Distri-Tools Algeria. All rights reserved.</span>
+        <span>© 2026 Distri-Tools Algérie. Tous droits réservés.</span>
       </div>
     </div>
   </div>

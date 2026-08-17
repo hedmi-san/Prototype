@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { adminService } from '../../services/admin-reports.service';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import type { User, RoleType } from '../../types';
+import { formatRole } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -69,7 +70,7 @@ async function handleSave() {
     showModal.value = false;
     await fetchUsers();
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to create user';
+    errorMessage.value = err.response?.data?.message || 'Échec de la création du compte utilisateur';
   } finally {
     saving.value = false;
   }
@@ -80,8 +81,8 @@ async function handleSave() {
   <div class="users-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">User Accounts & Roles</h1>
-        <p class="text-muted">Manage system operators, assign warehouse scopes, and configure roles</p>
+        <h1 class="page-title">Comptes Utilisateurs & Rôles</h1>
+        <p class="text-muted">Gestion des opérateurs, affectation des entrepôts et configuration des droits d'accès</p>
       </div>
       <div class="header-actions">
         <AppButton variant="primary" @click="openCreateModal">
@@ -89,19 +90,19 @@ async function handleSave() {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          New User Account
+          Nouveau Compte Utilisateur
         </AppButton>
       </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!users.length" empty-text="No users found" :columns-count="5">
+    <AppTable :loading="loading" :empty="!users.length" empty-text="Aucun utilisateur trouvé" :columns-count="5">
       <template #header>
-        <th>Username</th>
-        <th>Full Name</th>
-        <th>Role</th>
-        <th>Assigned Warehouse</th>
-        <th>Status</th>
+        <th>Nom d'Utilisateur</th>
+        <th>Nom Complet</th>
+        <th>Rôle</th>
+        <th>Entrepôt Assigné</th>
+        <th>Statut</th>
       </template>
       <template #body>
         <tr v-for="u in users" :key="u.id">
@@ -109,13 +110,13 @@ async function handleSave() {
           <td>{{ u.fullName }}</td>
           <td>
             <AppBadge :variant="u.role === 'ADMIN' ? 'neutral' : 'info'" size="sm">
-              {{ u.role }}
+              {{ formatRole(u.role) }}
             </AppBadge>
           </td>
-          <td>{{ u.warehouseName || 'Global (All Warehouses)' }}</td>
+          <td>{{ u.warehouseName || 'Global (Tous les entrepôts)' }}</td>
           <td>
             <AppBadge :variant="u.active ? 'success' : 'danger'" size="sm">
-              {{ u.active ? 'ACTIVE' : 'INACTIVE' }}
+              {{ u.active ? 'ACTIF' : 'INACTIF' }}
             </AppBadge>
           </td>
         </tr>
@@ -125,7 +126,7 @@ async function handleSave() {
     <!-- Create User Modal -->
     <AppModal
       v-model="showModal"
-      title="Create Distributor User Account"
+      title="Créer un Compte Utilisateur"
       max-width="480px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
@@ -135,38 +136,38 @@ async function handleSave() {
       <form class="modal-form" @submit.prevent="handleSave">
         <AppInput
           v-model="form.username"
-          label="Username"
-          placeholder="e.g. manager_setif"
+          label="Nom d'Utilisateur"
+          placeholder="ex. responsable_setif"
           required
         />
 
         <AppInput
           v-model="form.password"
           type="password"
-          label="Initial Password"
+          label="Mot de Passe Initial"
           placeholder="••••••••"
           required
         />
 
         <AppInput
           v-model="form.fullName"
-          label="Full Name"
-          placeholder="e.g. Karim Benaissa"
+          label="Nom Complet"
+          placeholder="ex. Karim Benaissa"
           required
         />
 
         <div class="app-input-group">
-          <label class="input-label">Role</label>
+          <label class="input-label">Rôle</label>
           <select v-model="form.roleName" class="app-select" required>
-            <option value="ADMIN">ADMIN (Global system administrator)</option>
-            <option value="SUPER_MANAGER">SUPER_MANAGER (Cross-warehouse read & manager)</option>
-            <option value="MANAGER">MANAGER (Warehouse local manager)</option>
-            <option value="ACCOUNTANT">ACCOUNTANT (Local warehouse accountant & invoices)</option>
+            <option value="ADMIN">ADMIN (Administrateur système global)</option>
+            <option value="SUPER_MANAGER">SUPER_MANAGER (Superviseur multi-entrepôts)</option>
+            <option value="MANAGER">MANAGER (Responsable local d'entrepôt)</option>
+            <option value="ACCOUNTANT">ACCOUNTANT (Comptable local & facturation)</option>
           </select>
         </div>
 
         <div v-if="form.roleName !== 'ADMIN'" class="app-input-group">
-          <label class="input-label">Assigned Warehouse</label>
+          <label class="input-label">Entrepôt Assigné</label>
           <select v-model.number="form.warehouseId" class="app-select" required>
             <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
               {{ w.name }} ({{ w.code }})
@@ -176,9 +177,9 @@ async function handleSave() {
       </form>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSave">
-          Create Account
+          Créer le Compte
         </AppButton>
       </template>
     </AppModal>

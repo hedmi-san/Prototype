@@ -11,7 +11,7 @@ interface Props {
 withDefaults(defineProps<Props>(), {
   loading: false,
   empty: false,
-  emptyText: 'No data available',
+  emptyText: 'Aucune donnée disponible',
   columnsCount: 5,
 });
 </script>

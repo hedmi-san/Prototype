@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { auditService } from '../../services/admin-reports.service';
 import type { AuditLog } from '../../types';
+import { formatDateTime, formatAuditAction, formatEntityType } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
 
@@ -36,26 +37,14 @@ const filteredLogs = computed(() => {
       (l.warehouseName && l.warehouseName.toLowerCase().includes(q))
   );
 });
-
-function formatDate(dateStr: string) {
-  if (!dateStr) return '';
-  return new Date(dateStr).toLocaleDateString('fr-DZ', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
 </script>
 
 <template>
   <div class="audit-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">System Audit Logs</h1>
-        <p class="text-muted">Immutable forensic audit trail of all transactions, edits, price changes, and cancellations</p>
+        <h1 class="page-title">Journal d'Audit Système</h1>
+        <p class="text-muted">Piste d'audit médico-légale immuable de toutes les transactions, modifications de prix et annulations</p>
       </div>
       <div class="header-actions">
         <button class="refresh-btn" @click="fetchLogs">
@@ -63,7 +52,7 @@ function formatDate(dateStr: string) {
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
-          Refresh
+          Actualiser
         </button>
       </div>
     </div>
@@ -78,44 +67,44 @@ function formatDate(dateStr: string) {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search audit trail by user, action, entity, warehouse, details..."
+          placeholder="Rechercher dans l'audit par utilisateur, action, entité, entrepôt..."
           class="search-input"
         />
       </div>
       <div class="count-badge text-muted font-mono">
-        {{ filteredLogs.length }} events recorded
+        {{ filteredLogs.length }} {{ filteredLogs.length > 1 ? 'événements enregistrés' : 'événement enregistré' }}
       </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!filteredLogs.length" empty-text="No audit events found" :columns-count="6">
+    <AppTable :loading="loading" :empty="!filteredLogs.length" empty-text="Aucun événement d'audit trouvé" :columns-count="6">
       <template #header>
-        <th>Timestamp</th>
-        <th>User</th>
+        <th>Horodatage</th>
+        <th>Utilisateur</th>
         <th>Action</th>
-        <th>Entity</th>
-        <th>Warehouse</th>
-        <th>Description & Audit Payload</th>
+        <th>Entité</th>
+        <th>Entrepôt</th>
+        <th>Description & Détails de l'Audit</th>
       </template>
       <template #body>
         <tr v-for="log in filteredLogs" :key="log.id">
-          <td class="font-mono text-caption">{{ formatDate(log.createdAt) }}</td>
+          <td class="font-mono text-caption">{{ formatDateTime(log.createdAt) }}</td>
           <td>
             <strong>{{ log.userFullName || log.username }}</strong>
             <span class="text-caption font-mono" style="display: block;">@{{ log.username }}</span>
           </td>
           <td>
-            <AppBadge variant="neutral" size="sm">{{ log.action }}</AppBadge>
+            <AppBadge variant="neutral" size="sm">{{ formatAuditAction(log.action) }}</AppBadge>
           </td>
           <td>
-            <span class="font-mono">{{ log.entityType }} #{{ log.entityId }}</span>
+            <span class="font-mono">{{ formatEntityType(log.entityType) }} #{{ log.entityId }}</span>
           </td>
           <td>{{ log.warehouseName || 'Global' }}</td>
           <td>
             <div class="description-cell">
               <span>{{ log.description }}</span>
               <div v-if="log.newValues" class="payload-box font-mono">
-                <span v-if="log.oldValues" class="text-muted">Prev: {{ log.oldValues }} &rarr; </span>
+                <span v-if="log.oldValues" class="text-muted">Précédent : {{ log.oldValues }} &rarr; </span>
                 <span class="text-success">{{ log.newValues }}</span>
               </div>
             </div>

@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { reportService } from '../../services/admin-reports.service';
 import type { FinancialReport } from '../../types';
+import { formatCurrency, formatExpenseCategory } from '../../utils/formatters';
 import AppButton from '../../components/common/AppButton.vue';
 import AppSkeleton from '../../components/common/AppSkeleton.vue';
 
@@ -28,27 +29,18 @@ async function fetchReport() {
     loading.value = false;
   }
 }
-
-function formatCurrency(val?: number) {
-  if (val === undefined || val === null) return '0.00 DZD';
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'decimal',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val) + ' DZD';
-}
 </script>
 
 <template>
   <div class="financial-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Financial Income Statement (P&L)</h1>
-        <p class="text-muted">Consolidated revenue, cost of goods sold, operating overhead, and net margin</p>
+        <h1 class="page-title">Compte de Résultat Financier (P&L)</h1>
+        <p class="text-muted">Revenus consolidés, coût des marchandises vendues, charges d'exploitation et marge nette</p>
       </div>
       <div class="header-actions">
         <div class="period-picker">
-          <label class="period-label">Period:</label>
+          <label class="period-label">Période :</label>
           <input
             v-model="period"
             type="month"
@@ -62,7 +54,7 @@ function formatCurrency(val?: number) {
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
             <rect width="12" height="8" x="6" y="14" />
           </svg>
-          Print Statement
+          Imprimer le Bilan
         </AppButton>
       </div>
     </div>
@@ -72,11 +64,11 @@ function formatCurrency(val?: number) {
       <div class="statement-header">
         <div>
           <h2>DISTRI-TOOLS DZ</h2>
-          <p class="text-caption text-muted">Statement of Profit & Loss for Period: {{ report?.period }}</p>
-          <p class="text-caption text-muted">Warehouse Entity: {{ report?.warehouseName }}</p>
+          <p class="text-caption text-muted">Compte de Résultat pour la période : {{ report?.period }}</p>
+          <p class="text-caption text-muted">Entité Entrepôt : {{ report?.warehouseName }}</p>
         </div>
         <div class="net-profit-badge" :class="(report?.netProfit || 0) >= 0 ? 'bg-success-subtle' : 'bg-danger-subtle'">
-          <span class="text-caption">NET OPERATING RESULT</span>
+          <span class="text-caption">RÉSULTAT NET D'EXPLOITATION</span>
           <strong :class="['font-mono', 'text-h2', (report?.netProfit || 0) >= 0 ? 'text-success' : 'text-danger']">
             {{ formatCurrency(report?.netProfit) }}
           </strong>
@@ -90,63 +82,63 @@ function formatCurrency(val?: number) {
       <div v-else class="statement-body">
         <!-- 1. Revenue -->
         <div class="section-row header-row">
-          <span>1. OPERATING REVENUE</span>
+          <span>1. REVENUS D'EXPLOITATION</span>
           <span></span>
         </div>
         <div class="line-row">
-          <span class="line-indent">Gross Invoiced Tool Sales</span>
+          <span class="line-indent">Ventes brutes d'outillage facturées</span>
           <span class="font-mono font-bold">{{ formatCurrency(report?.totalRevenue) }}</span>
         </div>
         <div class="line-row subtotal-row">
-          <span>Total Operating Revenue</span>
+          <span>Total des Revenus d'Exploitation</span>
           <span class="font-mono font-bold">{{ formatCurrency(report?.totalRevenue) }}</span>
         </div>
 
         <!-- 2. Cost of Goods Sold -->
         <div class="section-row header-row mt-3">
-          <span>2. DIRECT PRODUCT COSTS (COGS)</span>
+          <span>2. COÛT DES MARCHANDISES VENDUES (COGS)</span>
           <span></span>
         </div>
         <div class="line-row">
-          <span class="line-indent">Cost of Invoiced Products Sold (at Purchase Price)</span>
+          <span class="line-indent">Coût d'achat des produits facturés et vendus</span>
           <span class="font-mono text-muted">({{ formatCurrency(report?.costOfGoodsSold) }})</span>
         </div>
         <div class="line-row subtotal-row">
-          <strong>GROSS PROFIT MARGIN</strong>
+          <strong>MARGE BRUTE COMMERCIALE</strong>
           <strong class="font-mono font-bold text-success">{{ formatCurrency(report?.grossProfit) }}</strong>
         </div>
 
         <!-- 3. Operating Expenses -->
         <div class="section-row header-row mt-3">
-          <span>3. OPERATING OVERHEAD EXPENSES</span>
+          <span>3. CHARGES & DÉPENSES D'EXPLOITATION</span>
           <span></span>
         </div>
         <div v-for="(amount, category) in report?.expensesByCategory" :key="category" class="line-row">
-          <span class="line-indent">{{ category }} Expenses</span>
+          <span class="line-indent">Charges : {{ formatExpenseCategory(category as any) }}</span>
           <span class="font-mono text-muted">({{ formatCurrency(amount) }})</span>
         </div>
         <div class="line-row subtotal-row">
-          <span>Total Operating Expenses</span>
+          <span>Total des Charges d'Exploitation</span>
           <span class="font-mono text-muted">({{ formatCurrency(report?.totalExpenses) }})</span>
         </div>
 
         <!-- 4. Payroll & Staff Salaries -->
         <div class="section-row header-row mt-3">
-          <span>4. PERSONNEL & PAYROLL DISBURSEMENTS</span>
+          <span>4. RÉMUNÉRATION & CHARGES DU PERSONNEL</span>
           <span></span>
         </div>
         <div class="line-row">
-          <span class="line-indent">Monthly Staff Base Salaries & Bonuses</span>
+          <span class="line-indent">Salaires de base et primes du personnel</span>
           <span class="font-mono text-muted">({{ formatCurrency(report?.totalSalaries) }})</span>
         </div>
         <div class="line-row subtotal-row">
-          <span>Total Payroll Disbursements</span>
+          <span>Total des Frais de Personnel</span>
           <span class="font-mono text-muted">({{ formatCurrency(report?.totalSalaries) }})</span>
         </div>
 
         <!-- 5. Net Profit Result -->
         <div class="line-row final-total-row mt-4">
-          <span class="text-h3 font-bold">NET PROFIT / (LOSS)</span>
+          <span class="text-h3 font-bold">BÉNÉFICE / (PERTE) NETTE</span>
           <span :class="['font-mono', 'text-h2', 'font-bold', (report?.netProfit || 0) >= 0 ? 'text-success' : 'text-danger']">
             {{ formatCurrency(report?.netProfit) }}
           </span>

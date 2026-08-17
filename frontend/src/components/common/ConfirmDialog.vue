@@ -13,8 +13,8 @@ interface Props {
 }
 
 withDefaults(defineProps<Props>(), {
-  confirmText: 'Confirm',
-  cancelText: 'Cancel',
+  confirmText: 'Confirmer',
+  cancelText: 'Annuler',
   variant: 'primary',
   loading: false,
 });

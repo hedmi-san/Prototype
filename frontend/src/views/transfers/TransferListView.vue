@@ -5,6 +5,7 @@ import { useWarehouseStore } from '../../stores/warehouse.store';
 import { transferService } from '../../services/operations.service';
 import { productService } from '../../services/catalog.service';
 import type { Transfer, Product, Warehouse } from '../../types';
+import { formatDateTime, formatNumber, formatTransferStatus } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -99,7 +100,7 @@ function removeCreateItem(index: number) {
 
 async function handleSaveCreate() {
   if (createForm.value.sourceWarehouseId === createForm.value.destinationWarehouseId) {
-    errorMessage.value = 'Source and destination warehouses must be different';
+    errorMessage.value = 'Les entrepôts source et destination doivent être différents';
     return;
   }
 
@@ -110,7 +111,7 @@ async function handleSaveCreate() {
     showCreateModal.value = false;
     await fetchTransfers();
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to create transfer request';
+    errorMessage.value = err.response?.data?.message || 'Échec de la création de la demande de transfert';
   } finally {
     saving.value = false;
   }
@@ -137,7 +138,7 @@ async function handleSaveApprove() {
     showApproveModal.value = false;
     await fetchTransfers();
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to approve transfer';
+    errorMessage.value = err.response?.data?.message || "Échec de l'approbation du transfert";
   } finally {
     saving.value = false;
   }
@@ -149,7 +150,7 @@ async function handleConfirmReception(t: Transfer) {
     await transferService.confirmTransfer(t.id);
     await fetchTransfers();
   } catch (err: any) {
-    alert(err.response?.data?.message || 'Failed to confirm transfer');
+    alert(err.response?.data?.message || 'Échec de la confirmation de réception');
   } finally {
     loading.value = false;
   }
@@ -161,7 +162,7 @@ async function handleDecline(t: Transfer) {
     await transferService.declineTransfer(t.id);
     await fetchTransfers();
   } catch (err: any) {
-    alert(err.response?.data?.message || 'Failed to decline transfer');
+    alert(err.response?.data?.message || 'Échec du refus du transfert');
   } finally {
     loading.value = false;
   }
@@ -180,7 +181,7 @@ async function handleConfirmCancel() {
     showCancelDialog.value = false;
     await fetchTransfers();
   } catch (err: any) {
-    alert(err.response?.data?.message || 'Failed to cancel transfer');
+    alert(err.response?.data?.message || "Échec de l'annulation du transfert");
   } finally {
     saving.value = false;
   }
@@ -201,24 +202,14 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
     default: return 'neutral';
   }
 }
-
-function formatDate(dateStr?: string | null) {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('fr-DZ', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 </script>
 
 <template>
   <div class="transfers-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Inter-Warehouse Transfers</h1>
-        <p class="text-muted">Stock transfer requests, source reservations, and reception confirmations</p>
+        <h1 class="page-title">Transferts Inter-Entrepôts</h1>
+        <p class="text-muted">Demandes de transfert, réservation de stock source et confirmation de réception</p>
       </div>
       <div class="header-actions">
         <AppButton variant="primary" @click="openCreateModal">
@@ -226,20 +217,20 @@ function formatDate(dateStr?: string | null) {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          Request Stock Transfer
+          Demander un Transfert de Stock
         </AppButton>
       </div>
     </div>
 
     <!-- Transfers Table -->
-    <AppTable :loading="loading" :empty="!transfers.length" empty-text="No transfers recorded" :columns-count="7">
+    <AppTable :loading="loading" :empty="!transfers.length" empty-text="Aucun transfert enregistré" :columns-count="7">
       <template #header>
-        <th>Transfer ID</th>
-        <th>Source Warehouse</th>
+        <th>N° Transfert</th>
+        <th>Entrepôt Source</th>
         <th>Destination</th>
-        <th>Status</th>
-        <th>Requested Date</th>
-        <th>Confirmed Date</th>
+        <th>Statut</th>
+        <th>Date de Demande</th>
+        <th>Date de Confirmation</th>
         <th>Actions</th>
       </template>
       <template #body>
@@ -255,38 +246,38 @@ function formatDate(dateStr?: string | null) {
           </td>
           <td>
             <AppBadge :variant="getStatusBadgeVariant(t.status)" size="sm">
-              {{ t.status }}
+              {{ formatTransferStatus(t.status) }}
             </AppBadge>
           </td>
-          <td class="font-mono text-caption">{{ formatDate(t.createdAt) }}</td>
-          <td class="font-mono text-caption">{{ formatDate(t.confirmedAt) }}</td>
+          <td class="font-mono text-caption">{{ formatDateTime(t.createdAt) }}</td>
+          <td class="font-mono text-caption">{{ formatDateTime(t.confirmedAt) }}</td>
           <td>
             <div class="action-buttons">
-              <button class="icon-action-btn" title="View Details" @click="viewDetails(t)">
-                Details
+              <button class="icon-action-btn" title="Voir les détails" @click="viewDetails(t)">
+                Détails
               </button>
 
               <!-- Source Warehouse Action: Approve or Decline -->
               <template v-if="t.status === 'REQUESTED'">
                 <button class="icon-action-btn btn-primary-action" @click="openApproveModal(t)">
-                  Approve
+                  Approuver
                 </button>
                 <button class="icon-action-btn btn-danger-action" @click="handleDecline(t)">
-                  Decline
+                  Refuser
                 </button>
               </template>
 
               <!-- Destination Warehouse Action: Confirm Reception -->
               <template v-if="t.status === 'APPROVED'">
                 <button class="icon-action-btn btn-success-action" @click="handleConfirmReception(t)">
-                  Confirm Reception
+                  Confirmer Réception
                 </button>
               </template>
 
               <!-- Cancelable before confirmed -->
               <template v-if="t.status === 'REQUESTED' || t.status === 'APPROVED'">
                 <button class="icon-action-btn btn-danger-action" @click="promptCancel(t)">
-                  Cancel
+                  Annuler
                 </button>
               </template>
             </div>
@@ -298,7 +289,7 @@ function formatDate(dateStr?: string | null) {
     <!-- Create Transfer Modal -->
     <AppModal
       v-model="showCreateModal"
-      title="Create Inter-Warehouse Transfer Request"
+      title="Créer une Demande de Transfert Inter-Entrepôts"
       max-width="600px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
@@ -308,7 +299,7 @@ function formatDate(dateStr?: string | null) {
       <div class="modal-form">
         <div class="form-row">
           <div class="app-input-group">
-            <label class="input-label">Source Warehouse (From)</label>
+            <label class="input-label">Entrepôt Source (Départ)</label>
             <select v-model.number="createForm.sourceWarehouseId" class="app-select" required>
               <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
                 {{ w.name }} ({{ w.code }})
@@ -317,7 +308,7 @@ function formatDate(dateStr?: string | null) {
           </div>
 
           <div class="app-input-group">
-            <label class="input-label">Destination Warehouse (To)</label>
+            <label class="input-label">Entrepôt Destination (Arrivée)</label>
             <select v-model.number="createForm.destinationWarehouseId" class="app-select" required>
               <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
                 {{ w.name }} ({{ w.code }})
@@ -328,15 +319,15 @@ function formatDate(dateStr?: string | null) {
 
         <AppInput
           v-model="createForm.notes"
-          label="Transfer Request Notes"
-          placeholder="e.g. Urgent restock for heavy project client"
+          label="Notes sur la Demande de Transfert"
+          placeholder="ex. Réapprovisionnement urgent pour chantier client"
         />
 
         <div class="items-editor">
           <div class="editor-header">
-            <h4>Requested Products</h4>
+            <h4>Produits Demandés</h4>
             <button type="button" class="icon-action-btn" @click="addCreateItem">
-              + Add Product
+              + Ajouter un Produit
             </button>
           </div>
 
@@ -351,7 +342,7 @@ function formatDate(dateStr?: string | null) {
               type="number"
               min="1"
               class="app-input item-qty-input"
-              placeholder="Qty"
+              placeholder="Qté"
               required
             />
             <button
@@ -367,9 +358,9 @@ function formatDate(dateStr?: string | null) {
       </div>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showCreateModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showCreateModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSaveCreate">
-          Submit Transfer Request
+          Soumettre la Demande de Transfert
         </AppButton>
       </template>
     </AppModal>
@@ -377,7 +368,7 @@ function formatDate(dateStr?: string | null) {
     <!-- Approve Transfer Modal -->
     <AppModal
       v-model="showApproveModal"
-      :title="`Approve & Reserve Stock for Transfer #${approvingTransfer?.id || ''}`"
+      :title="`Approuver & Réserver le Stock pour le Transfert #${approvingTransfer?.id || ''}`"
       max-width="540px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
@@ -385,17 +376,17 @@ function formatDate(dateStr?: string | null) {
       </div>
 
       <p class="text-caption text-muted mb-3">
-        Approving this transfer will lock and reserve the specified units at <strong>{{ approvingTransfer?.sourceWarehouseName }}</strong>. Stock is not physically removed until reception is confirmed.
+        L'approbation de ce transfert verrouillera et réservera les unités spécifiées à l'entrepôt <strong>{{ approvingTransfer?.sourceWarehouseName }}</strong>. Le stock n'est déduit physiquement qu'à la confirmation de réception.
       </p>
 
       <div class="approve-items-list">
         <div v-for="item in approvingTransfer?.items" :key="item.id" class="approve-item-row">
           <div class="item-meta">
             <strong>{{ item.productName }}</strong>
-            <span class="text-caption font-mono">{{ item.productReference }} (Requested: {{ item.requestedQuantity }} units)</span>
+            <span class="text-caption font-mono">{{ item.productReference }} (Demandé : {{ formatNumber(item.requestedQuantity) }} unités)</span>
           </div>
           <div class="item-input">
-            <label class="input-label">Approved Qty</label>
+            <label class="input-label">Qté Approuvée</label>
             <input
               v-model.number="approveForm.find(f => f.productId === item.productId)!.approvedQuantity"
               type="number"
@@ -408,9 +399,9 @@ function formatDate(dateStr?: string | null) {
       </div>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showApproveModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showApproveModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSaveApprove">
-          Confirm Approval & Reserve Stock
+          Confirmer l'Approbation & Réserver le Stock
         </AppButton>
       </template>
     </AppModal>
@@ -418,66 +409,67 @@ function formatDate(dateStr?: string | null) {
     <!-- Transfer Details Modal -->
     <AppModal
       v-model="showDetailsModal"
-      :title="`Transfer Request Details #${selectedTransfer?.id || ''}`"
+      :title="`Détails de la Demande de Transfert #${selectedTransfer?.id || ''}`"
       max-width="580px"
     >
       <div v-if="selectedTransfer" class="details-box">
         <div class="details-grid">
           <div>
-            <span class="text-caption text-muted">From Source:</span>
+            <span class="text-caption text-muted">Entrepôt Source (Départ) :</span>
             <h4>{{ selectedTransfer.sourceWarehouseName }}</h4>
           </div>
           <div>
-            <span class="text-caption text-muted">To Destination:</span>
+            <span class="text-caption text-muted">Entrepôt Destination (Arrivée) :</span>
             <h4>{{ selectedTransfer.destinationWarehouseName }}</h4>
           </div>
           <div>
-            <span class="text-caption text-muted">Status:</span>
+            <span class="text-caption text-muted">Statut :</span>
             <AppBadge :variant="getStatusBadgeVariant(selectedTransfer.status)" size="sm">
-              {{ selectedTransfer.status }}
+              {{ formatTransferStatus(selectedTransfer.status) }}
             </AppBadge>
           </div>
           <div>
-            <span class="text-caption text-muted">Created By:</span>
-            <h4>{{ selectedTransfer.createdByName }}</h4>
+            <span class="text-caption text-muted">Initié par :</span>
+            <h4>{{ selectedTransfer.createdByName || 'Système' }}</h4>
           </div>
         </div>
 
         <p v-if="selectedTransfer.notes" class="notes-box">
-          <strong>Notes:</strong> {{ selectedTransfer.notes }}
+          <strong>Notes :</strong> {{ selectedTransfer.notes }}
         </p>
 
-        <h4 class="mt-3 mb-2">Item Manifest</h4>
+        <h4 class="mt-3 mb-2">Manifeste des Articles</h4>
         <table class="inv-table">
           <thead>
             <tr>
-              <th>Ref</th>
-              <th>Product</th>
-              <th>Requested</th>
-              <th>Approved</th>
+              <th>Réf</th>
+              <th>Produit</th>
+              <th>Demandé</th>
+              <th>Approuvé</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in selectedTransfer.items" :key="item.id">
               <td class="font-mono">{{ item.productReference }}</td>
               <td>{{ item.productName }}</td>
-              <td class="font-mono font-bold">{{ item.requestedQuantity }}</td>
-              <td class="font-mono text-success">{{ item.approvedQuantity }}</td>
+              <td class="font-mono font-bold">{{ formatNumber(item.requestedQuantity) }}</td>
+              <td class="font-mono text-success">{{ formatNumber(item.approvedQuantity) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
       <template #footer>
-        <AppButton variant="secondary" @click="showDetailsModal = false">Close</AppButton>
+        <AppButton variant="secondary" @click="showDetailsModal = false">Fermer</AppButton>
       </template>
     </AppModal>
 
     <!-- Cancel Dialog -->
     <ConfirmDialog
       v-model="showCancelDialog"
-      title="Cancel Transfer Request"
-      :message="`Are you sure you want to cancel Transfer #${cancellingTransfer?.id}? If this transfer was approved, all reserved stock at the source warehouse will be immediately unlocked.`"
-      confirm-text="Cancel Transfer"
+      title="Annuler la Demande de Transfert"
+      :message="`Êtes-vous sûr de vouloir annuler le transfert #${cancellingTransfer?.id} ? Si ce transfert a été approuvé, tout le stock réservé à l'entrepôt source sera immédiatement déverrouillé.`"
+      confirm-text="Annuler le Transfert"
+      cancel-text="Conserver le Transfert"
       variant="danger"
       :loading="saving"
       @confirm="handleConfirmCancel"

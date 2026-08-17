@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { employeeService } from '../../services/admin-reports.service';
 import type { Employee } from '../../types';
+import { formatCurrency, formatDate } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -64,7 +65,7 @@ function openCreateModal() {
     warehouseId: authStore.activeWarehouseId || warehouseStore.warehouses[0]?.id || 1,
     firstName: '',
     lastName: '',
-    position: 'Warehouse Operator',
+    position: 'Magasinier / Cariste',
     phone: '',
     hireDate: new Date().toISOString().split('T')[0],
     monthlySalary: 55000,
@@ -100,19 +101,10 @@ async function handleSave() {
     showModal.value = false;
     await fetchEmployees();
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || 'Failed to save employee profile';
+    errorMessage.value = err.response?.data?.message || "Échec de l'enregistrement du profil de l'employé";
   } finally {
     saving.value = false;
   }
-}
-
-function formatCurrency(val?: number) {
-  if (val === undefined || val === null) return '0.00 DZD';
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'decimal',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val) + ' DZD';
 }
 </script>
 
@@ -120,8 +112,8 @@ function formatCurrency(val?: number) {
   <div class="employees-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Employees & Staff</h1>
-        <p class="text-muted">Warehouse personnel roster, roles, and base compensation</p>
+        <h1 class="page-title">Personnel & Employés</h1>
+        <p class="text-muted">Registre du personnel des entrepôts, affectations et rémunérations de base</p>
       </div>
       <div class="header-actions">
         <AppButton variant="primary" @click="openCreateModal">
@@ -129,7 +121,7 @@ function formatCurrency(val?: number) {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          Register Employee
+          Inscrire un Employé
         </AppButton>
       </div>
     </div>
@@ -144,24 +136,24 @@ function formatCurrency(val?: number) {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search staff by name, position, warehouse..."
+          placeholder="Rechercher par nom, poste, entrepôt..."
           class="search-input"
         />
       </div>
       <div class="count-badge text-muted font-mono">
-        {{ filteredEmployees.length }} active staff
+        {{ filteredEmployees.length }} {{ filteredEmployees.length > 1 ? 'employés actifs' : 'employé actif' }}
       </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!filteredEmployees.length" empty-text="No employees found" :columns-count="7">
+    <AppTable :loading="loading" :empty="!filteredEmployees.length" empty-text="Aucun employé trouvé" :columns-count="7">
       <template #header>
-        <th>Employee Name</th>
-        <th>Warehouse</th>
-        <th>Position</th>
-        <th>Phone</th>
-        <th>Hire Date</th>
-        <th>Monthly Base</th>
+        <th>Nom de l'Employé</th>
+        <th>Entrepôt</th>
+        <th>Poste</th>
+        <th>Téléphone</th>
+        <th>Date d'Embauche</th>
+        <th>Salaire de Base</th>
         <th>Actions</th>
       </template>
       <template #body>
@@ -174,15 +166,15 @@ function formatCurrency(val?: number) {
             <AppBadge variant="neutral" size="sm">{{ emp.position }}</AppBadge>
           </td>
           <td class="font-mono">{{ emp.phone || '—' }}</td>
-          <td class="font-mono text-caption">{{ emp.hireDate }}</td>
+          <td class="font-mono text-caption">{{ formatDate(emp.hireDate) }}</td>
           <td class="font-mono font-bold">{{ formatCurrency(emp.monthlySalary) }}</td>
           <td>
-            <button class="icon-action-btn" title="Edit Profile" @click="openEditModal(emp)">
+            <button class="icon-action-btn" title="Modifier le profil" @click="openEditModal(emp)">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
-              Edit
+              Modifier
             </button>
           </td>
         </tr>
@@ -192,7 +184,7 @@ function formatCurrency(val?: number) {
     <!-- Create/Edit Modal -->
     <AppModal
       v-model="showModal"
-      :title="editingEmployee ? 'Edit Employee Profile' : 'Register New Employee'"
+      :title="editingEmployee ? 'Modifier le Profil de l\'Employé' : 'Inscrire un Nouvel Employé'"
       max-width="500px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
@@ -201,7 +193,7 @@ function formatCurrency(val?: number) {
 
       <form class="modal-form" @submit.prevent="handleSave">
         <div class="app-input-group">
-          <label class="input-label">Assigned Warehouse</label>
+          <label class="input-label">Entrepôt d'Affectation</label>
           <select v-model.number="form.warehouseId" class="app-select" required>
             <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
               {{ w.name }} ({{ w.code }})
@@ -212,13 +204,13 @@ function formatCurrency(val?: number) {
         <div class="form-row">
           <AppInput
             v-model="form.firstName"
-            label="First Name"
+            label="Prénom"
             placeholder="Mohamed"
             required
           />
           <AppInput
             v-model="form.lastName"
-            label="Last Name"
+            label="Nom"
             placeholder="Larbi"
             required
           />
@@ -227,13 +219,13 @@ function formatCurrency(val?: number) {
         <div class="form-row">
           <AppInput
             v-model="form.position"
-            label="Job Position"
-            placeholder="Forklift Operator / Stock Handler"
+            label="Poste / Fonction"
+            placeholder="Cariste / Magasinier"
             required
           />
           <AppInput
             v-model="form.phone"
-            label="Contact Phone"
+            label="Téléphone de Contact"
             placeholder="+213 550 11 22 33"
           />
         </div>
@@ -242,13 +234,13 @@ function formatCurrency(val?: number) {
           <AppInput
             v-model="form.hireDate"
             type="date"
-            label="Hire Date"
+            label="Date d'Embauche"
             required
           />
           <AppInput
             v-model="form.monthlySalary"
             type="number"
-            label="Monthly Base Salary (DZD)"
+            label="Salaire Mensuel de Base (DA)"
             placeholder="55000"
             required
           />
@@ -256,9 +248,9 @@ function formatCurrency(val?: number) {
       </form>
 
       <template #footer>
-        <AppButton variant="secondary" @click="showModal = false">Cancel</AppButton>
+        <AppButton variant="secondary" @click="showModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSave">
-          {{ editingEmployee ? 'Save Changes' : 'Register Staff' }}
+          {{ editingEmployee ? 'Enregistrer les modifications' : 'Inscrire le salarié' }}
         </AppButton>
       </template>
     </AppModal>

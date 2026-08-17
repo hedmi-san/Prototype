@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { reportService } from '../../services/admin-reports.service';
 import type { StockValuationReport } from '../../types';
+import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 
@@ -24,24 +25,15 @@ async function fetchReport() {
     loading.value = false;
   }
 }
-
-function formatCurrency(val?: number) {
-  if (val === undefined || val === null) return '0.00 DZD';
-  return new Intl.NumberFormat('fr-DZ', {
-    style: 'decimal',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val) + ' DZD';
-}
 </script>
 
 <template>
   <div class="valuation-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Stock Valuation Statement</h1>
+        <h1 class="page-title">État de Valorisation des Stocks</h1>
         <p class="text-muted">
-          Asset valuation calculated using active current purchase prices: &sum;(Physical Units &times; Purchase Price)
+          Valorisation des actifs basée sur les prix d'achat actuels : &sum;(Unités Physiques &times; Prix d'Achat)
         </p>
       </div>
       <div class="header-actions">
@@ -51,7 +43,7 @@ function formatCurrency(val?: number) {
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
             <rect width="12" height="8" x="6" y="14" />
           </svg>
-          Export / Print Statement
+          Exporter / Imprimer le Bilan
         </AppButton>
       </div>
     </div>
@@ -59,40 +51,40 @@ function formatCurrency(val?: number) {
     <!-- Summary Metrics Header -->
     <div class="valuation-cards">
       <div class="val-card highlight-card">
-        <span class="val-label">TOTAL PORTFOLIO VALUATION</span>
+        <span class="val-label">VALORISATION TOTALE DU PORTEFEUILLE</span>
         <strong class="font-mono text-h1 font-bold">{{ formatCurrency(report?.totalValuation) }}</strong>
-        <span class="text-caption text-muted">Scope: {{ report?.warehouseName }}</span>
+        <span class="text-caption text-muted">Périmètre : {{ report?.warehouseName }}</span>
       </div>
 
       <div class="val-card">
-        <span class="val-label">TOTAL PHYSICAL UNITS</span>
-        <strong class="font-mono text-h2">{{ report?.totalPhysicalUnits || 0 }}</strong>
-        <span class="text-caption text-muted">Units physically on shelves</span>
+        <span class="val-label">UNITÉS PHYSIQUES TOTALES</span>
+        <strong class="font-mono text-h2">{{ formatNumber(report?.totalPhysicalUnits) }}</strong>
+        <span class="text-caption text-muted">Unités physiquement en rayon</span>
       </div>
 
       <div class="val-card">
-        <span class="val-label">RESERVED IN TRANSIT</span>
-        <strong class="font-mono text-h2 text-warning">{{ report?.totalReservedUnits || 0 }}</strong>
-        <span class="text-caption text-muted">Units locked for transfer orders</span>
+        <span class="val-label">RÉSERVÉ EN TRANSIT</span>
+        <strong class="font-mono text-h2 text-warning">{{ formatNumber(report?.totalReservedUnits) }}</strong>
+        <span class="text-caption text-muted">Unités verrouillées pour transferts</span>
       </div>
 
       <div class="val-card">
-        <span class="val-label">AVAILABLE FOR SALE</span>
-        <strong class="font-mono text-h2 text-success">{{ report?.totalAvailableUnits || 0 }}</strong>
-        <span class="text-caption text-muted">Net freely sellable inventory</span>
+        <span class="val-label">DISPONIBLE À LA VENTE</span>
+        <strong class="font-mono text-h2 text-success">{{ formatNumber(report?.totalAvailableUnits) }}</strong>
+        <span class="text-caption text-muted">Stock net librement vendable</span>
       </div>
     </div>
 
     <!-- Valuation Breakdown Table -->
-    <AppTable :loading="loading" :empty="!report?.items?.length" empty-text="No stock items found" :columns-count="7">
+    <AppTable :loading="loading" :empty="!report?.items?.length" empty-text="Aucun article en stock trouvé" :columns-count="7">
       <template #header>
-        <th>Warehouse</th>
-        <th>Product Ref</th>
-        <th>Product Name</th>
-        <th>Purchase Price</th>
-        <th>Physical Units</th>
-        <th>Available Units</th>
-        <th>Valuation Subtotal</th>
+        <th>Entrepôt</th>
+        <th>Réf Produit</th>
+        <th>Nom du Produit</th>
+        <th>Prix d'Achat</th>
+        <th>Unités Physiques</th>
+        <th>Unités Disponibles</th>
+        <th>Sous-total Valorisation</th>
       </template>
       <template #body>
         <tr v-for="item in report?.items" :key="item.id">
@@ -100,11 +92,11 @@ function formatCurrency(val?: number) {
           <td class="font-mono font-bold">{{ item.productReference }}</td>
           <td>
             <strong>{{ item.productName }}</strong>
-            <span class="text-caption text-muted" style="display: block;">Brand: {{ item.productBrand }}</span>
+            <span class="text-caption text-muted" style="display: block;">Marque : {{ item.productBrand }}</span>
           </td>
           <td class="font-mono">{{ formatCurrency(item.productPurchasePrice) }}</td>
-          <td class="font-mono font-bold">{{ item.physicalQuantity }}</td>
-          <td class="font-mono text-success">{{ item.availableQuantity }}</td>
+          <td class="font-mono font-bold">{{ formatNumber(item.physicalQuantity) }}</td>
+          <td class="font-mono text-success">{{ formatNumber(item.availableQuantity) }}</td>
           <td class="font-mono font-bold">{{ formatCurrency(item.totalValuation) }}</td>
         </tr>
       </template>
