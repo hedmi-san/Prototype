@@ -1,11 +1,9 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = require("express");
-const database_js_1 = require("../db/database.js");
-const response_js_1 = require("../common/response.js");
-const auth_js_1 = require("../middleware/auth.js");
-const router = (0, express_1.Router)();
-router.get('/', auth_js_1.authenticate, (0, auth_js_1.requireRole)('ADMIN', 'SUPER_MANAGER', 'MANAGER'), (req, res) => {
+import { Router } from 'express';
+import { db } from '../db/database.js';
+import { sendSuccess } from '../common/response.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
+const router = Router();
+router.get('/', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER'), (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
     let query = `
     SELECT a.id, a.user_id, u.username, u.full_name as user_full_name,
@@ -27,7 +25,7 @@ router.get('/', auth_js_1.authenticate, (0, auth_js_1.requireRole)('ADMIN', 'SUP
         params.push(req.user.warehouseId);
     }
     query += ' ORDER BY a.created_at DESC, a.id DESC LIMIT 150';
-    const logs = database_js_1.db.prepare(query).all(...params).map((l) => ({
+    const logs = db.prepare(query).all(...params).map((l) => ({
         id: l.id,
         userId: l.user_id,
         username: l.username || 'SYSTEM',
@@ -43,6 +41,6 @@ router.get('/', auth_js_1.authenticate, (0, auth_js_1.requireRole)('ADMIN', 'SUP
         ipAddress: l.ip_address,
         createdAt: l.created_at,
     }));
-    return (0, response_js_1.sendSuccess)(res, logs);
+    return sendSuccess(res, logs);
 });
-exports.default = router;
+export default router;

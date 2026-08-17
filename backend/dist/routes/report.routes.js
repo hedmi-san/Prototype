@@ -1,19 +1,17 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = require("express");
-const database_js_1 = require("../db/database.js");
-const response_js_1 = require("../common/response.js");
-const auth_js_1 = require("../middleware/auth.js");
-const router = (0, express_1.Router)();
+import { Router } from 'express';
+import { db } from '../db/database.js';
+import { sendSuccess, sendError } from '../common/response.js';
+import { authenticate, validateWarehouseScope } from '../middleware/auth.js';
+const router = Router();
 // Dashboard Metrics (both /reports/dashboard and /admin/reports/dashboard-metrics)
-router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, res) => {
+router.get(['/dashboard', '/dashboard-metrics'], authenticate, (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
     if (warehouseId && req.user) {
         try {
-            (0, auth_js_1.validateWarehouseScope)(req.user, warehouseId);
+            validateWarehouseScope(req.user, warehouseId);
         }
         catch (err) {
-            return (0, response_js_1.sendError)(res, err.message, 403);
+            return sendError(res, err.message, 403);
         }
     }
     const today = new Date().toISOString().substring(0, 10);
@@ -29,7 +27,7 @@ router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, r
     if (warehouseId) {
         stockQuery += ` WHERE s.warehouse_id = ${warehouseId}`;
     }
-    const stockStats = database_js_1.db.prepare(stockQuery).get();
+    const stockStats = db.prepare(stockQuery).get();
     const totalStockValuation = stockStats?.total_valuation || 0;
     const totalStockItems = stockStats?.total_items || 0;
     // 2. Sales Today & Sales Month
@@ -40,7 +38,7 @@ router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, r
   `;
     if (warehouseId)
         salesTodayQuery += ` AND warehouse_id = ${warehouseId}`;
-    const salesTodayStats = database_js_1.db.prepare(salesTodayQuery).get();
+    const salesTodayStats = db.prepare(salesTodayQuery).get();
     const totalSalesToday = salesTodayStats?.total || 0;
     const totalOrdersToday = salesTodayStats?.count || 0;
     let salesMonthQuery = `
@@ -52,7 +50,7 @@ router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, r
     if (warehouseId) {
         salesMonthQuery += ` AND warehouse_id = ${warehouseId}`;
     }
-    const salesMonthStats = database_js_1.db.prepare(salesMonthQuery).get(...salesMonthParams);
+    const salesMonthStats = db.prepare(salesMonthQuery).get(...salesMonthParams);
     const totalSalesThisMonth = salesMonthStats?.total || 0;
     // 3. Gross Margin / Cost of Goods Sold This Month
     let cogsQuery = `
@@ -64,20 +62,20 @@ router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, r
   `;
     if (warehouseId)
         cogsQuery += ` AND s.warehouse_id = ${warehouseId}`;
-    const cogsStats = database_js_1.db.prepare(cogsQuery).get(currentMonth);
+    const cogsStats = db.prepare(cogsQuery).get(currentMonth);
     const cogsMonth = cogsStats?.cogs || 0;
     const grossProfitThisMonth = totalSalesThisMonth - cogsMonth;
     // 4. Expenses This Month
     let expQuery = `SELECT SUM(amount) as total FROM expenses WHERE strftime('%Y-%m', expense_date) = ?`;
     if (warehouseId)
         expQuery += ` AND warehouse_id = ${warehouseId}`;
-    const expStats = database_js_1.db.prepare(expQuery).get(currentMonth);
+    const expStats = db.prepare(expQuery).get(currentMonth);
     const totalExpensesThisMonth = expStats?.total || 0;
     // 5. Salaries This Month
     let salQuery = `SELECT SUM(total_amount) as total FROM salaries WHERE period = ?`;
     if (warehouseId)
         salQuery += ` AND warehouse_id = ${warehouseId}`;
-    const salStats = database_js_1.db.prepare(salQuery).get(currentMonth);
+    const salStats = db.prepare(salQuery).get(currentMonth);
     const totalSalariesThisMonth = salStats?.total || 0;
     // 6. Net Profit
     const netProfitThisMonth = grossProfitThisMonth - totalExpensesThisMonth - totalSalariesThisMonth;
@@ -90,30 +88,30 @@ router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, r
   `;
     if (warehouseId)
         lowStockQuery += ` AND s.warehouse_id = ${warehouseId}`;
-    const lowStockCount = database_js_1.db.prepare(lowStockQuery).get()?.count || 0;
+    const lowStockCount = db.prepare(lowStockQuery).get()?.count || 0;
     let pendingTransfersQuery = `SELECT COUNT(*) as count FROM transfers WHERE status = 'REQUESTED'`;
     if (warehouseId)
         pendingTransfersQuery += ` AND (source_warehouse_id = ${warehouseId} OR destination_warehouse_id = ${warehouseId})`;
-    const pendingTransfersCount = database_js_1.db.prepare(pendingTransfersQuery).get()?.count || 0;
+    const pendingTransfersCount = db.prepare(pendingTransfersQuery).get()?.count || 0;
     // 8. Multi-Warehouse Comparison (for Admin/Super Manager overview)
-    const warehouses = database_js_1.db.prepare('SELECT id, name, code FROM warehouses WHERE active = 1').all();
+    const warehouses = db.prepare('SELECT id, name, code FROM warehouses WHERE active = 1').all();
     const warehouseBreakdown = warehouses.map((wh) => {
-        const wValuation = database_js_1.db.prepare(`
+        const wValuation = db.prepare(`
       SELECT SUM(s.physical_quantity * p.purchase_price) as val
       FROM stock s JOIN products p ON s.product_id = p.id
       WHERE s.warehouse_id = ?
     `).get(wh.id)?.val || 0;
-        const wSales = database_js_1.db.prepare(`
+        const wSales = db.prepare(`
       SELECT SUM(total_amount) as sales
       FROM sales
       WHERE warehouse_id = ? AND status = 'COMPLETED' AND strftime('%Y-%m', created_at) = ?
     `).get(wh.id, currentMonth)?.sales || 0;
-        const wExpenses = database_js_1.db.prepare(`
+        const wExpenses = db.prepare(`
       SELECT SUM(amount) as exp
       FROM expenses
       WHERE warehouse_id = ? AND strftime('%Y-%m', expense_date) = ?
     `).get(wh.id, currentMonth)?.exp || 0;
-        const wSalaries = database_js_1.db.prepare(`
+        const wSalaries = db.prepare(`
       SELECT SUM(total_amount) as sal
       FROM salaries
       WHERE warehouse_id = ? AND period = ?
@@ -130,7 +128,7 @@ router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, r
         };
     });
     // Recent Movements & Sales
-    const recentMovements = database_js_1.db.prepare(`
+    const recentMovements = db.prepare(`
     SELECT m.id, m.warehouse_id, w.name as warehouse_name,
            m.product_id, p.name as product_name, p.reference as product_reference,
            m.movement_type, m.quantity_change, m.reference, m.created_at
@@ -151,7 +149,7 @@ router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, r
         reference: m.reference,
         createdAt: m.created_at,
     }));
-    const recentSales = database_js_1.db.prepare(`
+    const recentSales = db.prepare(`
     SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name,
            s.customer_name, s.total_amount, s.status, s.created_at
     FROM sales s
@@ -168,7 +166,7 @@ router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, r
         status: s.status,
         createdAt: s.created_at,
     }));
-    return (0, response_js_1.sendSuccess)(res, {
+    return sendSuccess(res, {
         totalStockValuation,
         totalStockItems,
         totalSalesToday,
@@ -186,7 +184,7 @@ router.get(['/dashboard', '/dashboard-metrics'], auth_js_1.authenticate, (req, r
     });
 });
 // Stock Valuation Report
-router.get('/stock-valuation', auth_js_1.authenticate, (req, res) => {
+router.get('/stock-valuation', authenticate, (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
     let query = `
     SELECT s.id, s.warehouse_id, w.name as warehouse_name,
@@ -205,7 +203,7 @@ router.get('/stock-valuation', auth_js_1.authenticate, (req, res) => {
     if (warehouseId)
         query += ` WHERE s.warehouse_id = ${warehouseId}`;
     query += ' ORDER BY w.name ASC, p.name ASC';
-    const rows = database_js_1.db.prepare(query).all().map((r) => ({
+    const rows = db.prepare(query).all().map((r) => ({
         warehouseId: r.warehouse_id,
         warehouseName: r.warehouse_name,
         productId: r.product_id,
@@ -225,7 +223,7 @@ router.get('/stock-valuation', auth_js_1.authenticate, (req, res) => {
     const totalValuation = rows.reduce((acc, r) => acc + r.totalValuation, 0);
     const totalPotentialRevenue = rows.reduce((acc, r) => acc + r.potentialRevenue, 0);
     const totalPhysicalItems = rows.reduce((acc, r) => acc + r.physicalQuantity, 0);
-    return (0, response_js_1.sendSuccess)(res, {
+    return sendSuccess(res, {
         items: rows,
         summary: {
             totalValuation,
@@ -236,7 +234,7 @@ router.get('/stock-valuation', auth_js_1.authenticate, (req, res) => {
     });
 });
 // Sales Report
-router.get('/sales', auth_js_1.authenticate, (req, res) => {
+router.get('/sales', authenticate, (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
     const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
     const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
@@ -263,7 +261,7 @@ router.get('/sales', auth_js_1.authenticate, (req, res) => {
         params.push(endDate);
     }
     query += ' ORDER BY s.created_at DESC';
-    const sales = database_js_1.db.prepare(query).all(...params).map((s) => ({
+    const sales = db.prepare(query).all(...params).map((s) => ({
         id: s.id,
         invoiceNumber: s.invoice_number,
         warehouseId: s.warehouse_id,
@@ -276,10 +274,10 @@ router.get('/sales', auth_js_1.authenticate, (req, res) => {
         status: s.status,
         createdAt: s.created_at,
     }));
-    return (0, response_js_1.sendSuccess)(res, sales);
+    return sendSuccess(res, sales);
 });
 // Consolidated Financial Report
-router.get('/financial', auth_js_1.authenticate, (req, res) => {
+router.get('/financial', authenticate, (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
     const period = req.query.period ? String(req.query.period) : new Date().toISOString().substring(0, 7);
     // Revenue & COGS
@@ -293,7 +291,7 @@ router.get('/financial', auth_js_1.authenticate, (req, res) => {
   `;
     if (warehouseId)
         revQuery += ` AND s.warehouse_id = ${warehouseId}`;
-    const revStats = database_js_1.db.prepare(revQuery).get(period);
+    const revStats = db.prepare(revQuery).get(period);
     const totalRevenue = revStats?.revenue || 0;
     const totalCogs = revStats?.cogs || 0;
     const grossProfit = totalRevenue - totalCogs;
@@ -306,16 +304,16 @@ router.get('/financial', auth_js_1.authenticate, (req, res) => {
     if (warehouseId)
         expQuery += ` AND warehouse_id = ${warehouseId}`;
     expQuery += ' GROUP BY category';
-    const expenseCategories = database_js_1.db.prepare(expQuery).all(period);
+    const expenseCategories = db.prepare(expQuery).all(period);
     const totalExpenses = expenseCategories.reduce((sum, e) => sum + e.total, 0);
     // Salaries
     let salQuery = `SELECT SUM(total_amount) as total FROM salaries WHERE period = ?`;
     if (warehouseId)
         salQuery += ` AND warehouse_id = ${warehouseId}`;
-    const totalSalaries = database_js_1.db.prepare(salQuery).get(period)?.total || 0;
+    const totalSalaries = db.prepare(salQuery).get(period)?.total || 0;
     const netProfit = grossProfit - totalExpenses - totalSalaries;
     const marginPercentage = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
-    return (0, response_js_1.sendSuccess)(res, {
+    return sendSuccess(res, {
         period,
         warehouseId: warehouseId || null,
         totalRevenue,
@@ -328,4 +326,4 @@ router.get('/financial', auth_js_1.authenticate, (req, res) => {
         marginPercentage: Math.round(marginPercentage * 10) / 10,
     });
 });
-exports.default = router;
+export default router;

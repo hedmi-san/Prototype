@@ -1,9 +1,6 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.initSchema = initSchema;
-const database_js_1 = require("./database.js");
-function initSchema() {
-    database_js_1.db.exec(`
+import { db } from './database.js';
+export function initSchema() {
+    db.exec(`
     CREATE TABLE IF NOT EXISTS roles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,

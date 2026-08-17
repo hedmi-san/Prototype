@@ -1,11 +1,9 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = require("express");
-const database_js_1 = require("../db/database.js");
-const response_js_1 = require("../common/response.js");
-const auth_js_1 = require("../middleware/auth.js");
-const router = (0, express_1.Router)();
-router.get('/', auth_js_1.authenticate, (req, res) => {
+import { Router } from 'express';
+import { db, runTransaction } from '../db/database.js';
+import { sendSuccess, sendError } from '../common/response.js';
+import { authenticate, logAudit, validateWarehouseScope } from '../middleware/auth.js';
+const router = Router();
+router.get('/', authenticate, (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
     let query = `
     SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name,
@@ -25,8 +23,8 @@ router.get('/', auth_js_1.authenticate, (req, res) => {
         params.push(req.user.warehouseId);
     }
     query += ' ORDER BY s.created_at DESC, s.id DESC';
-    const sales = database_js_1.db.prepare(query).all(...params).map((s) => {
-        const items = database_js_1.db.prepare(`
+    const sales = db.prepare(query).all(...params).map((s) => {
+        const items = db.prepare(`
       SELECT si.id, si.product_id, p.name as product_name, p.reference as product_reference,
              si.quantity, si.unit_price, si.subtotal
       FROM sale_items si
@@ -57,11 +55,11 @@ router.get('/', auth_js_1.authenticate, (req, res) => {
             items,
         };
     });
-    return (0, response_js_1.sendSuccess)(res, sales);
+    return sendSuccess(res, sales);
 });
-router.get('/:id', auth_js_1.authenticate, (req, res) => {
+router.get('/:id', authenticate, (req, res) => {
     const id = Number(req.params.id);
-    const s = database_js_1.db.prepare(`
+    const s = db.prepare(`
     SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name,
            s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
            s.total_amount, s.status, s.created_at, s.updated_at
@@ -71,9 +69,9 @@ router.get('/:id', auth_js_1.authenticate, (req, res) => {
     WHERE s.id = ?
   `).get(id);
     if (!s) {
-        return (0, response_js_1.sendError)(res, `Sale not found with id ${id}`, 404);
+        return sendError(res, `Sale not found with id ${id}`, 404);
     }
-    const items = database_js_1.db.prepare(`
+    const items = db.prepare(`
     SELECT si.id, si.product_id, p.name as product_name, p.reference as product_reference,
            si.quantity, si.unit_price, si.subtotal
     FROM sale_items si
@@ -88,7 +86,7 @@ router.get('/:id', auth_js_1.authenticate, (req, res) => {
         unitPrice: i.unit_price,
         subtotal: i.subtotal,
     }));
-    return (0, response_js_1.sendSuccess)(res, {
+    return sendSuccess(res, {
         id: s.id,
         invoiceNumber: s.invoice_number,
         warehouseId: s.warehouse_id,
@@ -104,104 +102,104 @@ router.get('/:id', auth_js_1.authenticate, (req, res) => {
         items,
     });
 });
-router.post('/', auth_js_1.authenticate, (req, res) => {
+router.post('/', authenticate, (req, res) => {
     const { warehouseId, customerName, customerPhone, items } = req.body;
     const targetWarehouseId = warehouseId || req.user?.warehouseId;
     if (!targetWarehouseId || !items || !Array.isArray(items) || items.length === 0) {
-        return (0, response_js_1.sendError)(res, 'warehouseId and non-empty items array are required', 400);
+        return sendError(res, 'warehouseId and non-empty items array are required', 400);
     }
     if (req.user) {
         try {
-            (0, auth_js_1.validateWarehouseScope)(req.user, targetWarehouseId);
+            validateWarehouseScope(req.user, targetWarehouseId);
         }
         catch (err) {
-            return (0, response_js_1.sendError)(res, err.message, 403);
+            return sendError(res, err.message, 403);
         }
     }
     try {
-        const sale = (0, database_js_1.runTransaction)(() => {
+        const sale = runTransaction(() => {
             const invoiceNumber = `INV-${Date.now().toString().slice(-8)}`;
             let totalAmount = 0;
             // 1. Validate and deduct stock atomically
             for (const item of items) {
-                const product = database_js_1.db.prepare('SELECT id, name, sale_price FROM products WHERE id = ?').get(item.productId);
+                const product = db.prepare('SELECT id, name, sale_price FROM products WHERE id = ?').get(item.productId);
                 if (!product)
                     throw new Error(`Product not found with id ${item.productId}`);
-                const stock = database_js_1.db.prepare('SELECT * FROM stock WHERE warehouse_id = ? AND product_id = ?').get(targetWarehouseId, item.productId);
+                const stock = db.prepare('SELECT * FROM stock WHERE warehouse_id = ? AND product_id = ?').get(targetWarehouseId, item.productId);
                 const available = stock ? (stock.physical_quantity - stock.reserved_quantity) : 0;
                 if (available < item.quantity) {
                     throw new Error(`Insufficient stock for product ${product.name}. Available: ${available}, Requested: ${item.quantity}`);
                 }
-                database_js_1.db.prepare('UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime("now") WHERE id = ?')
+                db.prepare('UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime("now") WHERE id = ?')
                     .run(item.quantity, stock.id);
-                database_js_1.db.prepare(`
+                db.prepare(`
           INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
           VALUES (?, ?, 'SALE', ?, ?, ?)
         `).run(targetWarehouseId, item.productId, -item.quantity, invoiceNumber, `Sale to ${customerName || 'Retail Customer'}`);
                 totalAmount += item.quantity * (item.unitPrice || product.sale_price);
             }
             // 2. Create Sale Record
-            const insertSale = database_js_1.db.prepare(`
+            const insertSale = db.prepare(`
         INSERT INTO sales (invoice_number, warehouse_id, user_id, customer_name, customer_phone, total_amount, status)
         VALUES (?, ?, ?, ?, ?, ?, 'COMPLETED')
       `);
             const saleInfo = insertSale.run(invoiceNumber, targetWarehouseId, req.user ? req.user.id : 1, customerName || 'Retail Customer', customerPhone || '', totalAmount);
             const saleId = Number(saleInfo.lastInsertRowid);
             // 3. Create Sale Items
-            const insertItem = database_js_1.db.prepare(`
+            const insertItem = db.prepare(`
         INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
         VALUES (?, ?, ?, ?, ?)
       `);
             for (const item of items) {
-                const product = database_js_1.db.prepare('SELECT sale_price FROM products WHERE id = ?').get(item.productId);
+                const product = db.prepare('SELECT sale_price FROM products WHERE id = ?').get(item.productId);
                 const unitPrice = item.unitPrice || product.sale_price;
                 insertItem.run(saleId, item.productId, item.quantity, unitPrice, item.quantity * unitPrice);
             }
             return { id: saleId, invoiceNumber, totalAmount };
         });
-        (0, auth_js_1.logAudit)(req.user, 'SALE_CREATED', 'SALE', sale.id, `Created sale ${sale.invoiceNumber} (Total: ${sale.totalAmount} DZD)`, targetWarehouseId);
-        return (0, response_js_1.sendSuccess)(res, sale, 'Sale completed successfully', 201);
+        logAudit(req.user, 'SALE_CREATED', 'SALE', sale.id, `Created sale ${sale.invoiceNumber} (Total: ${sale.totalAmount} DZD)`, targetWarehouseId);
+        return sendSuccess(res, sale, 'Sale completed successfully', 201);
     }
     catch (err) {
-        return (0, response_js_1.sendError)(res, err.message, 400);
+        return sendError(res, err.message, 400);
     }
 });
-router.put('/:id', auth_js_1.authenticate, (req, res) => {
+router.put('/:id', authenticate, (req, res) => {
     const id = Number(req.params.id);
     const { customerName, customerPhone, items } = req.body;
-    const currentSale = database_js_1.db.prepare('SELECT * FROM sales WHERE id = ?').get(id);
+    const currentSale = db.prepare('SELECT * FROM sales WHERE id = ?').get(id);
     if (!currentSale) {
-        return (0, response_js_1.sendError)(res, `Sale not found with id ${id}`, 404);
+        return sendError(res, `Sale not found with id ${id}`, 404);
     }
     if (currentSale.status === 'CANCELLED') {
-        return (0, response_js_1.sendError)(res, 'Cannot edit a cancelled sale', 400);
+        return sendError(res, 'Cannot edit a cancelled sale', 400);
     }
     try {
-        const updatedSale = (0, database_js_1.runTransaction)(() => {
+        const updatedSale = runTransaction(() => {
             // 1. Revert previous inventory items
-            const existingItems = database_js_1.db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(id);
+            const existingItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(id);
             for (const item of existingItems) {
-                database_js_1.db.prepare('UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime("now") WHERE warehouse_id = ? AND product_id = ?')
+                db.prepare('UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime("now") WHERE warehouse_id = ? AND product_id = ?')
                     .run(item.quantity, currentSale.warehouse_id, item.product_id);
             }
             // 2. Delete existing items
-            database_js_1.db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(id);
+            db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(id);
             // 3. Apply new items and validate stock
             let newTotal = 0;
-            const insertItem = database_js_1.db.prepare(`
+            const insertItem = db.prepare(`
         INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
         VALUES (?, ?, ?, ?, ?)
       `);
             for (const item of items) {
-                const product = database_js_1.db.prepare('SELECT id, name, sale_price FROM products WHERE id = ?').get(item.productId);
+                const product = db.prepare('SELECT id, name, sale_price FROM products WHERE id = ?').get(item.productId);
                 if (!product)
                     throw new Error(`Product not found with id ${item.productId}`);
-                const stock = database_js_1.db.prepare('SELECT * FROM stock WHERE warehouse_id = ? AND product_id = ?').get(currentSale.warehouse_id, item.productId);
+                const stock = db.prepare('SELECT * FROM stock WHERE warehouse_id = ? AND product_id = ?').get(currentSale.warehouse_id, item.productId);
                 const available = stock ? (stock.physical_quantity - stock.reserved_quantity) : 0;
                 if (available < item.quantity) {
                     throw new Error(`Insufficient stock for product ${product.name}. Available: ${available}, Requested: ${item.quantity}`);
                 }
-                database_js_1.db.prepare('UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime("now") WHERE id = ?')
+                db.prepare('UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime("now") WHERE id = ?')
                     .run(item.quantity, stock.id);
                 const unitPrice = item.unitPrice || product.sale_price;
                 const subtotal = item.quantity * unitPrice;
@@ -209,52 +207,52 @@ router.put('/:id', auth_js_1.authenticate, (req, res) => {
                 newTotal += subtotal;
             }
             // 4. Update Sale header
-            database_js_1.db.prepare(`
+            db.prepare(`
         UPDATE sales
         SET customer_name = ?, customer_phone = ?, total_amount = ?, updated_at = datetime('now')
         WHERE id = ?
       `).run(customerName || currentSale.customer_name, customerPhone || currentSale.customer_phone, newTotal, id);
-            database_js_1.db.prepare(`
+            db.prepare(`
         INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
         VALUES (?, ?, 'SALE_EDIT', 0, ?, 'Sale modified with inventory reconciliation')
       `).run(currentSale.warehouse_id, items[0]?.productId || 1, currentSale.invoice_number);
             return { id, invoiceNumber: currentSale.invoice_number, totalAmount: newTotal };
         });
-        (0, auth_js_1.logAudit)(req.user, 'SALE_MODIFIED', 'SALE', id, `Modified sale ${currentSale.invoice_number}`, currentSale.warehouse_id);
-        return (0, response_js_1.sendSuccess)(res, updatedSale, 'Sale updated successfully');
+        logAudit(req.user, 'SALE_MODIFIED', 'SALE', id, `Modified sale ${currentSale.invoice_number}`, currentSale.warehouse_id);
+        return sendSuccess(res, updatedSale, 'Sale updated successfully');
     }
     catch (err) {
-        return (0, response_js_1.sendError)(res, err.message, 400);
+        return sendError(res, err.message, 400);
     }
 });
-router.post('/:id/cancel', auth_js_1.authenticate, (req, res) => {
+router.post('/:id/cancel', authenticate, (req, res) => {
     const id = Number(req.params.id);
-    const currentSale = database_js_1.db.prepare('SELECT * FROM sales WHERE id = ?').get(id);
+    const currentSale = db.prepare('SELECT * FROM sales WHERE id = ?').get(id);
     if (!currentSale) {
-        return (0, response_js_1.sendError)(res, `Sale not found with id ${id}`, 404);
+        return sendError(res, `Sale not found with id ${id}`, 404);
     }
     if (currentSale.status === 'CANCELLED') {
-        return (0, response_js_1.sendError)(res, 'Sale is already cancelled', 400);
+        return sendError(res, 'Sale is already cancelled', 400);
     }
     try {
-        (0, database_js_1.runTransaction)(() => {
+        runTransaction(() => {
             // Revert items stock
-            const items = database_js_1.db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(id);
+            const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(id);
             for (const item of items) {
-                database_js_1.db.prepare('UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime("now") WHERE warehouse_id = ? AND product_id = ?')
+                db.prepare('UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime("now") WHERE warehouse_id = ? AND product_id = ?')
                     .run(item.quantity, currentSale.warehouse_id, item.product_id);
-                database_js_1.db.prepare(`
+                db.prepare(`
           INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
           VALUES (?, ?, 'SALE_CANCEL', ?, ?, 'Sale voided / cancelled')
         `).run(currentSale.warehouse_id, item.product_id, item.quantity, currentSale.invoice_number);
             }
-            database_js_1.db.prepare('UPDATE sales SET status = "CANCELLED", updated_at = datetime("now") WHERE id = ?').run(id);
+            db.prepare('UPDATE sales SET status = "CANCELLED", updated_at = datetime("now") WHERE id = ?').run(id);
         });
-        (0, auth_js_1.logAudit)(req.user, 'SALE_CANCELLED', 'SALE', id, `Voided sale ${currentSale.invoice_number} and reversed stock`, currentSale.warehouse_id);
-        return (0, response_js_1.sendSuccess)(res, { id, status: 'CANCELLED' }, 'Sale cancelled and stock reversed successfully');
+        logAudit(req.user, 'SALE_CANCELLED', 'SALE', id, `Voided sale ${currentSale.invoice_number} and reversed stock`, currentSale.warehouse_id);
+        return sendSuccess(res, { id, status: 'CANCELLED' }, 'Sale cancelled and stock reversed successfully');
     }
     catch (err) {
-        return (0, response_js_1.sendError)(res, err.message, 500);
+        return sendError(res, err.message, 500);
     }
 });
-exports.default = router;
+export default router;

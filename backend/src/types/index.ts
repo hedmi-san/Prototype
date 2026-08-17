@@ -166,7 +166,7 @@ export interface SalaryRecord {
   employee_name?: string;
   warehouse_id: number;
   warehouse_name?: string;
-  period: string; // YYYY-MM
+  period: string;
   base_salary: number;
   bonus1: number;
   bonus2: number;
