@@ -1,38 +1,45 @@
 # Multi-Warehouse Tool Distribution Management System
 
-A multi-warehouse industrial tool distribution system built with **Spring Boot 3 (Java 21)**, **PostgreSQL 16**, and **Vue 3 (TypeScript + Vite)**.
+A multi-warehouse industrial tool distribution management system built with **Node.js (Express + TypeScript + SQLite WAL)** and **Vue 3 (TypeScript + Vite + Pinia)** with a monochromatic design system (`#171717`, `#f3f3f3`, `#ffffff`).
 
 ## Key Features
 
-- **Pessimistic Inventory Locking**: `SELECT ... FOR UPDATE` row-level locking guaranteeing zero negative stock under high concurrency.
+- **Zero-Config Embedded Database**: Uses Node.js native `node:sqlite` (SQLite) with Write-Ahead Logging (`WAL`) mode and atomic immediate write transactions (`BEGIN IMMEDIATE`), ensuring zero external dependencies (no Docker or external database needed).
+- **Pessimistic Inventory Locking & Safety**: Guaranteed prevention of negative stock under concurrent sales and stock adjustments.
 - **Inter-Warehouse Transfers**: Explicit stock reservation workflow (`REQUESTED` $\rightarrow$ `APPROVED` $\rightarrow$ `CONFIRMED` / `CANCELLED`).
 - **Sales Delta Reconciliation**: Automatic stock adjustment on invoice modification and non-destructive voiding.
 - **Dynamic Asset Valuation**: Real-time stock valuation using current purchase prices.
-- **Consolidated Financial Reports**: P&L income statement with gross margin, categorized operating expenses, payroll, and net profit.
-- **Monochromatic UI Design System**: Tailored dark charcoal `#171717`, light gray `#f3f3f3`, and pure white `#ffffff` palette with fluid typography and skeleton screens.
+- **Consolidated Financial Reports**: Income statements with gross profit margin, categorized operating expenses, payroll, and net profit.
+- **Monochromatic UI Design System**: Premium `#171717` dark charcoal, `#f3f3f3` surface, and `#ffffff` light palette with fluid typography and skeleton loading screens.
 
 ## Quick Start
 
-### 1. Start Database & Services
+### 1. Install Dependencies
 ```bash
-docker compose up -d postgres
-```
-
-### 2. Run Backend
-```bash
+# Install backend dependencies
 cd backend
-./mvnw spring-boot:run
+npm install
+
+# Install frontend dependencies
+cd ../frontend
+npm install
 ```
 
-### 3. Run Frontend
+### 2. Run Application
 ```bash
+# Terminal 1: Run Backend (Port 8080)
+cd backend
+npm run dev
+
+# Terminal 2: Run Frontend (Port 5173)
 cd frontend
-npm install
 npm run dev
 ```
 
-## Demo Credentials
-- **Admin**: `admin` / `admin123`
-- **Super Manager**: `supermanager` / `manager123`
-- **Algiers Manager**: `manager_algiers` / `manager123`
-- **Algiers Accountant**: `accountant_algiers` / `accountant123`
+Open `http://localhost:5173/` in your browser.
+
+## Demo Credentials (Quick Login)
+- **Admin**: `admin` / `AdminPass123!` (Global Access)
+- **Manager (Algiers Hub)**: `manager_algiers` / `ManagerPass123!`
+- **Super Manager (Oran Hub)**: `super_oran` / `SuperPass123!`
+- **Accountant (Constantine)**: `accountant_constantine` / `AccountantPass123!`
