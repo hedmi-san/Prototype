@@ -1,0 +1,73 @@
+:root {
+  /* Colors - Monochromatic Palette */
+  --color-primary: #171717;
+  --color-primary-hover: #262626;
+  --color-primary-active: #000000;
+  
+  --color-bg: #ffffff;
+  --color-bg-subtle: #fafafa;
+  
+  --color-surface: #f3f3f3;
+  --color-surface-hover: #ebebeb;
+  --color-surface-blur: rgba(243, 243, 243, 0.85);
+  
+  --color-text-primary: rgba(23, 23, 23, 0.95);
+  --color-text-secondary: rgba(124, 124, 124, 0.75);
+  --color-text-tertiary: rgba(199, 199, 199, 0.80);
+  --color-text-inverse: #ffffff;
+  
+  --color-border: #ededed;
+  --color-border-subtle: #f0f0f0;
+  --color-border-dark: #d4d4d4;
+
+  /* System Alerts */
+  --color-success: #278f5e;
+  --color-success-bg: #e4f5e9;
+  --color-success-border: #c3e6cb;
+  
+  --color-danger: #cc2929;
+  --color-danger-bg: #fff7f7;
+  --color-danger-border: #f5c6cb;
+  
+  --color-warning: #ab6e05;
+  --color-warning-bg: #fffcef;
+  --color-warning-border: #ffeeba;
+  
+  --color-info: #0070cc;
+  --color-info-bg: #f7fbfd;
+  --color-info-border: #b8daff;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
+
+  /* Spacing & Layout */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+
+  --container-max-width: 1440px;
+  --padding-grid: 10px 8px;
+  --padding-card: 20px;
+
+  /* Border Radii */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Layered Shadows */
+  --shadow-sm: 0px 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0px 0px 1px rgba(0,0,0,0.12), 0px 0.5px 2px rgba(0,0,0,0.15), 0px 2px 3px rgba(0,0,0,0.10);
+  --shadow-lg: 0px 0px 1px rgba(0,0,0,0.25), 0px 6px 8px -4px rgba(0,0,0,0.08);
+  --shadow-xl: 0px 0px 1px rgba(0,0,0,0.19), 0px 1px 2px rgba(0,0,0,0.07), 0px 6px 15px -5px rgba(0,0,0,0.11);
+  --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}

@@ -1,0 +1,4 @@
+dz\company\distributor\inventory\InventoryConcurrencyTest.class
+dz\company\distributor\transfers\TransferWorkflowTest.class
+dz\company\distributor\sales\SaleModificationTest.class
+dz\company\distributor\security\AuthorizationTest.class
