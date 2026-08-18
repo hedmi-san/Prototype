@@ -36,3 +36,11 @@ The system SHALL support cancelling or voiding sales without hard-deleting recor
 - **WHEN** an Accountant or Manager cancels an active sale containing 5 units of Product A
 - **THEN** the system SHALL set the sale status to `CANCELLED`, increment `physical_quantity` by 5, record compensating stock movements, and retain the original invoice number and audit logs for traceability
 
+### Requirement: Historical Sales Range Filtering and Aggregation
+The system SHALL support querying and aggregating completed sales transactions across configurable start and end dates with warehouse scoping.
+
+#### Scenario: Query sales within custom date boundaries
+- **WHEN** an authenticated user requests sales records with `startDate="2026-07-01"` and `endDate="2026-07-31"`
+- **THEN** the system SHALL return all completed sales whose `created_at` timestamp falls within the inclusive date boundary, respecting the user's warehouse authorization scope
+
+

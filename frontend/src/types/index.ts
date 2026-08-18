@@ -75,7 +75,9 @@ export interface StockMovement {
   productReference: string;
   productName: string;
   type: StockMovementType;
+  movementType?: StockMovementType;
   quantity: number;
+  quantityChange?: number;
   referenceType: string;
   referenceId: number | null;
   reason: string;
@@ -212,14 +214,62 @@ export interface WarehouseComparison {
   stockValue: number;
   totalProductsCount: number;
   monthlySales: number;
+  periodSales?: number;
   monthlyExpenses: number;
   monthlySalaries: number;
 }
 
+export type PeriodPreset =
+  | 'today'
+  | 'yesterday'
+  | 'last7days'
+  | 'last30days'
+  | 'thisMonth'
+  | 'lastMonth'
+  | 'thisYear'
+  | 'lastYear'
+  | 'custom';
+
+export interface SalesTrendItem {
+  date: string;
+  label: string;
+  totalAmount: number;
+  ordersCount: number;
+}
+
 export interface DashboardMetrics {
+  preset?: PeriodPreset;
+  startDate?: string;
+  endDate?: string;
+  periodLabel?: string;
+  priorPeriodLabel?: string;
+
+  // Selected period metrics
+  periodSales?: number;
+  periodOrders?: number;
+  periodAverageBasket?: number;
+  periodGrossProfit?: number;
+  periodExpenses?: number;
+  periodSalaries?: number;
+  periodNetProfit?: number;
+
+  // Comparison metrics
+  priorSales?: number;
+  priorOrders?: number;
+  salesGrowthPercentage?: number;
+  ordersGrowthPercentage?: number;
+
+  // Time series
+  salesTrend?: SalesTrendItem[];
+
+  // Core metrics
   totalStockValue: number;
+  totalStockValuation?: number;
+  totalStockItems?: number;
   salesToday: number;
+  totalSalesToday?: number;
   salesThisMonth: number;
+  totalSalesThisMonth?: number;
   outOfStockCount: number;
   lowStockCount: number;
   totalExpensesThisMonth: number;

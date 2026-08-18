@@ -4,7 +4,7 @@
 TBD - created by archiving change multi-warehouse-tool-distribution-system. Update Purpose after archive.
 ## Requirements
 ### Requirement: Role-Based Dashboard Metrics
-The system SHALL provide customized dashboards displaying real-time operational KPIs for Admins across all warehouses, and for Managers and Accountants filtered to their assigned warehouse.
+The system SHALL provide customized dashboards displaying operational KPIs for Admins across all warehouses, and for Managers and Accountants filtered to their assigned warehouse, synchronized with the reusable ERP period navigator component.
 
 #### Scenario: Admin views global dashboard
 - **WHEN** an Admin accesses the dashboard
@@ -13,6 +13,10 @@ The system SHALL provide customized dashboards displaying real-time operational 
 #### Scenario: Manager views warehouse dashboard
 - **WHEN** a Manager accesses the dashboard
 - **THEN** the system SHALL display KPIs scoped exclusively to their warehouse (today's sales, monthly sales, warehouse stock valuation, and local expenses)
+
+#### Scenario: Dashboard refreshes on period change
+- **WHEN** the user shifts the period navigator to a new date range (e.g. "T2 2025")
+- **THEN** the dashboard SHALL automatically fetch and display sales, expenses, net profits, and performance comparisons computed for that exact time boundary
 
 ### Requirement: Stock Valuation using Current Purchase Prices
 The system SHALL calculate the monetary valuation of inventory using the product's current purchase price multiplied by its current physical stock quantity.

@@ -1,5 +1,5 @@
 import api from './api';
-import type { ApiResponse, Expense, Employee, SalaryRecord, DashboardMetrics, StockValuationReport, FinancialReport, AuditLog, User, Sale } from '../types';
+import type { ApiResponse, Expense, Employee, SalaryRecord, DashboardMetrics, PeriodPreset, StockValuationReport, FinancialReport, AuditLog, User, Sale } from '../types';
 
 export const expenseService = {
   async getExpenses(warehouseId?: number): Promise<Expense[]> {
@@ -46,8 +46,17 @@ export const salaryService = {
 };
 
 export const reportService = {
-  async getDashboardMetrics(warehouseId?: number): Promise<DashboardMetrics> {
-    const params = warehouseId ? { warehouseId } : {};
+  async getDashboardMetrics(
+    warehouseId?: number,
+    preset?: PeriodPreset,
+    startDate?: string,
+    endDate?: string
+  ): Promise<DashboardMetrics> {
+    const params: Record<string, string | number> = {};
+    if (warehouseId) params.warehouseId = warehouseId;
+    if (preset) params.preset = preset;
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
     const response = await api.get<ApiResponse<DashboardMetrics>>('/reports/dashboard', { params });
     return response.data.data;
   },

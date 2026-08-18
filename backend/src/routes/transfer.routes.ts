@@ -175,13 +175,13 @@ router.post('/:id/approve', authenticate, (req: AuthRequest, res) => {
           throw new Error(`Insufficient available stock at source warehouse to reserve ${qtyToApprove} units. Available: ${available}`);
         }
 
-        db.prepare('UPDATE stock SET reserved_quantity = reserved_quantity + ?, updated_at = datetime("now") WHERE id = ?')
+        db.prepare("UPDATE stock SET reserved_quantity = reserved_quantity + ?, updated_at = datetime('now') WHERE id = ?")
           .run(qtyToApprove, stock.id);
 
         db.prepare('UPDATE transfer_items SET approved_quantity = ? WHERE id = ?').run(qtyToApprove, curItem.id);
       }
 
-      db.prepare('UPDATE transfers SET status = "APPROVED", updated_at = datetime("now") WHERE id = ?').run(id);
+      db.prepare("UPDATE transfers SET status = 'APPROVED', updated_at = datetime('now') WHERE id = ?").run(id);
     });
 
     logAudit(req.user, 'TRANSFER_APPROVED', 'TRANSFER', id, `Approved transfer ${transfer.transfer_number} and reserved stock`, transfer.source_warehouse_id);
@@ -216,7 +216,7 @@ router.post('/:id/confirm', authenticate, (req: AuthRequest, res) => {
         // Add physical at destination
         const destStock = db.prepare('SELECT * FROM stock WHERE warehouse_id = ? AND product_id = ?').get(transfer.destination_warehouse_id, item.product_id) as any;
         if (destStock) {
-          db.prepare('UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime("now") WHERE id = ?')
+          db.prepare("UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime('now') WHERE id = ?")
             .run(item.approved_quantity, destStock.id);
         } else {
           db.prepare('INSERT INTO stock (warehouse_id, product_id, physical_quantity, reserved_quantity) VALUES (?, ?, ?, 0)')
@@ -229,7 +229,7 @@ router.post('/:id/confirm', authenticate, (req: AuthRequest, res) => {
         `).run(transfer.destination_warehouse_id, item.product_id, item.approved_quantity, transfer.transfer_number, `Transfer in from warehouse ID ${transfer.source_warehouse_id}`);
       }
 
-      db.prepare('UPDATE transfers SET status = "CONFIRMED", updated_at = datetime("now") WHERE id = ?').run(id);
+      db.prepare("UPDATE transfers SET status = 'CONFIRMED', updated_at = datetime('now') WHERE id = ?").run(id);
     });
 
     logAudit(req.user, 'TRANSFER_CONFIRMED', 'TRANSFER', id, `Confirmed transfer receipt ${transfer.transfer_number}`, transfer.destination_warehouse_id);
@@ -245,7 +245,7 @@ router.post('/:id/decline', authenticate, (req: AuthRequest, res) => {
   if (!transfer) return sendError(res, `Transfer not found with id ${id}`, 404);
   if (transfer.status !== 'REQUESTED') return sendError(res, `Cannot decline transfer in status ${transfer.status}`, 400);
 
-  db.prepare('UPDATE transfers SET status = "DECLINED", updated_at = datetime("now") WHERE id = ?').run(id);
+  db.prepare("UPDATE transfers SET status = 'DECLINED', updated_at = datetime('now') WHERE id = ?").run(id);
   logAudit(req.user, 'TRANSFER_DECLINED', 'TRANSFER', id, `Declined transfer request ${transfer.transfer_number}`, transfer.source_warehouse_id);
   return sendSuccess(res, { id, status: 'DECLINED' }, 'Transfer declined');
 });
@@ -264,11 +264,11 @@ router.post('/:id/cancel', authenticate, (req: AuthRequest, res) => {
       if (transfer.status === 'APPROVED') {
         const items = db.prepare('SELECT * FROM transfer_items WHERE transfer_id = ?').all(id) as any[];
         for (const item of items) {
-          db.prepare('UPDATE stock SET reserved_quantity = reserved_quantity - ?, updated_at = datetime("now") WHERE warehouse_id = ? AND product_id = ?')
+          db.prepare("UPDATE stock SET reserved_quantity = reserved_quantity - ?, updated_at = datetime('now') WHERE warehouse_id = ? AND product_id = ?")
             .run(item.approved_quantity, transfer.source_warehouse_id, item.product_id);
         }
       }
-      db.prepare('UPDATE transfers SET status = "CANCELLED", updated_at = datetime("now") WHERE id = ?').run(id);
+      db.prepare("UPDATE transfers SET status = 'CANCELLED', updated_at = datetime('now') WHERE id = ?").run(id);
     });
 
     logAudit(req.user, 'TRANSFER_CANCELLED', 'TRANSFER', id, `Cancelled transfer ${transfer.transfer_number} and released reservation`, transfer.source_warehouse_id);

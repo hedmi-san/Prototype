@@ -1,8 +1,72 @@
 import bcrypt from 'bcryptjs';
 import { db, runTransaction } from './database.js';
 export function seedData() {
+    const seedSalesIfEmpty = () => {
+        const salesCount = db.prepare('SELECT COUNT(*) as count FROM sales').get().count;
+        if (salesCount > 0)
+            return;
+        const insertSale = db.prepare(`
+      INSERT INTO sales (id, invoice_number, warehouse_id, user_id, customer_name, customer_phone, total_amount, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
+    `);
+        const insertItem = db.prepare(`
+      INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+        const now = new Date();
+        const formatDate = (d, timeStr = '10:30:00') => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day} ${timeStr}`;
+        };
+        const todayStr = formatDate(now, '11:15:00');
+        const yestDate = new Date(now);
+        yestDate.setDate(now.getDate() - 1);
+        const yestStr = formatDate(yestDate, '14:20:00');
+        const threeDaysAgo = new Date(now);
+        threeDaysAgo.setDate(now.getDate() - 3);
+        const threeDaysStr = formatDate(threeDaysAgo, '09:45:00');
+        const fiveDaysAgo = new Date(now);
+        fiveDaysAgo.setDate(now.getDate() - 5);
+        const fiveDaysStr = formatDate(fiveDaysAgo, '16:10:00');
+        const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 18);
+        const lastMonthStr = formatDate(lastMonthDate, '13:00:00');
+        const lastMonthDate2 = new Date(now.getFullYear(), now.getMonth() - 1, 24);
+        const lastMonthStr2 = formatDate(lastMonthDate2, '15:30:00');
+        const lastYearDate = new Date(now.getFullYear() - 1, now.getMonth(), 18);
+        const lastYearStr = formatDate(lastYearDate, '10:00:00');
+        // Sale 1: Today (WH 1) - 56,000 DA
+        insertSale.run(1, 'INV-20260818-01', 1, 2, 'SARL Bâtiment Pro Alger', '+213 550 12 34 56', 56000.0, todayStr, todayStr);
+        insertItem.run(1, 1, 2, 28000.0, 56000.0);
+        // Sale 2: Today (WH 3) - 36,500 DA
+        insertSale.run(2, 'INV-20260818-02', 3, 4, 'Entreprise Travaux Constantine', '+213 553 99 88 77', 36500.0, todayStr, todayStr);
+        insertItem.run(2, 3, 1, 36500.0, 36500.0);
+        // Sale 3: Yesterday (WH 1) - 55,500 DA
+        insertSale.run(3, 'INV-20260817-01', 1, 2, 'Quincaillerie Centrale El Harrach', '+213 551 23 45 67', 55500.0, yestStr, yestStr);
+        insertItem.run(3, 4, 3, 18500.0, 55500.0);
+        // Sale 4: Yesterday (WH 2) - 125,000 DA
+        insertSale.run(4, 'INV-20260817-02', 2, 3, 'Chantier Ouest Oran', '+213 552 34 56 78', 125000.0, yestStr, yestStr);
+        insertItem.run(4, 5, 1, 125000.0, 125000.0);
+        // Sale 5: 3 Days Ago (WH 1) - 73,000 DA
+        insertSale.run(5, 'INV-20260815-01', 1, 2, 'Atelier Outillage Rouiba', '+213 550 45 67 89', 73000.0, threeDaysStr, threeDaysStr);
+        insertItem.run(5, 3, 2, 36500.0, 73000.0);
+        // Sale 6: 5 Days Ago (WH 2) - 49,000 DA
+        insertSale.run(6, 'INV-20260813-01', 2, 3, 'EURL BTPH Oran Centre', '+213 552 67 89 01', 49000.0, fiveDaysStr, fiveDaysStr);
+        insertItem.run(6, 2, 2, 24500.0, 49000.0);
+        // Sale 7: Last Month (WH 1) - 140,000 DA
+        insertSale.run(7, 'INV-20260718-01', 1, 2, 'Coopérative Artisanat Alger', '+213 550 78 90 12', 140000.0, lastMonthStr, lastMonthStr);
+        insertItem.run(7, 1, 5, 28000.0, 140000.0);
+        // Sale 8: Last Month (WH 3) - 73,000 DA
+        insertSale.run(8, 'INV-20260724-01', 3, 4, 'Mohamed Bennani (Constantine)', '+213 540 19 87 11', 73000.0, lastMonthStr2, lastMonthStr2);
+        insertItem.run(8, 3, 2, 36500.0, 73000.0);
+        // Sale 9: Last Year (WH 2) - 250,000 DA
+        insertSale.run(9, 'INV-20250818-01', 2, 3, 'Société Générale de Travaux Oran', '+213 552 89 01 23', 250000.0, lastYearStr, lastYearStr);
+        insertItem.run(9, 5, 2, 125000.0, 250000.0);
+    };
     const roleCount = db.prepare('SELECT COUNT(*) as count FROM roles').get().count;
     if (roleCount > 0) {
+        seedSalesIfEmpty();
         return;
     }
     runTransaction(() => {
@@ -92,5 +156,70 @@ export function seedData() {
       VALUES (1, NULL, 'SYSTEM_INIT', 'SYSTEM', '1', 'System seeded and initialized with demo catalog and accounts')
     `);
         insertAudit.run();
+        // 10. Multi-Period Demo Sales (for instant historical analysis)
+        const seedSalesIfEmpty = () => {
+            const salesCount = db.prepare('SELECT COUNT(*) as count FROM sales').get().count;
+            if (salesCount > 0)
+                return;
+            const insertSale = db.prepare(`
+        INSERT INTO sales (id, invoice_number, warehouse_id, user_id, customer_name, customer_phone, total_amount, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)
+      `);
+            const insertItem = db.prepare(`
+        INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+            const now = new Date();
+            const formatDate = (d, timeStr = '10:30:00') => {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day} ${timeStr}`;
+            };
+            const todayStr = formatDate(now, '11:15:00');
+            const yestDate = new Date(now);
+            yestDate.setDate(now.getDate() - 1);
+            const yestStr = formatDate(yestDate, '14:20:00');
+            const threeDaysAgo = new Date(now);
+            threeDaysAgo.setDate(now.getDate() - 3);
+            const threeDaysStr = formatDate(threeDaysAgo, '09:45:00');
+            const fiveDaysAgo = new Date(now);
+            fiveDaysAgo.setDate(now.getDate() - 5);
+            const fiveDaysStr = formatDate(fiveDaysAgo, '16:10:00');
+            const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 18);
+            const lastMonthStr = formatDate(lastMonthDate, '13:00:00');
+            const lastMonthDate2 = new Date(now.getFullYear(), now.getMonth() - 1, 24);
+            const lastMonthStr2 = formatDate(lastMonthDate2, '15:30:00');
+            const lastYearDate = new Date(now.getFullYear() - 1, now.getMonth(), 18);
+            const lastYearStr = formatDate(lastYearDate, '10:00:00');
+            // Sale 1: Today (WH 1) - 56,000 DA
+            insertSale.run(1, 'INV-20260818-01', 1, 2, 'SARL Bâtiment Pro Alger', '+213 550 12 34 56', 56000.0, todayStr, todayStr);
+            insertItem.run(1, 1, 2, 28000.0, 56000.0);
+            // Sale 2: Today (WH 3) - 36,500 DA
+            insertSale.run(2, 'INV-20260818-02', 3, 4, 'Entreprise Travaux Constantine', '+213 553 99 88 77', 36500.0, todayStr, todayStr);
+            insertItem.run(2, 3, 1, 36500.0, 36500.0);
+            // Sale 3: Yesterday (WH 1) - 55,500 DA
+            insertSale.run(3, 'INV-20260817-01', 1, 2, 'Quincaillerie Centrale El Harrach', '+213 551 23 45 67', 55500.0, yestStr, yestStr);
+            insertItem.run(3, 4, 3, 18500.0, 55500.0);
+            // Sale 4: Yesterday (WH 2) - 125,000 DA
+            insertSale.run(4, 'INV-20260817-02', 2, 3, 'Chantier Ouest Oran', '+213 552 34 56 78', 125000.0, yestStr, yestStr);
+            insertItem.run(4, 5, 1, 125000.0, 125000.0);
+            // Sale 5: 3 Days Ago (WH 1) - 73,000 DA
+            insertSale.run(5, 'INV-20260815-01', 1, 2, 'Atelier Outillage Rouiba', '+213 550 45 67 89', 73000.0, threeDaysStr, threeDaysStr);
+            insertItem.run(5, 3, 2, 36500.0, 73000.0);
+            // Sale 6: 5 Days Ago (WH 2) - 49,000 DA
+            insertSale.run(6, 'INV-20260813-01', 2, 3, 'EURL BTPH Oran Centre', '+213 552 67 89 01', 49000.0, fiveDaysStr, fiveDaysStr);
+            insertItem.run(6, 2, 2, 24500.0, 49000.0);
+            // Sale 7: Last Month (WH 1) - 140,000 DA
+            insertSale.run(7, 'INV-20260718-01', 1, 2, 'Coopérative Artisanat Alger', '+213 550 78 90 12', 140000.0, lastMonthStr, lastMonthStr);
+            insertItem.run(7, 1, 5, 28000.0, 140000.0);
+            // Sale 8: Last Month (WH 3) - 73,000 DA
+            insertSale.run(8, 'INV-20260724-01', 3, 4, 'Mohamed Bennani (Constantine)', '+213 540 19 87 11', 73000.0, lastMonthStr2, lastMonthStr2);
+            insertItem.run(8, 3, 2, 36500.0, 73000.0);
+            // Sale 9: Last Year (WH 2) - 250,000 DA
+            insertSale.run(9, 'INV-20250818-01', 2, 3, 'Société Générale de Travaux Oran', '+213 552 89 01 23', 250000.0, lastYearStr, lastYearStr);
+            insertItem.run(9, 5, 2, 125000.0, 250000.0);
+        };
+        seedSalesIfEmpty();
     });
 }

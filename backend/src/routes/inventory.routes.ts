@@ -103,7 +103,7 @@ router.post('/initial-receipt', authenticate, requireRole('ADMIN', 'MANAGER'), (
     const result = runTransaction(() => {
       const stock = db.prepare('SELECT * FROM stock WHERE warehouse_id = ? AND product_id = ?').get(warehouseId, productId) as any;
       if (stock) {
-        db.prepare('UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime("now") WHERE id = ?').run(quantity, stock.id);
+        db.prepare("UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime('now') WHERE id = ?").run(quantity, stock.id);
       } else {
         db.prepare('INSERT INTO stock (warehouse_id, product_id, physical_quantity, reserved_quantity) VALUES (?, ?, ?, 0)').run(warehouseId, productId, quantity);
       }
@@ -139,7 +139,7 @@ router.post('/adjustments', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOU
       }
 
       if (stock) {
-        db.prepare('UPDATE stock SET physical_quantity = ?, updated_at = datetime("now") WHERE id = ?').run(newQty, stock.id);
+        db.prepare("UPDATE stock SET physical_quantity = ?, updated_at = datetime('now') WHERE id = ?").run(newQty, stock.id);
       } else {
         if (newQty < 0) throw new Error('Initial stock quantity cannot be negative');
         db.prepare('INSERT INTO stock (warehouse_id, product_id, physical_quantity, reserved_quantity) VALUES (?, ?, ?, 0)').run(warehouseId, productId, newQty);

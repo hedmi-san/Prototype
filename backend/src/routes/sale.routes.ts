@@ -142,7 +142,7 @@ router.post('/', authenticate, (req: AuthRequest, res) => {
           throw new Error(`Insufficient stock for product ${product.name}. Available: ${available}, Requested: ${item.quantity}`);
         }
 
-        db.prepare('UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime("now") WHERE id = ?')
+        db.prepare("UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime('now') WHERE id = ?")
           .run(item.quantity, stock.id);
 
         db.prepare(`
@@ -206,7 +206,7 @@ router.put('/:id', authenticate, (req: AuthRequest, res) => {
       // 1. Revert previous inventory items
       const existingItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(id) as any[];
       for (const item of existingItems) {
-        db.prepare('UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime("now") WHERE warehouse_id = ? AND product_id = ?')
+        db.prepare("UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime('now') WHERE warehouse_id = ? AND product_id = ?")
           .run(item.quantity, currentSale.warehouse_id, item.product_id);
       }
 
@@ -230,7 +230,7 @@ router.put('/:id', authenticate, (req: AuthRequest, res) => {
           throw new Error(`Insufficient stock for product ${product.name}. Available: ${available}, Requested: ${item.quantity}`);
         }
 
-        db.prepare('UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime("now") WHERE id = ?')
+        db.prepare("UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime('now') WHERE id = ?")
           .run(item.quantity, stock.id);
 
         const unitPrice = item.unitPrice || product.sale_price;
@@ -276,7 +276,7 @@ router.post('/:id/cancel', authenticate, (req: AuthRequest, res) => {
       // Revert items stock
       const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(id) as any[];
       for (const item of items) {
-        db.prepare('UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime("now") WHERE warehouse_id = ? AND product_id = ?')
+        db.prepare("UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime('now') WHERE warehouse_id = ? AND product_id = ?")
           .run(item.quantity, currentSale.warehouse_id, item.product_id);
 
         db.prepare(`
@@ -285,7 +285,7 @@ router.post('/:id/cancel', authenticate, (req: AuthRequest, res) => {
         `).run(currentSale.warehouse_id, item.product_id, item.quantity, currentSale.invoice_number);
       }
 
-      db.prepare('UPDATE sales SET status = "CANCELLED", updated_at = datetime("now") WHERE id = ?').run(id);
+      db.prepare("UPDATE sales SET status = 'CANCELLED', updated_at = datetime('now') WHERE id = ?").run(id);
     });
 
     logAudit(req.user, 'SALE_CANCELLED', 'SALE', id, `Voided sale ${currentSale.invoice_number} and reversed stock`, currentSale.warehouse_id);

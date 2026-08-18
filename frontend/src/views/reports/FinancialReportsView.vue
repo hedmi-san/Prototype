@@ -3,18 +3,29 @@ import { ref, onMounted } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { reportService } from '../../services/admin-reports.service';
 import type { FinancialReport } from '../../types';
+import type { ComputedPeriodRange } from '../../utils/periodNavigator';
 import { formatCurrency, formatExpenseCategory } from '../../utils/formatters';
 import AppButton from '../../components/common/AppButton.vue';
 import AppSkeleton from '../../components/common/AppSkeleton.vue';
+import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
 
 const authStore = useAuthStore();
 const period = ref(new Date().toISOString().slice(0, 7)); // YYYY-MM
+const activeRange = ref<ComputedPeriodRange | null>(null);
 const report = ref<FinancialReport | null>(null);
 const loading = ref(true);
 
 onMounted(async () => {
-  await fetchReport();
+  if (!activeRange.value) {
+    await fetchReport();
+  }
 });
+
+async function onPeriodChange(range: ComputedPeriodRange) {
+  activeRange.value = range;
+  period.value = range.startDate.slice(0, 7);
+  await fetchReport();
+}
 
 async function fetchReport() {
   loading.value = true;
@@ -39,15 +50,6 @@ async function fetchReport() {
         <p class="text-muted">Revenus consolidés, coût des marchandises vendues, charges d'exploitation et marge nette</p>
       </div>
       <div class="header-actions">
-        <div class="period-picker">
-          <label class="period-label">Période :</label>
-          <input
-            v-model="period"
-            type="month"
-            class="period-input"
-            @change="fetchReport"
-          />
-        </div>
         <AppButton variant="secondary" onclick="window.print()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 6 2 18 2 18 9" />
@@ -58,6 +60,12 @@ async function fetchReport() {
         </AppButton>
       </div>
     </div>
+
+    <!-- Reusable Period Navigator -->
+    <AppPeriodNavigator
+      initial-granularity="month"
+      @change="onPeriodChange"
+    />
 
     <!-- Income Statement Document Card -->
     <div class="card statement-card">
