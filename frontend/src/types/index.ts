@@ -135,6 +135,7 @@ export interface TransferItem {
 
 export interface Transfer {
   id: number;
+  transferNumber?: string;
   sourceWarehouseId: number;
   sourceWarehouseName: string;
   sourceWarehouseCode: string;
@@ -142,8 +143,10 @@ export interface Transfer {
   destinationWarehouseName: string;
   destinationWarehouseCode: string;
   status: TransferStatus;
-  createdById: number | null;
-  createdByName: string;
+  createdById?: number | null;
+  requestedByUserId?: number | null;
+  createdByName?: string;
+  requestedByName?: string;
   notes: string | null;
   items: TransferItem[];
   createdAt: string;

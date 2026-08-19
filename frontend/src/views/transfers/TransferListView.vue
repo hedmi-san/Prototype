@@ -192,6 +192,36 @@ function viewDetails(t: Transfer) {
   showDetailsModal.value = true;
 }
 
+function canApprove(t: Transfer): boolean {
+  if (t.status !== 'REQUESTED') return false;
+  if (authStore.isAdmin) return true;
+  return authStore.isManager && authStore.user?.warehouseId === t.sourceWarehouseId;
+}
+
+function canDecline(t: Transfer): boolean {
+  if (t.status !== 'REQUESTED') return false;
+  if (authStore.isAdmin) return true;
+  return authStore.isManager && authStore.user?.warehouseId === t.sourceWarehouseId;
+}
+
+function canConfirm(t: Transfer): boolean {
+  if (t.status !== 'APPROVED') return false;
+  if (authStore.isAdmin) return true;
+  return authStore.isManager && authStore.user?.warehouseId === t.destinationWarehouseId;
+}
+
+function canCancel(t: Transfer): boolean {
+  if (t.status !== 'REQUESTED' && t.status !== 'APPROVED') return false;
+  if (authStore.isAdmin) return true;
+  const isRequester = authStore.user?.id === t.requestedByUserId;
+  const isDestManager = authStore.isManager && authStore.user?.warehouseId === t.destinationWarehouseId;
+  return isRequester || isDestManager;
+}
+
+const canCreateTransfer = computed(() => {
+  return authStore.isAdmin || authStore.isManager;
+});
+
 function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger' | 'warning' | 'info' {
   switch (status) {
     case 'REQUESTED': return 'warning';
@@ -212,7 +242,7 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
         <p class="text-muted">Demandes de transfert, réservation de stock source et confirmation de réception</p>
       </div>
       <div class="header-actions">
-        <AppButton variant="primary" @click="openCreateModal">
+        <AppButton v-if="canCreateTransfer" variant="primary" @click="openCreateModal">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
@@ -250,7 +280,7 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
             </AppBadge>
           </td>
           <td class="font-mono text-caption">{{ formatDateTime(t.createdAt) }}</td>
-          <td class="font-mono text-caption">{{ formatDateTime(t.confirmedAt) }}</td>
+          <td class="font-mono text-caption">{{ t.confirmedAt ? formatDateTime(t.confirmedAt) : '—' }}</td>
           <td>
             <div class="action-buttons">
               <button class="icon-action-btn" title="Voir les détails" @click="viewDetails(t)">
@@ -258,24 +288,26 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
               </button>
 
               <!-- Source Warehouse Action: Approve or Decline -->
-              <template v-if="t.status === 'REQUESTED'">
+              <template v-if="canApprove(t)">
                 <button class="icon-action-btn btn-primary-action" @click="openApproveModal(t)">
                   Approuver
                 </button>
+              </template>
+              <template v-if="canDecline(t)">
                 <button class="icon-action-btn btn-danger-action" @click="handleDecline(t)">
                   Refuser
                 </button>
               </template>
 
               <!-- Destination Warehouse Action: Confirm Reception -->
-              <template v-if="t.status === 'APPROVED'">
+              <template v-if="canConfirm(t)">
                 <button class="icon-action-btn btn-success-action" @click="handleConfirmReception(t)">
                   Confirmer Réception
                 </button>
               </template>
 
               <!-- Cancelable before confirmed -->
-              <template v-if="t.status === 'REQUESTED' || t.status === 'APPROVED'">
+              <template v-if="canCancel(t)">
                 <button class="icon-action-btn btn-danger-action" @click="promptCancel(t)">
                   Annuler
                 </button>
@@ -431,6 +463,14 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
           <div>
             <span class="text-caption text-muted">Initié par :</span>
             <h4>{{ selectedTransfer.createdByName || 'Système' }}</h4>
+          </div>
+          <div v-if="selectedTransfer.approvedAt">
+            <span class="text-caption text-muted">Date d'Approbation :</span>
+            <h4>{{ formatDateTime(selectedTransfer.approvedAt) }}</h4>
+          </div>
+          <div v-if="selectedTransfer.confirmedAt">
+            <span class="text-caption text-muted">Date de Confirmation :</span>
+            <h4>{{ formatDateTime(selectedTransfer.confirmedAt) }}</h4>
           </div>
         </div>
 

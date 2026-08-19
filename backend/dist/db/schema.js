@@ -98,6 +98,8 @@ export function initSchema() {
       status TEXT NOT NULL DEFAULT 'REQUESTED',
       notes TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      approved_at TEXT,
+      confirmed_at TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -159,4 +161,13 @@ export function initSchema() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+    // Migrations for existing databases
+    try {
+        db.exec('ALTER TABLE transfers ADD COLUMN approved_at TEXT;');
+    }
+    catch { }
+    try {
+        db.exec('ALTER TABLE transfers ADD COLUMN confirmed_at TEXT;');
+    }
+    catch { }
 }

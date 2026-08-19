@@ -1,25 +1,4 @@
-# transfers-management Specification
-
-## Purpose
-TBD - created by archiving change multi-warehouse-tool-distribution-system. Update Purpose after archive.
-## Requirements
-### Requirement: Inter-Warehouse Transfer Request Creation
-The system SHALL allow Managers to create transfer requests from a source warehouse to their destination warehouse specifying requested products and quantities.
-
-#### Scenario: Create a transfer request
-- **WHEN** Manager of Warehouse A creates a transfer request asking for 10 units of Product X from Warehouse B
-- **THEN** the system SHALL create the transfer in `REQUESTED` status with line item `requested_quantity = 10` and `approved_quantity = 0`
-
-### Requirement: Transfer Approval with Source Stock Reservation
-The system SHALL allow the source warehouse Manager to approve a transfer request with partial or full quantities, reserving the approved quantities in the source warehouse inventory without physically deducting them yet.
-
-#### Scenario: Approve transfer and reserve stock
-- **WHEN** Manager of Warehouse B approves a transfer request for 10 units with `approved_quantity = 6`
-- **THEN** the system SHALL verify Warehouse B has at least 6 available units, increment `reserved_quantity` by 6 at Warehouse B, update transfer status to `APPROVED`, and leave `physical_quantity` unchanged
-
-#### Scenario: Reject approval exceeding available stock
-- **WHEN** Manager of Warehouse B attempts to approve 12 units when only 8 are available
-- **THEN** the system SHALL reject the approval with an InsufficientStockException and modify no reservations
+## MODIFIED Requirements
 
 ### Requirement: Transfer Reception Confirmation and Stock Transfer
 The system SHALL allow the destination warehouse Manager or an Admin to confirm reception of an approved transfer, transactionally moving stock from source to destination, recording the confirmation timestamp (`confirmed_at`), and generating `TRANSFER_OUT` and `TRANSFER_IN` stock movements.
@@ -51,6 +30,8 @@ The system SHALL permit only the requesting user, destination warehouse Manager,
 - **WHEN** Manager of Warehouse B declines a `REQUESTED` transfer
 - **THEN** the system SHALL transition status to `DECLINED` and record no stock changes
 
+## ADDED Requirements
+
 ### Requirement: Warehouse-Scoped Transfer Visibility and Action Authorization
 The system SHALL isolate transfer records so that non-admin users can ONLY list, inspect, and perform workflow transitions on transfers where their assigned warehouse is either the source warehouse or the destination warehouse.
 
@@ -61,4 +42,3 @@ The system SHALL isolate transfer records so that non-admin users can ONLY list,
 #### Scenario: Admin views all transfers across warehouses
 - **WHEN** a global Admin queries the transfer list
 - **THEN** the system SHALL return all transfers across all warehouses with options to filter by warehouse
-
