@@ -3,18 +3,19 @@ import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
-import { productService } from '../../services/catalog.service';
+import { useProductStore } from '../../stores/product.store';
 import { saleService, inventoryService } from '../../services/operations.service';
 import type { Product, Stock } from '../../types';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppButton from '../../components/common/AppButton.vue';
 import AppInput from '../../components/common/AppInput.vue';
+import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
+const productStore = useProductStore();
 
-const products = ref<Product[]>([]);
 const warehouseStock = ref<Stock[]>([]);
 const loading = ref(true);
 const submitting = ref(false);
@@ -36,19 +37,14 @@ const lineItems = ref<LineItem[]>([
 ]);
 
 onMounted(async () => {
-  await Promise.all([fetchProducts(), fetchStockForWarehouse()]);
-  if (products.value.length > 0) {
-    lineItems.value[0].productId = products.value[0].id;
+  await Promise.all([
+    productStore.fetchProducts(),
+    fetchStockForWarehouse(),
+  ]);
+  if (lineItems.value[0].productId === 0 && productStore.products.length > 0) {
+    lineItems.value[0].productId = productStore.products[0].id;
   }
 });
-
-async function fetchProducts() {
-  try {
-    products.value = await productService.getProducts();
-  } catch (err) {
-    console.error('Failed to load products', err);
-  }
-}
 
 async function fetchStockForWarehouse() {
   loading.value = true;
@@ -66,12 +62,10 @@ function onWarehouseChange() {
 }
 
 function addLineItem() {
-  if (products.value.length > 0) {
-    lineItems.value.push({
-      productId: products.value[0].id,
-      quantity: 1,
-    });
-  }
+  lineItems.value.push({
+    productId: 0,
+    quantity: 1,
+  });
 }
 
 function removeLineItem(index: number) {
@@ -81,10 +75,11 @@ function removeLineItem(index: number) {
 }
 
 function getProductById(id: number): Product | undefined {
-  return products.value.find((p) => p.id === id);
+  return productStore.getProductById(id);
 }
 
 function getAvailableStock(productId: number): number {
+  if (!productId) return 0;
   const stock = warehouseStock.value.find((s) => s.productId === productId);
   return stock ? stock.availableQuantity : 0;
 }
@@ -100,8 +95,12 @@ const totalAmount = computed(() => {
 async function handleSubmitSale() {
   errorMessage.value = '';
 
-  // Validate items and stock
+  // Validate items selection and stock
   for (const item of lineItems.value) {
+    if (!item.productId) {
+      errorMessage.value = 'Veuillez sélectionner un produit pour chaque ligne de vente.';
+      return;
+    }
     const avail = getAvailableStock(item.productId);
     const prod = getProductById(item.productId);
     if (item.quantity > avail) {
@@ -163,32 +162,33 @@ async function handleSubmitSale() {
           <table class="items-table">
             <thead>
               <tr>
-                <th>Produit</th>
-                <th>Disponible</th>
-                <th>Prix Unitaire</th>
-                <th style="width: 100px;">Quantité</th>
-                <th>Sous-total</th>
-                <th style="width: 40px;"></th>
+                <th class="col-product">Produit</th>
+                <th class="col-avail">Disponible</th>
+                <th class="col-price">Prix Unitaire</th>
+                <th class="col-qty">Quantité</th>
+                <th class="col-subtotal">Sous-total</th>
+                <th class="col-action"></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(item, idx) in lineItems" :key="idx">
-                <td>
-                  <select v-model.number="item.productId" class="app-select" required>
-                    <option v-for="p in products" :key="p.id" :value="p.id">
-                      [{{ p.reference }}] {{ p.name }} ({{ p.brand }})
-                    </option>
-                  </select>
+                <td class="col-product">
+                  <AppProductCombobox
+                    v-model="item.productId"
+                    :warehouse-stock="warehouseStock"
+                    placeholder="Taper nom ou réf (ex: DCD796)..."
+                    required
+                  />
                 </td>
-                <td class="font-mono">
+                <td class="col-avail font-mono">
                   <span :class="getAvailableStock(item.productId) < item.quantity ? 'text-danger font-bold' : 'text-success'">
-                    {{ formatNumber(getAvailableStock(item.productId)) }} unités
+                    {{ formatNumber(getAvailableStock(item.productId)) }} u.
                   </span>
                 </td>
-                <td class="font-mono">
+                <td class="col-price font-mono">
                   {{ formatCurrency(getProductById(item.productId)?.salePrice) }}
                 </td>
-                <td>
+                <td class="col-qty">
                   <input
                     v-model.number="item.quantity"
                     type="number"
@@ -197,14 +197,15 @@ async function handleSubmitSale() {
                     required
                   />
                 </td>
-                <td class="font-mono font-bold">
+                <td class="col-subtotal font-mono font-bold">
                   {{ formatCurrency((getProductById(item.productId)?.salePrice || 0) * (item.quantity || 0)) }}
                 </td>
-                <td>
+                <td class="col-action">
                   <button
                     type="button"
                     class="remove-btn"
                     :disabled="lineItems.length <= 1"
+                    title="Supprimer la ligne"
                     @click="removeLineItem(idx)"
                   >
                     &times;
@@ -298,9 +299,15 @@ async function handleSubmitSale() {
 
 .pos-layout {
   display: grid;
-  grid-template-columns: 1fr 360px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
   align-items: start;
+}
+
+.pos-main {
+  position: relative;
+  overflow: visible;
+  min-width: 0;
 }
 
 .card-header {
@@ -327,7 +334,9 @@ async function handleSubmitSale() {
 }
 
 .items-table-wrapper {
-  overflow-x: auto;
+  overflow: visible;
+  position: relative;
+  width: 100%;
 }
 
 .items-table {
@@ -337,7 +346,7 @@ async function handleSubmitSale() {
 }
 
 .items-table th {
-  padding: 10px 12px;
+  padding: 8px 6px;
   background-color: var(--color-surface);
   text-align: left;
   font-size: 11px;
@@ -346,15 +355,51 @@ async function handleSubmitSale() {
 }
 
 .items-table td {
-  padding: 10px 12px;
+  padding: 6px 6px;
   border-bottom: 1px solid var(--color-border-subtle);
   vertical-align: middle;
+  position: relative;
+}
+
+.col-product {
+  min-width: 180px;
+}
+
+.col-avail {
+  width: 75px;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.col-price {
+  width: 90px;
+  text-align: right;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.col-qty {
+  width: 58px;
+  text-align: center;
+}
+
+.col-subtotal {
+  width: 95px;
+  text-align: right;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.col-action {
+  width: 30px;
+  text-align: center;
 }
 
 .app-select {
   width: 100%;
-  height: 38px;
-  padding: 6px 10px;
+  height: 36px;
+  padding: 6px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background-color: var(--color-bg);
@@ -367,20 +412,37 @@ async function handleSubmitSale() {
 }
 
 .qty-input {
-  width: 90px;
+  width: 50px;
+  height: 36px;
+  text-align: center;
+  padding: 4px 2px;
 }
 
 .remove-btn {
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
   border: none;
-  font-size: 18px;
+  font-size: 16px;
   color: var(--color-text-secondary);
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 0;
+  border-radius: 4px;
+  line-height: 1;
+  transition: all var(--transition-fast);
 }
 
 .remove-btn:hover:not(:disabled) {
+  background-color: var(--color-danger-bg);
   color: var(--color-danger);
+}
+
+.remove-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
 }
 
 .font-bold {
@@ -444,7 +506,7 @@ async function handleSubmitSale() {
   text-transform: uppercase;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1180px) {
   .pos-layout {
     grid-template-columns: 1fr;
   }

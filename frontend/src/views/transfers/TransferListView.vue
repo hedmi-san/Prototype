@@ -2,8 +2,8 @@
 import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
+import { useProductStore } from '../../stores/product.store';
 import { transferService } from '../../services/operations.service';
-import { productService } from '../../services/catalog.service';
 import type { Transfer, Product, Warehouse } from '../../types';
 import { formatDateTime, formatNumber, formatTransferStatus } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
@@ -11,10 +11,12 @@ import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
 import AppInput from '../../components/common/AppInput.vue';
+import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
 import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
 
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
+const productStore = useProductStore();
 
 const transfers = ref<Transfer[]>([]);
 const products = ref<Product[]>([]);
@@ -46,7 +48,7 @@ const saving = ref(false);
 const errorMessage = ref('');
 
 onMounted(async () => {
-  await Promise.all([fetchTransfers(), fetchProducts()]);
+  await Promise.all([fetchTransfers(), productStore.fetchProducts()]);
 });
 
 async function fetchTransfers() {
@@ -60,14 +62,6 @@ async function fetchTransfers() {
   }
 }
 
-async function fetchProducts() {
-  try {
-    products.value = await productService.getProducts();
-  } catch (err) {
-    console.error('Failed to load products', err);
-  }
-}
-
 function openCreateModal() {
   const warehouses = warehouseStore.warehouses;
   const destId = authStore.activeWarehouseId || warehouses[0]?.id || 1;
@@ -77,16 +71,16 @@ function openCreateModal() {
     sourceWarehouseId: sourceId,
     destinationWarehouseId: destId,
     notes: '',
-    items: [{ productId: products.value[0]?.id || 1, requestedQuantity: 5 }],
+    items: [{ productId: productStore.products[0]?.id || 1, requestedQuantity: 5 }],
   };
   errorMessage.value = '';
   showCreateModal.value = true;
 }
 
 function addCreateItem() {
-  if (products.value.length > 0) {
+  if (productStore.products.length > 0) {
     createForm.value.items.push({
-      productId: products.value[0].id,
+      productId: productStore.products[0].id,
       requestedQuantity: 5,
     });
   }
@@ -364,11 +358,13 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
           </div>
 
           <div v-for="(item, idx) in createForm.items" :key="idx" class="item-row">
-            <select v-model.number="item.productId" class="app-select item-product-select" required>
-              <option v-for="p in products" :key="p.id" :value="p.id">
-                [{{ p.reference }}] {{ p.name }}
-              </option>
-            </select>
+            <div style="flex: 1;">
+              <AppProductCombobox
+                v-model="item.productId"
+                placeholder="Sélectionner ou rechercher un produit..."
+                required
+              />
+            </div>
             <input
               v-model.number="item.requestedQuantity"
               type="number"

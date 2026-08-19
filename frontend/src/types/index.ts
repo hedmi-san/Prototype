@@ -38,8 +38,11 @@ export interface Product {
   reference: string;
   name: string;
   brand: string;
+  category?: string;
+  description?: string;
   purchasePrice: number;
   salePrice: number;
+  minStockAlert?: number;
   unit: string;
   active: boolean;
   createdAt: string;
