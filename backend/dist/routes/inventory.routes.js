@@ -78,9 +78,13 @@ router.get('/movements', authenticate, (req, res) => {
         productName: m.product_name,
         productReference: m.product_reference,
         movementType: m.movement_type,
+        type: m.movement_type,
         quantityChange: m.quantity_change,
+        quantity: m.quantity_change,
         reference: m.reference,
         notes: m.notes,
+        reason: m.notes || m.reference,
+        createdByName: 'Système',
         createdAt: m.created_at,
     }));
     return sendSuccess(res, rows);

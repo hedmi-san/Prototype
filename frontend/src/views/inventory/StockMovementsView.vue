@@ -30,22 +30,26 @@ async function fetchMovements() {
 
 const filteredMovements = computed(() => {
   return movements.value.filter((m) => {
-    const matchesType = !typeFilter.value || m.type === typeFilter.value;
+    const movType = m.movementType || m.type;
+    const matchesType = !typeFilter.value || movType === typeFilter.value;
     if (!matchesType) return false;
 
     if (!searchQuery.value.trim()) return true;
     const q = searchQuery.value.toLowerCase();
+    const reasonText = (m.reason || m.notes || m.reference || '').toLowerCase();
+    const refText = (m.reference || '').toLowerCase();
     return (
-      m.productName.toLowerCase().includes(q) ||
-      m.productReference.toLowerCase().includes(q) ||
-      m.warehouseName.toLowerCase().includes(q) ||
-      (m.reason && m.reason.toLowerCase().includes(q)) ||
+      (m.productName && m.productName.toLowerCase().includes(q)) ||
+      (m.productReference && m.productReference.toLowerCase().includes(q)) ||
+      (m.warehouseName && m.warehouseName.toLowerCase().includes(q)) ||
+      reasonText.includes(q) ||
+      refText.includes(q) ||
       (m.createdByName && m.createdByName.toLowerCase().includes(q))
     );
   });
 });
 
-function getBadgeVariant(type: string): 'neutral' | 'success' | 'danger' | 'warning' | 'info' {
+function getBadgeVariant(type?: string): 'neutral' | 'success' | 'danger' | 'warning' | 'info' {
   switch (type) {
     case 'INITIAL_STOCK': return 'info';
     case 'SALE': return 'danger';
@@ -124,17 +128,22 @@ function getBadgeVariant(type: string): 'neutral' | 'success' | 'danger' | 'warn
             <span class="text-caption font-mono" style="display: block;">{{ m.productReference }}</span>
           </td>
           <td>
-            <AppBadge :variant="getBadgeVariant(m.type)" size="sm">
-              {{ formatMovementType(m.type) }}
+            <AppBadge :variant="getBadgeVariant(m.movementType || m.type)" size="sm">
+              {{ formatMovementType(m.movementType || m.type) }}
             </AppBadge>
           </td>
-          <td :class="['font-mono', 'font-bold', m.quantity > 0 ? 'text-success' : 'text-danger']">
-            {{ m.quantity > 0 ? '+' : '' }}{{ formatNumber(m.quantity) }}
+          <td :class="['font-mono', 'font-bold', (m.quantityChange ?? m.quantity ?? 0) > 0 ? 'text-success' : 'text-danger']">
+            {{ (m.quantityChange ?? m.quantity ?? 0) > 0 ? '+' : '' }}{{ formatNumber(m.quantityChange ?? m.quantity ?? 0) }}
           </td>
           <td>
             <div class="reason-cell">
-              <span class="reason-text">{{ m.reason || '—' }}</span>
-              <span v-if="m.referenceType" class="text-caption text-muted">Réf : {{ m.referenceType }} #{{ m.referenceId || '' }}</span>
+              <span class="reason-text">{{ m.reason || m.notes || m.reference || '—' }}</span>
+              <span v-if="m.reference && m.reference !== m.reason && m.reference !== m.notes" class="text-caption text-muted">
+                Réf : {{ m.reference }}
+              </span>
+              <span v-else-if="m.referenceType" class="text-caption text-muted">
+                Réf : {{ m.referenceType }} #{{ m.referenceId || '' }}
+              </span>
             </div>
           </td>
           <td>

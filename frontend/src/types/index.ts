@@ -78,11 +78,13 @@ export interface StockMovement {
   movementType?: StockMovementType;
   quantity: number;
   quantityChange?: number;
-  referenceType: string;
-  referenceId: number | null;
-  reason: string;
-  createdById: number | null;
-  createdByName: string;
+  referenceType?: string;
+  referenceId?: number | null;
+  reference?: string;
+  notes?: string;
+  reason?: string;
+  createdById?: number | null;
+  createdByName?: string;
   createdAt: string;
 }
 
