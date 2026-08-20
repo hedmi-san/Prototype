@@ -3,8 +3,8 @@ import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { useProductStore } from '../../stores/product.store';
-import { transferService } from '../../services/operations.service';
-import type { Transfer, Product, Warehouse } from '../../types';
+import { transferService, inventoryService } from '../../services/operations.service';
+import type { Transfer, Product, Warehouse, Stock } from '../../types';
 import { formatDateTime, formatNumber, formatTransferStatus } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
@@ -20,6 +20,7 @@ const productStore = useProductStore();
 
 const transfers = ref<Transfer[]>([]);
 const products = ref<Product[]>([]);
+const sourceWarehouseStock = ref<Stock[]>([]);
 const loading = ref(true);
 
 // Request Transfer Modal
@@ -62,7 +63,21 @@ async function fetchTransfers() {
   }
 }
 
-function openCreateModal() {
+async function fetchSourceWarehouseStock(warehouseId?: number) {
+  const targetId = warehouseId || createForm.value.sourceWarehouseId;
+  if (!targetId) {
+    sourceWarehouseStock.value = [];
+    return;
+  }
+  try {
+    sourceWarehouseStock.value = await inventoryService.getStock(targetId);
+  } catch (err) {
+    console.error('Failed to load stock for source warehouse', err);
+    sourceWarehouseStock.value = [];
+  }
+}
+
+async function openCreateModal() {
   const warehouses = warehouseStore.warehouses;
   const destId = authStore.activeWarehouseId || warehouses[0]?.id || 1;
   const sourceId = warehouses.find((w) => w.id !== destId)?.id || 2;
@@ -75,6 +90,7 @@ function openCreateModal() {
   };
   errorMessage.value = '';
   showCreateModal.value = true;
+  await fetchSourceWarehouseStock(sourceId);
 }
 
 function addCreateItem() {
@@ -326,7 +342,12 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
         <div class="form-row">
           <div class="app-input-group">
             <label class="input-label">Entrepôt Source (Départ)</label>
-            <select v-model.number="createForm.sourceWarehouseId" class="app-select" required>
+            <select
+              v-model.number="createForm.sourceWarehouseId"
+              class="app-select"
+              required
+              @change="fetchSourceWarehouseStock(createForm.sourceWarehouseId)"
+            >
               <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
                 {{ w.name }} ({{ w.code }})
               </option>
@@ -361,7 +382,8 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
             <div style="flex: 1;">
               <AppProductCombobox
                 v-model="item.productId"
-                placeholder="Sélectionner ou rechercher un produit..."
+                :warehouse-stock="sourceWarehouseStock"
+                placeholder="Taper nom ou réf (ex: DCD796)..."
                 required
               />
             </div>
