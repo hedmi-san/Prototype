@@ -42,6 +42,7 @@ const receiptForm = ref({
 
 const saving = ref(false);
 const errorMessage = ref('');
+const exporting = ref(false);
 
 onMounted(async () => {
   await Promise.all([fetchStock(), fetchProducts()]);
@@ -55,6 +56,20 @@ async function fetchStock() {
     console.error('Failed to load stock', err);
   } finally {
     loading.value = false;
+  }
+}
+
+async function handleExportCsv() {
+  exporting.value = true;
+  try {
+    await inventoryService.exportStockCsv({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      search: searchQuery.value.trim() || undefined,
+    });
+  } catch (err) {
+    console.error('Failed to export stock CSV', err);
+  } finally {
+    exporting.value = false;
   }
 }
 
@@ -152,11 +167,19 @@ async function handleSaveReceipt() {
         <p class="text-muted">Niveaux de stocks physiques, réservés et disponibles en temps réel</p>
       </div>
       <div class="header-actions">
-        <AppButton variant="secondary" @click="openReceiptModal">
+        <AppButton variant="secondary" :loading="exporting" @click="handleExportCsv">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Exporter CSV
+        </AppButton>
+        <AppButton variant="primary" @click="openReceiptModal">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="20 6 9 17 4 12" />
           </svg>
-          Réception de Stock Fournisseur
+          Réception de Stock
         </AppButton>
       </div>
     </div>
@@ -380,6 +403,13 @@ async function handleSaveReceipt() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .filter-bar {

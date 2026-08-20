@@ -1,5 +1,6 @@
 import api from './api';
 import type { ApiResponse, Warehouse, Product } from '../types';
+import { downloadCsvResponse } from '../utils/export';
 
 export const warehouseService = {
   async getWarehouses(): Promise<Warehouse[]> {
@@ -40,5 +41,13 @@ export const productService = {
   async updatePrice(id: number, data: { purchasePrice?: number; salePrice?: number }): Promise<Product> {
     const response = await api.patch<ApiResponse<Product>>(`/products/${id}/price`, data);
     return response.data.data;
+  },
+  async exportProductsCsv(params?: { search?: string; category?: string }): Promise<void> {
+    const response = await api.get('/products/export/csv', {
+      params,
+      responseType: 'blob',
+    });
+    downloadCsvResponse(response, `produits_${new Date().toISOString().split('T')[0]}.csv`);
   }
 };
+

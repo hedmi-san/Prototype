@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { reportService } from '../../services/admin-reports.service';
+import { inventoryService } from '../../services/operations.service';
 import type { StockValuationReport } from '../../types';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
@@ -10,6 +11,7 @@ import AppButton from '../../components/common/AppButton.vue';
 const authStore = useAuthStore();
 const report = ref<StockValuationReport | null>(null);
 const loading = ref(true);
+const exporting = ref(false);
 
 onMounted(async () => {
   await fetchReport();
@@ -25,6 +27,17 @@ async function fetchReport() {
     loading.value = false;
   }
 }
+
+async function handleExportCsv() {
+  exporting.value = true;
+  try {
+    await inventoryService.exportStockCsv({ warehouseId: authStore.activeWarehouseId || undefined });
+  } catch (err) {
+    console.error('Failed to export stock valuation CSV', err);
+  } finally {
+    exporting.value = false;
+  }
+}
 </script>
 
 <template>
@@ -37,13 +50,21 @@ async function fetchReport() {
         </p>
       </div>
       <div class="header-actions">
+        <AppButton variant="secondary" :loading="exporting" @click="handleExportCsv">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Exporter CSV
+        </AppButton>
         <AppButton variant="secondary" onclick="window.print()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 6 2 18 2 18 9" />
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
             <rect width="12" height="8" x="6" y="14" />
           </svg>
-          Exporter / Imprimer le Bilan
+          Imprimer le Bilan
         </AppButton>
       </div>
     </div>
@@ -115,6 +136,13 @@ async function fetchReport() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .valuation-cards {

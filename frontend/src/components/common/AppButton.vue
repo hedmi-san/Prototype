@@ -55,6 +55,12 @@ withDefaults(defineProps<Props>(), {
   cursor: not-allowed;
 }
 
+.btn-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Sizes */
 .btn-sm {
   padding: 6px 12px;

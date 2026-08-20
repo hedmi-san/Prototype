@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
+import { generateCsv, sendCsv, CsvColumn } from '../common/csv.js';
 import { authenticate, AuthRequest, logAudit, validateWarehouseScope } from '../middleware/auth.js';
 
 const router = Router();
@@ -129,6 +130,109 @@ router.get('/', authenticate, (req: AuthRequest, res) => {
       totalPages,
     },
   });
+});
+
+router.get('/export/csv', authenticate, (req: AuthRequest, res) => {
+  const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+  const startDate = req.query.startDate as string | undefined;
+  const endDate = req.query.endDate as string | undefined;
+  const search = (req.query.search as string | undefined)?.trim();
+
+  let baseFromWhere = `
+    FROM sales s
+    JOIN warehouses w ON s.warehouse_id = w.id
+    JOIN users u ON s.user_id = u.id
+  `;
+  const whereClauses: string[] = [];
+  const params: any[] = [];
+
+  if (warehouseId) {
+    if (req.user) {
+      try {
+        validateWarehouseScope(req.user, warehouseId);
+      } catch (err: any) {
+        return sendError(res, err.message, 403);
+      }
+    }
+    whereClauses.push('s.warehouse_id = ?');
+    params.push(warehouseId);
+  } else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
+    whereClauses.push('s.warehouse_id = ?');
+    params.push(req.user.warehouseId);
+  }
+
+  if (startDate) {
+    const formattedStart = startDate.length === 10 ? `${startDate} 00:00:00` : startDate;
+    whereClauses.push('COALESCE(s.sale_date, s.created_at) >= ?');
+    params.push(formattedStart);
+  }
+
+  if (endDate) {
+    const formattedEnd = endDate.length === 10 ? `${endDate} 23:59:59` : endDate;
+    whereClauses.push('COALESCE(s.sale_date, s.created_at) <= ?');
+    params.push(formattedEnd);
+  }
+
+  if (search) {
+    whereClauses.push('(s.invoice_number LIKE ? OR s.customer_name LIKE ? OR s.customer_phone LIKE ? OR w.name LIKE ?)');
+    const searchPattern = `%${search}%`;
+    params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+  }
+
+  if (whereClauses.length > 0) {
+    baseFromWhere += ' WHERE ' + whereClauses.join(' AND ');
+  }
+
+  const selectQuery = `
+    SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
+           s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
+           s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at
+    ${baseFromWhere}
+    ORDER BY COALESCE(s.sale_date, s.created_at) DESC, s.id DESC
+  `;
+
+  const salesRows = db.prepare(selectQuery).all(...params) as any[];
+
+  // Fetch items for all exported sales
+  const saleIds = salesRows.map((s) => s.id);
+  const itemsBySaleId: Record<number, string[]> = {};
+
+  if (saleIds.length > 0) {
+    const placeholders = saleIds.map(() => '?').join(',');
+    const itemsQuery = `
+      SELECT si.sale_id, p.name as product_name, si.quantity, si.unit_price, si.subtotal
+      FROM sale_items si
+      JOIN products p ON si.product_id = p.id
+      WHERE si.sale_id IN (${placeholders})
+    `;
+    const itemRows = db.prepare(itemsQuery).all(...saleIds) as any[];
+    for (const item of itemRows) {
+      if (!itemsBySaleId[item.sale_id]) {
+        itemsBySaleId[item.sale_id] = [];
+      }
+      itemsBySaleId[item.sale_id].push(`${item.product_name} (x${item.quantity})`);
+    }
+  }
+
+  const columns: CsvColumn[] = [
+    { header: 'N° Facture', key: 'invoice_number' },
+    { header: 'Date Vente', key: 'sale_date' },
+    { header: 'Dépôt', key: 'warehouse_name' },
+    { header: 'Client', key: 'customer_name' },
+    { header: 'Téléphone', key: 'customer_phone' },
+    { header: 'Vendeur', key: 'user_name' },
+    { header: 'Montant Total (DZD)', key: 'total_amount' },
+    {
+      header: 'Statut',
+      format: (s) => (s.status === 'COMPLETED' ? 'Complétée' : s.status === 'CANCELLED' ? 'Annulée' : s.status),
+    },
+    { header: 'Articles', format: (s) => (itemsBySaleId[s.id] || []).join(' ; ') },
+    { header: 'Date Enregistrement', key: 'created_at' },
+  ];
+
+  const csv = generateCsv(columns, salesRows);
+  const dateStr = new Date().toISOString().split('T')[0];
+  return sendCsv(res, `ventes_${dateStr}.csv`, csv);
 });
 
 router.get('/:id', authenticate, (req: AuthRequest, res) => {

@@ -1,5 +1,6 @@
 import api from './api';
 import type { ApiResponse, Stock, StockMovement, Sale, Transfer, PaginationParams, PaginatedData } from '../types';
+import { downloadCsvResponse } from '../utils/export';
 
 function normalizeParams(params?: PaginationParams | number): Record<string, any> {
   if (typeof params === 'number') {
@@ -42,6 +43,13 @@ export const inventoryService = {
   async receiveInitialStock(data: { warehouseId: number; productId: number; quantity: number; reference: string; notes?: string }): Promise<Stock> {
     const response = await api.post<ApiResponse<Stock>>('/inventory/initial-receipt', data);
     return response.data.data;
+  },
+  async exportStockCsv(params?: { warehouseId?: number; lowStock?: boolean; search?: string }): Promise<void> {
+    const response = await api.get('/inventory/export/csv', {
+      params,
+      responseType: 'blob',
+    });
+    downloadCsvResponse(response, `stock_inventaire_${new Date().toISOString().split('T')[0]}.csv`);
   }
 };
 
@@ -66,6 +74,13 @@ export const saleService = {
   async cancelSale(id: number): Promise<Sale> {
     const response = await api.post<ApiResponse<Sale>>(`/sales/${id}/cancel`);
     return response.data.data;
+  },
+  async exportSalesCsv(params?: { warehouseId?: number; startDate?: string; endDate?: string; search?: string }): Promise<void> {
+    const response = await api.get('/sales/export/csv', {
+      params,
+      responseType: 'blob',
+    });
+    downloadCsvResponse(response, `ventes_${new Date().toISOString().split('T')[0]}.csv`);
   }
 };
 

@@ -5,6 +5,7 @@ import { reportService } from '../../services/admin-reports.service';
 import type { FinancialReport } from '../../types';
 import type { ComputedPeriodRange } from '../../utils/periodNavigator';
 import { formatCurrency, formatExpenseCategory } from '../../utils/formatters';
+import { downloadBlob } from '../../utils/export';
 import AppButton from '../../components/common/AppButton.vue';
 import AppSkeleton from '../../components/common/AppSkeleton.vue';
 import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
@@ -40,6 +41,25 @@ async function fetchReport() {
     loading.value = false;
   }
 }
+
+function handleExportCsv() {
+  if (!report.value) return;
+  const BOM = '\uFEFF';
+  const rows: (string | number)[][] = [
+    ['Rubrique', 'Montant (DZD)'],
+    ["Revenus Bruts d'Exploitation", report.value.totalRevenue],
+    ['Coût des Marchandises Vendues (COGS)', -report.value.costOfGoodsSold],
+    ['Marge Brute Commerciale', report.value.grossProfit],
+    ...Object.entries(report.value.expensesByCategory || {}).map(([cat, amt]) => [`Charges : ${formatExpenseCategory(cat as any)}`, -amt]),
+    ["Total Charges d'Exploitation", -report.value.totalExpenses],
+    ['Total Salaires et Personnel', -report.value.totalSalaries],
+    ["Résultat Net d'Exploitation", report.value.netProfit],
+  ];
+
+  const csv = BOM + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, `compte_de_resultat_${report.value.period || 'bilan'}.csv`);
+}
 </script>
 
 <template>
@@ -50,6 +70,14 @@ async function fetchReport() {
         <p class="text-muted">Revenus consolidés, coût des marchandises vendues, charges d'exploitation et marge nette</p>
       </div>
       <div class="header-actions">
+        <AppButton variant="secondary" @click="handleExportCsv">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Exporter CSV
+        </AppButton>
         <AppButton variant="secondary" onclick="window.print()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 6 2 18 2 18 9" />

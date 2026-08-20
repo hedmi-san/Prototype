@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
+import { generateCsv, sendCsv, CsvColumn } from '../common/csv.js';
 import { authenticate, requireRole, AuthRequest, logAudit } from '../middleware/auth.js';
 
 const router = Router();
@@ -22,6 +23,52 @@ router.get('/', authenticate, (req: AuthRequest, res) => {
     updatedAt: p.updated_at,
   }));
   return sendSuccess(res, products);
+});
+
+router.get('/export/csv', authenticate, (req: AuthRequest, res) => {
+  const search = (req.query.search as string | undefined)?.trim();
+  const category = (req.query.category as string | undefined)?.trim();
+
+  let query = 'SELECT * FROM products';
+  const whereClauses: string[] = [];
+  const params: any[] = [];
+
+  if (search) {
+    whereClauses.push('(reference LIKE ? OR name LIKE ? OR brand LIKE ? OR category LIKE ?)');
+    const term = `%${search}%`;
+    params.push(term, term, term, term);
+  }
+
+  if (category) {
+    whereClauses.push('category = ?');
+    params.push(category);
+  }
+
+  if (whereClauses.length > 0) {
+    query += ' WHERE ' + whereClauses.join(' AND ');
+  }
+
+  query += ' ORDER BY id ASC';
+
+  const products = db.prepare(query).all(...params) as any[];
+
+  const columns: CsvColumn[] = [
+    { header: 'ID', key: 'id' },
+    { header: 'Référence', key: 'reference' },
+    { header: 'Désignation', key: 'name' },
+    { header: 'Marque', key: 'brand' },
+    { header: 'Catégorie', key: 'category' },
+    { header: 'Prix Achat (DZD)', key: 'purchase_price' },
+    { header: 'Prix Vente (DZD)', key: 'sale_price' },
+    { header: 'Stock Min Alerte', key: 'min_stock_alert' },
+    { header: 'Unité', key: 'unit' },
+    { header: 'Actif', format: (p) => (p.active ? 'Oui' : 'Non') },
+    { header: 'Date Création', key: 'created_at' },
+  ];
+
+  const csv = generateCsv(columns, products);
+  const dateStr = new Date().toISOString().split('T')[0];
+  return sendCsv(res, `produits_${dateStr}.csv`, csv);
 });
 
 router.get('/:id', authenticate, (req: AuthRequest, res) => {

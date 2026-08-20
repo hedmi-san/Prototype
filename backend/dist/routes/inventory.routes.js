@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
+import { generateCsv, sendCsv } from '../common/csv.js';
 import { authenticate, requireRole, logAudit, validateWarehouseScope } from '../middleware/auth.js';
 const router = Router();
 router.get('/stock', authenticate, (req, res) => {
@@ -53,6 +54,80 @@ router.get('/stock', authenticate, (req, res) => {
         updatedAt: row.updated_at,
     }));
     return sendSuccess(res, rows);
+});
+router.get('/export/csv', authenticate, (req, res) => {
+    const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const lowStock = req.query.lowStock === 'true';
+    const search = req.query.search?.trim();
+    if (warehouseId && req.user) {
+        try {
+            validateWarehouseScope(req.user, warehouseId);
+        }
+        catch (err) {
+            return sendError(res, err.message, 403);
+        }
+    }
+    let query = `
+    SELECT s.id, s.warehouse_id, w.name as warehouse_name,
+           s.product_id, p.name as product_name, p.reference as product_reference, p.brand, p.category,
+           s.physical_quantity, s.reserved_quantity,
+           (s.physical_quantity - s.reserved_quantity) as available_quantity,
+           p.purchase_price, p.sale_price,
+           (s.physical_quantity * p.purchase_price) as total_valuation,
+           p.min_stock_alert, s.updated_at
+    FROM stock s
+    JOIN warehouses w ON s.warehouse_id = w.id
+    JOIN products p ON s.product_id = p.id
+  `;
+    const whereClauses = [];
+    const params = [];
+    if (warehouseId) {
+        whereClauses.push('s.warehouse_id = ?');
+        params.push(warehouseId);
+    }
+    else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
+        whereClauses.push('s.warehouse_id = ?');
+        params.push(req.user.warehouseId);
+    }
+    if (lowStock) {
+        whereClauses.push('(s.physical_quantity - s.reserved_quantity) <= p.min_stock_alert');
+    }
+    if (search) {
+        whereClauses.push('(p.name LIKE ? OR p.reference LIKE ? OR p.brand LIKE ? OR w.name LIKE ?)');
+        const term = `%${search}%`;
+        params.push(term, term, term, term);
+    }
+    if (whereClauses.length > 0) {
+        query += ' WHERE ' + whereClauses.join(' AND ');
+    }
+    query += ' ORDER BY w.name ASC, p.name ASC';
+    const rows = db.prepare(query).all(...params);
+    const columns = [
+        { header: 'Dépôt', key: 'warehouse_name' },
+        { header: 'Référence', key: 'product_reference' },
+        { header: 'Désignation', key: 'product_name' },
+        { header: 'Marque', key: 'brand' },
+        { header: 'Catégorie', key: 'category' },
+        { header: 'Quantité Physique', key: 'physical_quantity' },
+        { header: 'Quantité Réservée', key: 'reserved_quantity' },
+        { header: 'Quantité Disponible', key: 'available_quantity' },
+        { header: 'Seuil Alerte Min', key: 'min_stock_alert' },
+        {
+            header: 'Statut',
+            format: (r) => r.available_quantity <= 0
+                ? 'Rupture'
+                : r.available_quantity <= r.min_stock_alert
+                    ? 'Alerte Stock Bas'
+                    : 'Normal',
+        },
+        { header: 'Prix Achat Unitaire (DZD)', key: 'purchase_price' },
+        { header: 'Prix Vente Unitaire (DZD)', key: 'sale_price' },
+        { header: 'Valorisation Totale (DZD)', key: 'total_valuation' },
+        { header: 'Dernière Mise à Jour', key: 'updated_at' },
+    ];
+    const csv = generateCsv(columns, rows);
+    const dateStr = new Date().toISOString().split('T')[0];
+    return sendCsv(res, `stock_inventaire_${dateStr}.csv`, csv);
 });
 router.get('/movements', authenticate, (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;

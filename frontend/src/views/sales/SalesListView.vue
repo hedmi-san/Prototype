@@ -48,6 +48,7 @@ const editError = ref('');
 const showCancelDialog = ref(false);
 const cancellingSale = ref<Sale | null>(null);
 const cancelling = ref(false);
+const exporting = ref(false);
 
 onMounted(async () => {
   await Promise.all([fetchProducts()]);
@@ -99,6 +100,22 @@ async function fetchSales() {
     console.error('Failed to load sales', err);
   } finally {
     loading.value = false;
+  }
+}
+
+async function handleExportCsv() {
+  exporting.value = true;
+  try {
+    await saleService.exportSalesCsv({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      startDate: activeRange.value?.startDate,
+      endDate: activeRange.value?.endDate,
+      search: searchQuery.value.trim() || undefined,
+    });
+  } catch (err) {
+    console.error('Failed to export sales CSV', err);
+  } finally {
+    exporting.value = false;
   }
 }
 
@@ -206,6 +223,14 @@ async function handleConfirmCancel() {
         <p class="text-muted">Facturation clients, historique des ventes et réajustements de stock</p>
       </div>
       <div class="header-actions">
+        <AppButton variant="secondary" :loading="exporting" @click="handleExportCsv">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Exporter CSV
+        </AppButton>
         <router-link to="/sales/new">
           <AppButton variant="primary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -498,6 +523,13 @@ async function handleConfirmCancel() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .filter-bar {

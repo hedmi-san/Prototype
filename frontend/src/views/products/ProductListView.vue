@@ -35,6 +35,7 @@ const priceForm = ref({
   salePrice: 0,
 });
 const saving = ref(false);
+const exporting = ref(false);
 
 onMounted(async () => {
   await fetchProducts();
@@ -48,6 +49,17 @@ async function fetchProducts() {
     console.error('Failed to load products', err);
   } finally {
     loading.value = false;
+  }
+}
+
+async function handleExportCsv() {
+  exporting.value = true;
+  try {
+    await productService.exportProductsCsv({ search: searchQuery.value });
+  } catch (err) {
+    console.error('Failed to export products CSV', err);
+  } finally {
+    exporting.value = false;
   }
 }
 
@@ -137,6 +149,14 @@ async function handleUpdatePrice() {
         <p class="text-muted">Référentiel des outillages industriels & grille tarifaire</p>
       </div>
       <div class="header-actions">
+        <AppButton variant="secondary" :loading="exporting" @click="handleExportCsv">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Exporter CSV
+        </AppButton>
         <AppButton v-if="authStore.isAdmin" variant="primary" @click="openCreateModal">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19" />
@@ -326,6 +346,13 @@ async function handleUpdatePrice() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .filter-bar {
