@@ -330,9 +330,34 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface PaginatedData<T> {
+  items: T[];
+  pagination: PaginationMeta;
+}
+
+export interface PaginationParams {
+  page?: number;
+  limit?: number;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+  warehouseId?: number;
+  status?: string;
+  type?: string;
+  action?: string;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   message: string;
   data: T;
   timestamp: string;
 }
+

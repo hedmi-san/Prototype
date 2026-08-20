@@ -56,21 +56,61 @@ router.get('/stock', authenticate, (req, res) => {
 });
 router.get('/movements', authenticate, (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
-    let query = `
-    SELECT m.id, m.warehouse_id, w.name as warehouse_name,
-           m.product_id, p.name as product_name, p.reference as product_reference,
-           m.movement_type, m.quantity_change, m.reference, m.notes, m.created_at
+    const startDate = req.query.startDate;
+    const endDate = req.query.endDate;
+    const type = req.query.type;
+    const search = req.query.search?.trim();
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
+    const offset = (page - 1) * limit;
+    let baseFromWhere = `
     FROM stock_movements m
     JOIN warehouses w ON m.warehouse_id = w.id
     JOIN products p ON m.product_id = p.id
   `;
+    const whereClauses = [];
     const params = [];
     if (warehouseId) {
-        query += ' WHERE m.warehouse_id = ?';
+        whereClauses.push('m.warehouse_id = ?');
         params.push(warehouseId);
     }
-    query += ' ORDER BY m.created_at DESC, m.id DESC LIMIT 200';
-    const rows = db.prepare(query).all(...params).map((m) => ({
+    else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
+        whereClauses.push('m.warehouse_id = ?');
+        params.push(req.user.warehouseId);
+    }
+    if (type) {
+        whereClauses.push('m.movement_type = ?');
+        params.push(type);
+    }
+    if (startDate) {
+        const formattedStart = startDate.length === 10 ? `${startDate} 00:00:00` : startDate;
+        whereClauses.push('m.created_at >= ?');
+        params.push(formattedStart);
+    }
+    if (endDate) {
+        const formattedEnd = endDate.length === 10 ? `${endDate} 23:59:59` : endDate;
+        whereClauses.push('m.created_at <= ?');
+        params.push(formattedEnd);
+    }
+    if (search) {
+        whereClauses.push('(p.name LIKE ? OR p.reference LIKE ? OR w.name LIKE ? OR m.reference LIKE ? OR m.notes LIKE ?)');
+        const searchPattern = `%${search}%`;
+        params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+    if (whereClauses.length > 0) {
+        baseFromWhere += ' WHERE ' + whereClauses.join(' AND ');
+    }
+    const countQuery = `SELECT COUNT(*) as count ${baseFromWhere}`;
+    const total = db.prepare(countQuery).get(...params)?.count || 0;
+    const selectQuery = `
+    SELECT m.id, m.warehouse_id, w.name as warehouse_name,
+           m.product_id, p.name as product_name, p.reference as product_reference,
+           m.movement_type, m.quantity_change, m.reference, m.notes, m.created_at
+    ${baseFromWhere}
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT ? OFFSET ?
+  `;
+    const rows = db.prepare(selectQuery).all(...params, limit, offset).map((m) => ({
         id: m.id,
         warehouseId: m.warehouse_id,
         warehouseName: m.warehouse_name,
@@ -87,7 +127,16 @@ router.get('/movements', authenticate, (req, res) => {
         createdByName: 'Système',
         createdAt: m.created_at,
     }));
-    return sendSuccess(res, rows);
+    const totalPages = Math.ceil(total / limit) || 1;
+    return sendSuccess(res, {
+        items: rows,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages,
+        },
+    });
 });
 router.post('/initial-receipt', authenticate, requireRole('ADMIN', 'MANAGER'), (req, res) => {
     const { warehouseId, productId, quantity, reference, notes } = req.body;

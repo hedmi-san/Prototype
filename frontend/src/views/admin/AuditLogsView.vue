@@ -1,42 +1,81 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, watch } from 'vue';
+import { useAuthStore } from '../../stores/auth.store';
 import { auditService } from '../../services/admin-reports.service';
 import type { AuditLog } from '../../types';
+import type { ComputedPeriodRange } from '../../utils/periodNavigator';
 import { formatDateTime, formatAuditAction, formatEntityType } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
+import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
+import AppPagination from '../../components/common/AppPagination.vue';
 
+const authStore = useAuthStore();
 const logs = ref<AuditLog[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
 
+// Period & Pagination state
+const activeRange = ref<ComputedPeriodRange | null>(null);
+const page = ref(1);
+const limit = ref(25);
+const total = ref(0);
+const totalPages = ref(1);
+
 onMounted(async () => {
+  if (!activeRange.value) {
+    await fetchLogs();
+  }
+});
+
+// Watch warehouse changes to refresh
+watch(() => authStore.activeWarehouseId, async () => {
+  page.value = 1;
   await fetchLogs();
 });
+
+let searchTimeout: any = null;
+function onSearchInput() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    page.value = 1;
+    await fetchLogs();
+  }, 300);
+}
+
+async function onPeriodChange(range: ComputedPeriodRange) {
+  activeRange.value = range;
+  page.value = 1;
+  await fetchLogs();
+}
+
+function onPageChange(payload: { page: number; limit: number }) {
+  page.value = payload.page;
+  limit.value = payload.limit;
+  fetchLogs();
+}
 
 async function fetchLogs() {
   loading.value = true;
   try {
-    logs.value = await auditService.getAuditLogs();
+    const res = await auditService.getAuditLogs({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      startDate: activeRange.value?.startDate,
+      endDate: activeRange.value?.endDate,
+      search: searchQuery.value.trim() || undefined,
+      page: page.value,
+      limit: limit.value,
+    });
+    logs.value = res.items;
+    total.value = res.pagination.total;
+    totalPages.value = res.pagination.totalPages;
+    page.value = res.pagination.page;
   } catch (err) {
     console.error('Failed to load audit logs', err);
   } finally {
     loading.value = false;
   }
 }
-
-const filteredLogs = computed(() => {
-  if (!searchQuery.value.trim()) return logs.value;
-  const q = searchQuery.value.toLowerCase();
-  return logs.value.filter(
-    (l) =>
-      l.action.toLowerCase().includes(q) ||
-      l.entityType.toLowerCase().includes(q) ||
-      l.username.toLowerCase().includes(q) ||
-      l.description.toLowerCase().includes(q) ||
-      (l.warehouseName && l.warehouseName.toLowerCase().includes(q))
-  );
-});
 </script>
 
 <template>
@@ -57,6 +96,12 @@ const filteredLogs = computed(() => {
       </div>
     </div>
 
+    <!-- Reusable Period Navigator -->
+    <AppPeriodNavigator
+      initial-granularity="month"
+      @change="onPeriodChange"
+    />
+
     <!-- Search Box -->
     <div class="filter-bar">
       <div class="search-box">
@@ -69,15 +114,16 @@ const filteredLogs = computed(() => {
           type="text"
           placeholder="Rechercher dans l'audit par utilisateur, action, entité, entrepôt..."
           class="search-input"
+          @input="onSearchInput"
         />
       </div>
       <div class="count-badge text-muted font-mono">
-        {{ filteredLogs.length }} {{ filteredLogs.length > 1 ? 'événements enregistrés' : 'événement enregistré' }}
+        {{ total }} {{ total > 1 ? 'événements enregistrés' : 'événement enregistré' }}
       </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!filteredLogs.length" empty-text="Aucun événement d'audit trouvé" :columns-count="6">
+    <AppTable :loading="loading" :empty="!logs.length" empty-text="Aucun événement d'audit trouvé pour cette période" :columns-count="6">
       <template #header>
         <th>Horodatage</th>
         <th>Utilisateur</th>
@@ -87,7 +133,7 @@ const filteredLogs = computed(() => {
         <th>Description & Détails de l'Audit</th>
       </template>
       <template #body>
-        <tr v-for="log in filteredLogs" :key="log.id">
+        <tr v-for="log in logs" :key="log.id">
           <td class="font-mono text-caption">{{ formatDateTime(log.createdAt) }}</td>
           <td>
             <strong>{{ log.userFullName || log.username }}</strong>
@@ -112,6 +158,16 @@ const filteredLogs = computed(() => {
         </tr>
       </template>
     </AppTable>
+
+    <!-- Pagination -->
+    <AppPagination
+      v-model:page="page"
+      v-model:limit="limit"
+      :total="total"
+      :total-pages="totalPages"
+      :loading="loading"
+      @change="onPageChange"
+    />
   </div>
 </template>
 

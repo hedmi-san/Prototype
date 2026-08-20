@@ -1,5 +1,28 @@
 import api from './api';
-import type { ApiResponse, Stock, StockMovement, Sale, Transfer } from '../types';
+import type { ApiResponse, Stock, StockMovement, Sale, Transfer, PaginationParams, PaginatedData } from '../types';
+
+function normalizeParams(params?: PaginationParams | number): Record<string, any> {
+  if (typeof params === 'number') {
+    return { warehouseId: params };
+  }
+  return params || {};
+}
+
+function normalizePaginatedResponse<T>(data: any): PaginatedData<T> {
+  if (data && typeof data === 'object' && Array.isArray(data.items) && data.pagination) {
+    return data as PaginatedData<T>;
+  }
+  const items = Array.isArray(data) ? data : [];
+  return {
+    items,
+    pagination: {
+      page: 1,
+      limit: items.length || 25,
+      total: items.length,
+      totalPages: 1,
+    },
+  };
+}
 
 export const inventoryService = {
   async getStock(warehouseId?: number): Promise<Stock[]> {
@@ -7,10 +30,10 @@ export const inventoryService = {
     const response = await api.get<ApiResponse<Stock[]>>('/inventory/stock', { params });
     return response.data.data;
   },
-  async getMovements(warehouseId?: number): Promise<StockMovement[]> {
-    const params = warehouseId ? { warehouseId } : {};
-    const response = await api.get<ApiResponse<StockMovement[]>>('/inventory/movements', { params });
-    return response.data.data;
+  async getMovements(params?: PaginationParams | number): Promise<PaginatedData<StockMovement>> {
+    const queryParams = normalizeParams(params);
+    const response = await api.get<ApiResponse<any>>('/inventory/movements', { params: queryParams });
+    return normalizePaginatedResponse<StockMovement>(response.data.data);
   },
   async adjustStock(data: { warehouseId: number; productId: number; quantity: number; reason: string }): Promise<Stock> {
     const response = await api.post<ApiResponse<Stock>>('/inventory/adjustments', data);
@@ -23,10 +46,10 @@ export const inventoryService = {
 };
 
 export const saleService = {
-  async getSales(warehouseId?: number): Promise<Sale[]> {
-    const params = warehouseId ? { warehouseId } : {};
-    const response = await api.get<ApiResponse<Sale[]>>('/sales', { params });
-    return response.data.data;
+  async getSales(params?: PaginationParams | number): Promise<PaginatedData<Sale>> {
+    const queryParams = normalizeParams(params);
+    const response = await api.get<ApiResponse<any>>('/sales', { params: queryParams });
+    return normalizePaginatedResponse<Sale>(response.data.data);
   },
   async getSaleById(id: number): Promise<Sale> {
     const response = await api.get<ApiResponse<Sale>>(`/sales/${id}`);
@@ -47,10 +70,10 @@ export const saleService = {
 };
 
 export const transferService = {
-  async getTransfers(warehouseId?: number): Promise<Transfer[]> {
-    const params = warehouseId ? { warehouseId } : {};
-    const response = await api.get<ApiResponse<Transfer[]>>('/transfers', { params });
-    return response.data.data;
+  async getTransfers(params?: PaginationParams | number): Promise<PaginatedData<Transfer>> {
+    const queryParams = normalizeParams(params);
+    const response = await api.get<ApiResponse<any>>('/transfers', { params: queryParams });
+    return normalizePaginatedResponse<Transfer>(response.data.data);
   },
   async getTransferById(id: number): Promise<Transfer> {
     const response = await api.get<ApiResponse<Transfer>>(`/transfers/${id}`);

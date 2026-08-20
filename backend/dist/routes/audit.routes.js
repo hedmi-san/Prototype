@@ -5,27 +5,63 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 const router = Router();
 router.get('/', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER'), (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
-    let query = `
-    SELECT a.id, a.user_id, u.username, u.full_name as user_full_name,
-           a.warehouse_id, w.name as warehouse_name,
-           a.action, a.entity_type, a.entity_id,
-           a.old_values, a.new_values, a.description,
-           a.ip_address, a.created_at
+    const startDate = req.query.startDate;
+    const endDate = req.query.endDate;
+    const action = req.query.action;
+    const search = req.query.search?.trim();
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
+    const offset = (page - 1) * limit;
+    let baseFromWhere = `
     FROM audit_logs a
     LEFT JOIN users u ON a.user_id = u.id
     LEFT JOIN warehouses w ON a.warehouse_id = w.id
   `;
     const params = [];
+    const whereClauses = [];
     if (warehouseId) {
-        query += ' WHERE a.warehouse_id = ?';
+        whereClauses.push('a.warehouse_id = ?');
         params.push(warehouseId);
     }
     else if (req.user?.role === 'MANAGER') {
-        query += ' WHERE a.warehouse_id = ?';
+        whereClauses.push('a.warehouse_id = ?');
         params.push(req.user.warehouseId);
     }
-    query += ' ORDER BY a.created_at DESC, a.id DESC LIMIT 150';
-    const logs = db.prepare(query).all(...params).map((l) => ({
+    if (action) {
+        whereClauses.push('a.action = ?');
+        params.push(action);
+    }
+    if (startDate) {
+        const formattedStart = startDate.length === 10 ? `${startDate} 00:00:00` : startDate;
+        whereClauses.push('a.created_at >= ?');
+        params.push(formattedStart);
+    }
+    if (endDate) {
+        const formattedEnd = endDate.length === 10 ? `${endDate} 23:59:59` : endDate;
+        whereClauses.push('a.created_at <= ?');
+        params.push(formattedEnd);
+    }
+    if (search) {
+        whereClauses.push('(u.username LIKE ? OR u.full_name LIKE ? OR a.action LIKE ? OR a.entity_type LIKE ? OR a.description LIKE ? OR w.name LIKE ?)');
+        const searchPattern = `%${search}%`;
+        params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+    if (whereClauses.length > 0) {
+        baseFromWhere += ' WHERE ' + whereClauses.join(' AND ');
+    }
+    const countQuery = `SELECT COUNT(*) as count ${baseFromWhere}`;
+    const total = db.prepare(countQuery).get(...params)?.count || 0;
+    const selectQuery = `
+    SELECT a.id, a.user_id, u.username, u.full_name as user_full_name,
+           a.warehouse_id, w.name as warehouse_name,
+           a.action, a.entity_type, a.entity_id,
+           a.old_values, a.new_values, a.description,
+           a.ip_address, a.created_at
+    ${baseFromWhere}
+    ORDER BY a.created_at DESC, a.id DESC
+    LIMIT ? OFFSET ?
+  `;
+    const logs = db.prepare(selectQuery).all(...params, limit, offset).map((l) => ({
         id: l.id,
         userId: l.user_id,
         username: l.username || 'SYSTEM',
@@ -41,6 +77,15 @@ router.get('/', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER'), 
         ipAddress: l.ip_address,
         createdAt: l.created_at,
     }));
-    return sendSuccess(res, logs);
+    const totalPages = Math.ceil(total / limit) || 1;
+    return sendSuccess(res, {
+        items: logs,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages,
+        },
+    });
 });
 export default router;

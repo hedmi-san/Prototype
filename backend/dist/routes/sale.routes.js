@@ -5,61 +5,115 @@ import { authenticate, logAudit, validateWarehouseScope } from '../middleware/au
 const router = Router();
 router.get('/', authenticate, (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
-    let query = `
-    SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
-           s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
-           s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
+    const startDate = req.query.startDate;
+    const endDate = req.query.endDate;
+    const search = req.query.search?.trim();
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
+    const offset = (page - 1) * limit;
+    let baseFromWhere = `
     FROM sales s
     JOIN warehouses w ON s.warehouse_id = w.id
     JOIN users u ON s.user_id = u.id
   `;
+    const whereClauses = [];
     const params = [];
     if (warehouseId) {
-        query += ' WHERE s.warehouse_id = ?';
+        whereClauses.push('s.warehouse_id = ?');
         params.push(warehouseId);
     }
     else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
-        query += ' WHERE s.warehouse_id = ?';
+        whereClauses.push('s.warehouse_id = ?');
         params.push(req.user.warehouseId);
     }
-    query += ' ORDER BY s.created_at DESC, s.id DESC';
-    const sales = db.prepare(query).all(...params).map((s) => {
-        const items = db.prepare(`
-      SELECT si.id, si.product_id, p.name as product_name, p.reference as product_reference,
+    if (startDate) {
+        const formattedStart = startDate.length === 10 ? `${startDate} 00:00:00` : startDate;
+        whereClauses.push('COALESCE(s.sale_date, s.created_at) >= ?');
+        params.push(formattedStart);
+    }
+    if (endDate) {
+        const formattedEnd = endDate.length === 10 ? `${endDate} 23:59:59` : endDate;
+        whereClauses.push('COALESCE(s.sale_date, s.created_at) <= ?');
+        params.push(formattedEnd);
+    }
+    if (search) {
+        whereClauses.push('(s.invoice_number LIKE ? OR s.customer_name LIKE ? OR s.customer_phone LIKE ? OR w.name LIKE ?)');
+        const searchPattern = `%${search}%`;
+        params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+    if (whereClauses.length > 0) {
+        baseFromWhere += ' WHERE ' + whereClauses.join(' AND ');
+    }
+    // Count total matching records
+    const countQuery = `SELECT COUNT(*) as count ${baseFromWhere}`;
+    const total = db.prepare(countQuery).get(...params)?.count || 0;
+    // Fetch paginated slice
+    const selectQuery = `
+    SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
+           s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
+           s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
+    ${baseFromWhere}
+    ORDER BY COALESCE(s.sale_date, s.created_at) DESC, s.id DESC
+    LIMIT ? OFFSET ?
+  `;
+    const salesRows = db.prepare(selectQuery).all(...params, limit, offset);
+    // Batch-fetch line items for the paginated slice (eliminating N+1 queries)
+    const saleIds = salesRows.map((s) => s.id);
+    const itemsBySaleId = {};
+    if (saleIds.length > 0) {
+        const placeholders = saleIds.map(() => '?').join(',');
+        const itemsQuery = `
+      SELECT si.id, si.sale_id, si.product_id, p.name as product_name, p.reference as product_reference,
              si.quantity, si.unit_price, si.subtotal
       FROM sale_items si
       JOIN products p ON si.product_id = p.id
-      WHERE si.sale_id = ?
-    `).all(s.id).map((i) => ({
-            id: i.id,
-            productId: i.product_id,
-            productName: i.product_name,
-            productReference: i.product_reference,
-            quantity: i.quantity,
-            unitPrice: i.unit_price,
-            subtotal: i.subtotal,
-        }));
-        return {
-            id: s.id,
-            invoiceNumber: s.invoice_number,
-            warehouseId: s.warehouse_id,
-            warehouseName: s.warehouse_name,
-            warehouseCode: s.warehouse_code,
-            userId: s.user_id,
-            userName: s.user_name,
-            createdById: s.user_id,
-            createdByName: s.user_name,
-            customerName: s.customer_name,
-            customerPhone: s.customer_phone,
-            totalAmount: s.total_amount,
-            saleDate: s.sale_date || s.created_at,
-            status: s.status,
-            createdAt: s.created_at,
-            updatedAt: s.updated_at,
-            items,
-        };
+      WHERE si.sale_id IN (${placeholders})
+    `;
+        const itemRows = db.prepare(itemsQuery).all(...saleIds);
+        for (const item of itemRows) {
+            if (!itemsBySaleId[item.sale_id]) {
+                itemsBySaleId[item.sale_id] = [];
+            }
+            itemsBySaleId[item.sale_id].push({
+                id: item.id,
+                productId: item.product_id,
+                productName: item.product_name,
+                productReference: item.product_reference,
+                quantity: item.quantity,
+                unitPrice: item.unit_price,
+                subtotal: item.subtotal,
+            });
+        }
+    }
+    const items = salesRows.map((s) => ({
+        id: s.id,
+        invoiceNumber: s.invoice_number,
+        warehouseId: s.warehouse_id,
+        warehouseName: s.warehouse_name,
+        warehouseCode: s.warehouse_code,
+        userId: s.user_id,
+        userName: s.user_name,
+        createdById: s.user_id,
+        createdByName: s.user_name,
+        customerName: s.customer_name,
+        customerPhone: s.customer_phone,
+        totalAmount: s.total_amount,
+        saleDate: s.sale_date || s.created_at,
+        status: s.status,
+        createdAt: s.created_at,
+        updatedAt: s.updated_at,
+        items: itemsBySaleId[s.id] || [],
+    }));
+    const totalPages = Math.ceil(total / limit) || 1;
+    return sendSuccess(res, {
+        items,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages,
+        },
     });
-    return sendSuccess(res, sales);
 });
 router.get('/:id', authenticate, (req, res) => {
     const id = Number(req.params.id);

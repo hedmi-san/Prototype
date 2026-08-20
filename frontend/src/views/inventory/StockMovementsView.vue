@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { inventoryService } from '../../services/operations.service';
 import type { StockMovement } from '../../types';
+import type { ComputedPeriodRange } from '../../utils/periodNavigator';
 import { formatDateTime, formatNumber, formatMovementType } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
+import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
+import AppPagination from '../../components/common/AppPagination.vue';
 
 const authStore = useAuthStore();
 const movements = ref<StockMovement[]>([]);
@@ -13,41 +16,73 @@ const loading = ref(true);
 const searchQuery = ref('');
 const typeFilter = ref('');
 
+// Period & Pagination state
+const activeRange = ref<ComputedPeriodRange | null>(null);
+const page = ref(1);
+const limit = ref(25);
+const total = ref(0);
+const totalPages = ref(1);
+
 onMounted(async () => {
+  if (!activeRange.value) {
+    await fetchMovements();
+  }
+});
+
+// Watch warehouse changes to refresh
+watch(() => authStore.activeWarehouseId, async () => {
+  page.value = 1;
   await fetchMovements();
 });
+
+watch(typeFilter, async () => {
+  page.value = 1;
+  await fetchMovements();
+});
+
+let searchTimeout: any = null;
+function onSearchInput() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    page.value = 1;
+    await fetchMovements();
+  }, 300);
+}
+
+async function onPeriodChange(range: ComputedPeriodRange) {
+  activeRange.value = range;
+  page.value = 1;
+  await fetchMovements();
+}
+
+function onPageChange(payload: { page: number; limit: number }) {
+  page.value = payload.page;
+  limit.value = payload.limit;
+  fetchMovements();
+}
 
 async function fetchMovements() {
   loading.value = true;
   try {
-    movements.value = await inventoryService.getMovements(authStore.activeWarehouseId || undefined);
+    const res = await inventoryService.getMovements({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      startDate: activeRange.value?.startDate,
+      endDate: activeRange.value?.endDate,
+      type: typeFilter.value || undefined,
+      search: searchQuery.value.trim() || undefined,
+      page: page.value,
+      limit: limit.value,
+    });
+    movements.value = res.items;
+    total.value = res.pagination.total;
+    totalPages.value = res.pagination.totalPages;
+    page.value = res.pagination.page;
   } catch (err) {
     console.error('Failed to load movements', err);
   } finally {
     loading.value = false;
   }
 }
-
-const filteredMovements = computed(() => {
-  return movements.value.filter((m) => {
-    const movType = m.movementType || m.type;
-    const matchesType = !typeFilter.value || movType === typeFilter.value;
-    if (!matchesType) return false;
-
-    if (!searchQuery.value.trim()) return true;
-    const q = searchQuery.value.toLowerCase();
-    const reasonText = (m.reason || m.notes || m.reference || '').toLowerCase();
-    const refText = (m.reference || '').toLowerCase();
-    return (
-      (m.productName && m.productName.toLowerCase().includes(q)) ||
-      (m.productReference && m.productReference.toLowerCase().includes(q)) ||
-      (m.warehouseName && m.warehouseName.toLowerCase().includes(q)) ||
-      reasonText.includes(q) ||
-      refText.includes(q) ||
-      (m.createdByName && m.createdByName.toLowerCase().includes(q))
-    );
-  });
-});
 
 function getBadgeVariant(type?: string): 'neutral' | 'success' | 'danger' | 'warning' | 'info' {
   switch (type) {
@@ -79,6 +114,12 @@ function getBadgeVariant(type?: string): 'neutral' | 'success' | 'danger' | 'war
       </div>
     </div>
 
+    <!-- Reusable Period Navigator -->
+    <AppPeriodNavigator
+      initial-granularity="month"
+      @change="onPeriodChange"
+    />
+
     <!-- Filter Bar -->
     <div class="filter-bar">
       <div class="search-box">
@@ -89,8 +130,9 @@ function getBadgeVariant(type?: string): 'neutral' | 'success' | 'danger' | 'war
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Rechercher par produit, référence, entrepôt, motif, utilisateur..."
+          placeholder="Rechercher par produit, référence, motif, entrepôt..."
           class="search-input"
+          @input="onSearchInput"
         />
       </div>
 
@@ -104,10 +146,14 @@ function getBadgeVariant(type?: string): 'neutral' | 'success' | 'danger' | 'war
           <option value="ADJUSTMENT">Ajustement inventaire</option>
         </select>
       </div>
+
+      <div class="count-badge text-muted font-mono">
+        {{ total }} {{ total > 1 ? 'mouvements trouvés' : 'mouvement trouvé' }}
+      </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!filteredMovements.length" empty-text="Aucun mouvement de stock trouvé" :columns-count="7">
+    <AppTable :loading="loading" :empty="!movements.length" empty-text="Aucun mouvement de stock trouvé pour cette période" :columns-count="7">
       <template #header>
         <th>Date & Heure</th>
         <th>Entrepôt</th>
@@ -118,7 +164,7 @@ function getBadgeVariant(type?: string): 'neutral' | 'success' | 'danger' | 'war
         <th>Enregistré par</th>
       </template>
       <template #body>
-        <tr v-for="m in filteredMovements" :key="m.id">
+        <tr v-for="m in movements" :key="m.id">
           <td class="font-mono text-caption">{{ formatDateTime(m.createdAt) }}</td>
           <td>
             <strong>{{ m.warehouseName }}</strong>
@@ -152,6 +198,16 @@ function getBadgeVariant(type?: string): 'neutral' | 'success' | 'danger' | 'war
         </tr>
       </template>
     </AppTable>
+
+    <!-- Pagination -->
+    <AppPagination
+      v-model:page="page"
+      v-model:limit="limit"
+      :total="total"
+      :total-pages="totalPages"
+      :loading="loading"
+      @change="onPageChange"
+    />
   </div>
 </template>
 

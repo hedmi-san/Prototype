@@ -1,5 +1,5 @@
 import api from './api';
-import type { ApiResponse, Expense, Employee, SalaryRecord, DashboardMetrics, PeriodPreset, StockValuationReport, FinancialReport, AuditLog, User, Sale, RoleType } from '../types';
+import type { ApiResponse, Expense, Employee, SalaryRecord, DashboardMetrics, PeriodPreset, StockValuationReport, FinancialReport, AuditLog, User, Sale, RoleType, PaginationParams, PaginatedData } from '../types';
 
 export const expenseService = {
   async getExpenses(warehouseId?: number): Promise<Expense[]> {
@@ -83,10 +83,23 @@ export const reportService = {
 };
 
 export const auditService = {
-  async getAuditLogs(warehouseId?: number): Promise<AuditLog[]> {
-    const params = warehouseId ? { warehouseId } : {};
-    const response = await api.get<ApiResponse<AuditLog[]>>('/admin/audit-logs', { params });
-    return response.data.data;
+  async getAuditLogs(params?: PaginationParams | number): Promise<PaginatedData<AuditLog>> {
+    const queryParams = typeof params === 'number' ? { warehouseId: params } : (params || {});
+    const response = await api.get<ApiResponse<any>>('/admin/audit-logs', { params: queryParams });
+    const data = response.data.data;
+    if (data && typeof data === 'object' && Array.isArray(data.items) && data.pagination) {
+      return data as PaginatedData<AuditLog>;
+    }
+    const items = Array.isArray(data) ? data : [];
+    return {
+      items,
+      pagination: {
+        page: 1,
+        limit: items.length || 25,
+        total: items.length,
+        totalPages: 1,
+      },
+    };
   }
 };
 

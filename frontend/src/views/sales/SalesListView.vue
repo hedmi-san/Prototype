@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { saleService } from '../../services/operations.service';
 import { productService } from '../../services/catalog.service';
 import type { Sale, Product } from '../../types';
+import type { ComputedPeriodRange } from '../../utils/periodNavigator';
 import { formatCurrency, formatDateTime, formatNumber, formatSaleStatus } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
 import AppInput from '../../components/common/AppInput.vue';
+import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
+import AppPagination from '../../components/common/AppPagination.vue';
 import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
 
 const authStore = useAuthStore();
@@ -17,6 +20,13 @@ const sales = ref<Sale[]>([]);
 const products = ref<Product[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
+
+// Period & Pagination state
+const activeRange = ref<ComputedPeriodRange | null>(null);
+const page = ref(1);
+const limit = ref(25);
+const total = ref(0);
+const totalPages = ref(1);
 
 // Invoice Preview Modal
 const showInvoiceModal = ref(false);
@@ -40,13 +50,51 @@ const cancellingSale = ref<Sale | null>(null);
 const cancelling = ref(false);
 
 onMounted(async () => {
-  await Promise.all([fetchSales(), fetchProducts()]);
+  await Promise.all([fetchProducts()]);
 });
+
+// Watch warehouse changes to refresh sales
+watch(() => authStore.activeWarehouseId, async () => {
+  page.value = 1;
+  await fetchSales();
+});
+
+let searchTimeout: any = null;
+function onSearchInput() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    page.value = 1;
+    await fetchSales();
+  }, 300);
+}
+
+async function onPeriodChange(range: ComputedPeriodRange) {
+  activeRange.value = range;
+  page.value = 1;
+  await fetchSales();
+}
+
+function onPageChange(payload: { page: number; limit: number }) {
+  page.value = payload.page;
+  limit.value = payload.limit;
+  fetchSales();
+}
 
 async function fetchSales() {
   loading.value = true;
   try {
-    sales.value = await saleService.getSales(authStore.activeWarehouseId || undefined);
+    const res = await saleService.getSales({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      startDate: activeRange.value?.startDate,
+      endDate: activeRange.value?.endDate,
+      search: searchQuery.value.trim() || undefined,
+      page: page.value,
+      limit: limit.value,
+    });
+    sales.value = res.items;
+    total.value = res.pagination.total;
+    totalPages.value = res.pagination.totalPages;
+    page.value = res.pagination.page;
   } catch (err) {
     console.error('Failed to load sales', err);
   } finally {
@@ -61,17 +109,6 @@ async function fetchProducts() {
     console.error('Failed to load products', err);
   }
 }
-
-const filteredSales = computed(() => {
-  if (!searchQuery.value.trim()) return sales.value;
-  const q = searchQuery.value.toLowerCase();
-  return sales.value.filter(
-    (s) =>
-      s.invoiceNumber.toLowerCase().includes(q) ||
-      s.warehouseName.toLowerCase().includes(q) ||
-      (s.customerName && s.customerName.toLowerCase().includes(q))
-  );
-});
 
 function formatToDatetimeLocal(dateStr?: string): string {
   if (!dateStr) return '';
@@ -181,6 +218,12 @@ async function handleConfirmCancel() {
       </div>
     </div>
 
+    <!-- Reusable Period Navigator -->
+    <AppPeriodNavigator
+      initial-granularity="month"
+      @change="onPeriodChange"
+    />
+
     <!-- Filter Bar -->
     <div class="filter-bar">
       <div class="search-box">
@@ -191,17 +234,18 @@ async function handleConfirmCancel() {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Rechercher par n° facture, nom client, entrepôt..."
+          placeholder="Rechercher par n° facture, nom client, téléphone, entrepôt..."
           class="search-input"
+          @input="onSearchInput"
         />
       </div>
       <div class="count-badge text-muted font-mono">
-        {{ filteredSales.length }} {{ filteredSales.length > 1 ? 'factures' : 'facture' }}
+        {{ total }} {{ total > 1 ? 'factures trouvées' : 'facture trouvée' }}
       </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!filteredSales.length" empty-text="Aucune vente enregistrée" :columns-count="7">
+    <AppTable :loading="loading" :empty="!sales.length" empty-text="Aucune vente enregistrée pour cette période" :columns-count="7">
       <template #header>
         <th>N° Facture</th>
         <th>Entrepôt</th>
@@ -212,7 +256,7 @@ async function handleConfirmCancel() {
         <th>Actions</th>
       </template>
       <template #body>
-        <tr v-for="sale in filteredSales" :key="sale.id">
+        <tr v-for="sale in sales" :key="sale.id">
           <td class="font-mono font-bold">{{ sale.invoiceNumber }}</td>
           <td>{{ sale.warehouseName }}</td>
           <td>
@@ -264,6 +308,16 @@ async function handleConfirmCancel() {
         </tr>
       </template>
     </AppTable>
+
+    <!-- Pagination -->
+    <AppPagination
+      v-model:page="page"
+      v-model:limit="limit"
+      :total="total"
+      :total-pages="totalPages"
+      :loading="loading"
+      @change="onPageChange"
+    />
 
     <!-- Invoice Viewer Modal -->
     <AppModal

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { useProductStore } from '../../stores/product.store';
 import { transferService, inventoryService } from '../../services/operations.service';
 import type { Transfer, Product, Warehouse, Stock } from '../../types';
+import type { ComputedPeriodRange } from '../../utils/periodNavigator';
 import { formatDateTime, formatNumber, formatTransferStatus } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
@@ -12,6 +13,8 @@ import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
 import AppInput from '../../components/common/AppInput.vue';
 import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
+import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
+import AppPagination from '../../components/common/AppPagination.vue';
 import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
 
 const authStore = useAuthStore();
@@ -19,9 +22,17 @@ const warehouseStore = useWarehouseStore();
 const productStore = useProductStore();
 
 const transfers = ref<Transfer[]>([]);
-const products = ref<Product[]>([]);
 const sourceWarehouseStock = ref<Stock[]>([]);
 const loading = ref(true);
+const searchQuery = ref('');
+const statusFilter = ref('');
+
+// Period & Pagination state
+const activeRange = ref<ComputedPeriodRange | null>(null);
+const page = ref(1);
+const limit = ref(25);
+const total = ref(0);
+const totalPages = ref(1);
 
 // Request Transfer Modal
 const showCreateModal = ref(false);
@@ -49,13 +60,60 @@ const saving = ref(false);
 const errorMessage = ref('');
 
 onMounted(async () => {
-  await Promise.all([fetchTransfers(), productStore.fetchProducts()]);
+  await Promise.all([productStore.fetchProducts()]);
+  if (!activeRange.value) {
+    await fetchTransfers();
+  }
 });
+
+// Watch warehouse and status filter changes
+watch(() => authStore.activeWarehouseId, async () => {
+  page.value = 1;
+  await fetchTransfers();
+});
+
+watch(statusFilter, async () => {
+  page.value = 1;
+  await fetchTransfers();
+});
+
+let searchTimeout: any = null;
+function onSearchInput() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    page.value = 1;
+    await fetchTransfers();
+  }, 300);
+}
+
+async function onPeriodChange(range: ComputedPeriodRange) {
+  activeRange.value = range;
+  page.value = 1;
+  await fetchTransfers();
+}
+
+function onPageChange(payload: { page: number; limit: number }) {
+  page.value = payload.page;
+  limit.value = payload.limit;
+  fetchTransfers();
+}
 
 async function fetchTransfers() {
   loading.value = true;
   try {
-    transfers.value = await transferService.getTransfers(authStore.activeWarehouseId || undefined);
+    const res = await transferService.getTransfers({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      startDate: activeRange.value?.startDate,
+      endDate: activeRange.value?.endDate,
+      status: statusFilter.value || undefined,
+      search: searchQuery.value.trim() || undefined,
+      page: page.value,
+      limit: limit.value,
+    });
+    transfers.value = res.items;
+    total.value = res.pagination.total;
+    totalPages.value = res.pagination.totalPages;
+    page.value = res.pagination.page;
   } catch (err) {
     console.error('Failed to load transfers', err);
   } finally {
@@ -131,7 +189,7 @@ function openApproveModal(t: Transfer) {
   approvingTransfer.value = t;
   approveForm.value = t.items.map((i) => ({
     productId: i.productId,
-    approvedQuantity: i.requestedQuantity, // Default full approval
+    approvedQuantity: i.requestedQuantity,
   }));
   errorMessage.value = '';
   showApproveModal.value = true;
@@ -154,27 +212,33 @@ async function handleSaveApprove() {
   }
 }
 
-async function handleConfirmReception(t: Transfer) {
-  loading.value = true;
+async function handleConfirm(t: Transfer) {
+  if (!confirm(`Confirmer la réception physique de ce transfert #${t.id} à votre entrepôt ?`)) {
+    return;
+  }
+  saving.value = true;
   try {
     await transferService.confirmTransfer(t.id);
     await fetchTransfers();
   } catch (err: any) {
-    alert(err.response?.data?.message || 'Échec de la confirmation de réception');
+    alert(err.response?.data?.message || 'Échec de la confirmation du transfert');
   } finally {
-    loading.value = false;
+    saving.value = false;
   }
 }
 
 async function handleDecline(t: Transfer) {
-  loading.value = true;
+  if (!confirm(`Refuser cette demande de transfert #${t.id} ?`)) {
+    return;
+  }
+  saving.value = true;
   try {
     await transferService.declineTransfer(t.id);
     await fetchTransfers();
   } catch (err: any) {
     alert(err.response?.data?.message || 'Échec du refus du transfert');
   } finally {
-    loading.value = false;
+    saving.value = false;
   }
 }
 
@@ -262,8 +326,46 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
       </div>
     </div>
 
+    <!-- Reusable Period Navigator -->
+    <AppPeriodNavigator
+      initial-granularity="month"
+      @change="onPeriodChange"
+    />
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+      <div class="search-box">
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Rechercher par n° transfert, entrepôt, demandeur, notes..."
+          class="search-input"
+          @input="onSearchInput"
+        />
+      </div>
+
+      <div class="status-filter">
+        <select v-model="statusFilter" class="filter-select">
+          <option value="">Tous les statuts</option>
+          <option value="REQUESTED">En attente (Demandé)</option>
+          <option value="APPROVED">Approuvé (Réservé)</option>
+          <option value="CONFIRMED">Confirmé (Réceptionné)</option>
+          <option value="DECLINED">Refusé</option>
+          <option value="CANCELLED">Annulé</option>
+        </select>
+      </div>
+
+      <div class="count-badge text-muted font-mono">
+        {{ total }} {{ total > 1 ? 'transferts trouvés' : 'transfert trouvé' }}
+      </div>
+    </div>
+
     <!-- Transfers Table -->
-    <AppTable :loading="loading" :empty="!transfers.length" empty-text="Aucun transfert enregistré" :columns-count="7">
+    <AppTable :loading="loading" :empty="!transfers.length" empty-text="Aucun transfert enregistré pour cette période" :columns-count="7">
       <template #header>
         <th>N° Transfert</th>
         <th>Entrepôt Source</th>
@@ -302,8 +404,6 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
                 <button class="icon-action-btn btn-primary-action" @click="openApproveModal(t)">
                   Approuver
                 </button>
-              </template>
-              <template v-if="canDecline(t)">
                 <button class="icon-action-btn btn-danger-action" @click="handleDecline(t)">
                   Refuser
                 </button>
@@ -311,12 +411,12 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
 
               <!-- Destination Warehouse Action: Confirm Reception -->
               <template v-if="canConfirm(t)">
-                <button class="icon-action-btn btn-success-action" @click="handleConfirmReception(t)">
+                <button class="icon-action-btn btn-success-action" @click="handleConfirm(t)">
                   Confirmer Réception
                 </button>
               </template>
 
-              <!-- Cancelable before confirmed -->
+              <!-- Cancel Transfer -->
               <template v-if="canCancel(t)">
                 <button class="icon-action-btn btn-danger-action" @click="promptCancel(t)">
                   Annuler
@@ -327,6 +427,16 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
         </tr>
       </template>
     </AppTable>
+
+    <!-- Pagination -->
+    <AppPagination
+      v-model:page="page"
+      v-model:limit="limit"
+      :total="total"
+      :total-pages="totalPages"
+      :loading="loading"
+      @change="onPageChange"
+    />
 
     <!-- Create Transfer Modal -->
     <AppModal
@@ -546,6 +656,48 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.search-box {
+  position: relative;
+  flex: 1;
+  max-width: 480px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-secondary);
+}
+
+.search-input, .filter-select {
+  height: 38px;
+  padding: 8px 12px;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.search-input {
+  width: 100%;
+  padding-left: 36px;
+}
+
+.search-input:focus, .filter-select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
 }
 
 .font-bold {

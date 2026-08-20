@@ -177,4 +177,18 @@ export function initSchema(): void {
   try {
     db.exec("UPDATE sales SET sale_date = created_at WHERE sale_date IS NULL OR sale_date = '';");
   } catch {}
+
+  // Performance Indexes for high-volume 5-year scalability
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sales_sale_date_wh ON sales(sale_date, warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_sales_created_at_wh ON sales(created_at, warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_stock_movements_created_wh ON stock_movements(created_at, warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_stock_movements_type_created ON stock_movements(movement_type, created_at);
+    CREATE INDEX IF NOT EXISTS idx_transfers_created_wh ON transfers(created_at, source_warehouse_id, destination_warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_transfers_status_created ON transfers(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_transfer_items_transfer_id ON transfer_items(transfer_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created_wh ON audit_logs(created_at, warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_action_created ON audit_logs(action, created_at);
+  `);
 }

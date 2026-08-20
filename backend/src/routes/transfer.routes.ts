@@ -8,13 +8,15 @@ const router = Router();
 router.get('/', authenticate, (req: AuthRequest, res) => {
   const user = req.user;
   const filterWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
-  
-  let query = `
-    SELECT t.id, t.transfer_number,
-           t.source_warehouse_id, sw.name as source_warehouse_name, sw.code as source_warehouse_code,
-           t.destination_warehouse_id, dw.name as destination_warehouse_name, dw.code as destination_warehouse_code,
-           t.requested_by_user_id, u.full_name as requested_by_name,
-           t.status, t.notes, t.created_at, t.approved_at, t.confirmed_at, t.updated_at
+  const startDate = req.query.startDate as string | undefined;
+  const endDate = req.query.endDate as string | undefined;
+  const status = req.query.status as string | undefined;
+  const search = (req.query.search as string | undefined)?.trim();
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
+  const offset = (page - 1) * limit;
+
+  let baseFromWhere = `
     FROM transfers t
     JOIN warehouses sw ON t.source_warehouse_id = sw.id
     JOIN warehouses dw ON t.destination_warehouse_id = dw.id
@@ -33,49 +35,109 @@ router.get('/', authenticate, (req: AuthRequest, res) => {
     params.push(filterWarehouseId, filterWarehouseId);
   }
 
-  if (whereClauses.length > 0) {
-    query += ' WHERE ' + whereClauses.join(' AND ');
+  if (status) {
+    whereClauses.push('t.status = ?');
+    params.push(status);
   }
-  query += ' ORDER BY t.created_at DESC, t.id DESC';
 
-  const transfers = db.prepare(query).all(...params).map((t: any) => {
-    const items = db.prepare(`
-      SELECT ti.id, ti.product_id, p.name as product_name, p.reference as product_reference,
+  if (startDate) {
+    const formattedStart = startDate.length === 10 ? `${startDate} 00:00:00` : startDate;
+    whereClauses.push('t.created_at >= ?');
+    params.push(formattedStart);
+  }
+
+  if (endDate) {
+    const formattedEnd = endDate.length === 10 ? `${endDate} 23:59:59` : endDate;
+    whereClauses.push('t.created_at <= ?');
+    params.push(formattedEnd);
+  }
+
+  if (search) {
+    whereClauses.push('(t.transfer_number LIKE ? OR sw.name LIKE ? OR dw.name LIKE ? OR u.full_name LIKE ? OR t.notes LIKE ?)');
+    const searchPattern = `%${search}%`;
+    params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+  }
+
+  if (whereClauses.length > 0) {
+    baseFromWhere += ' WHERE ' + whereClauses.join(' AND ');
+  }
+
+  const countQuery = `SELECT COUNT(*) as count ${baseFromWhere}`;
+  const total = (db.prepare(countQuery).get(...params) as any)?.count || 0;
+
+  const selectQuery = `
+    SELECT t.id, t.transfer_number,
+           t.source_warehouse_id, sw.name as source_warehouse_name, sw.code as source_warehouse_code,
+           t.destination_warehouse_id, dw.name as destination_warehouse_name, dw.code as destination_warehouse_code,
+           t.requested_by_user_id, u.full_name as requested_by_name,
+           t.status, t.notes, t.created_at, t.approved_at, t.confirmed_at, t.updated_at
+    ${baseFromWhere}
+    ORDER BY t.created_at DESC, t.id DESC
+    LIMIT ? OFFSET ?
+  `;
+
+  const transferRows = db.prepare(selectQuery).all(...params, limit, offset) as any[];
+
+  // Batch load line items for the paginated slice
+  const transferIds = transferRows.map((t) => t.id);
+  const itemsByTransferId: Record<number, any[]> = {};
+
+  if (transferIds.length > 0) {
+    const placeholders = transferIds.map(() => '?').join(',');
+    const itemsQuery = `
+      SELECT ti.id, ti.transfer_id, ti.product_id, p.name as product_name, p.reference as product_reference,
              ti.requested_quantity, ti.approved_quantity
       FROM transfer_items ti
       JOIN products p ON ti.product_id = p.id
-      WHERE ti.transfer_id = ?
-    `).all(t.id).map((i: any) => ({
-      id: i.id,
-      productId: i.product_id,
-      productName: i.product_name,
-      productReference: i.product_reference,
-      requestedQuantity: i.requested_quantity,
-      approvedQuantity: i.approved_quantity,
-    }));
+      WHERE ti.transfer_id IN (${placeholders})
+    `;
+    const itemRows = db.prepare(itemsQuery).all(...transferIds) as any[];
+    for (const item of itemRows) {
+      if (!itemsByTransferId[item.transfer_id]) {
+        itemsByTransferId[item.transfer_id] = [];
+      }
+      itemsByTransferId[item.transfer_id].push({
+        id: item.id,
+        productId: item.product_id,
+        productName: item.product_name,
+        productReference: item.product_reference,
+        requestedQuantity: item.requested_quantity,
+        approvedQuantity: item.approved_quantity,
+      });
+    }
+  }
 
-    return {
-      id: t.id,
-      transferNumber: t.transfer_number,
-      sourceWarehouseId: t.source_warehouse_id,
-      sourceWarehouseName: t.source_warehouse_name,
-      sourceWarehouseCode: t.source_warehouse_code,
-      destinationWarehouseId: t.destination_warehouse_id,
-      destinationWarehouseName: t.destination_warehouse_name,
-      destinationWarehouseCode: t.destination_warehouse_code,
-      requestedByUserId: t.requested_by_user_id,
-      requestedByName: t.requested_by_name,
-      status: t.status,
-      notes: t.notes,
-      createdAt: t.created_at,
-      approvedAt: t.approved_at || null,
-      confirmedAt: t.confirmed_at || null,
-      updatedAt: t.updated_at,
-      items,
-    };
+  const items = transferRows.map((t: any) => ({
+    id: t.id,
+    transferNumber: t.transfer_number,
+    sourceWarehouseId: t.source_warehouse_id,
+    sourceWarehouseName: t.source_warehouse_name,
+    sourceWarehouseCode: t.source_warehouse_code,
+    destinationWarehouseId: t.destination_warehouse_id,
+    destinationWarehouseName: t.destination_warehouse_name,
+    destinationWarehouseCode: t.destination_warehouse_code,
+    requestedByUserId: t.requested_by_user_id,
+    requestedByName: t.requested_by_name,
+    status: t.status,
+    notes: t.notes,
+    createdAt: t.created_at,
+    approvedAt: t.approved_at || null,
+    confirmedAt: t.confirmed_at || null,
+    updatedAt: t.updated_at,
+    items: itemsByTransferId[t.id] || [],
+  }));
+
+  const totalPages = Math.ceil(total / limit) || 1;
+
+  return sendSuccess(res, {
+    items,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+    },
   });
-
-  return sendSuccess(res, transfers);
 });
 
 router.get('/:id', authenticate, (req: AuthRequest, res) => {
