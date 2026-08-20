@@ -375,7 +375,7 @@ router.get(['/dashboard', '/dashboard-metrics'], authenticate, (req, res) => {
     }));
     const recentSales = db.prepare(`
     SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name,
-           s.customer_name, s.total_amount, s.status, s.created_at
+           s.customer_name, s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at
     FROM sales s
     JOIN warehouses w ON s.warehouse_id = w.id
     ${warehouseId ? `WHERE s.warehouse_id = ${warehouseId}` : ''}
@@ -388,7 +388,7 @@ router.get(['/dashboard', '/dashboard-metrics'], authenticate, (req, res) => {
         customerName: s.customer_name,
         totalAmount: s.total_amount,
         status: s.status,
-        saleDate: s.created_at,
+        saleDate: s.sale_date || s.created_at,
         createdAt: s.created_at,
     }));
     return sendSuccess(res, {
@@ -506,7 +506,7 @@ router.get('/sales', authenticate, (req, res) => {
     let query = `
     SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name,
            s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
-           s.total_amount, s.status, s.created_at, s.updated_at
+           s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at
     FROM sales s
     JOIN warehouses w ON s.warehouse_id = w.id
     JOIN users u ON s.user_id = u.id
@@ -518,14 +518,14 @@ router.get('/sales', authenticate, (req, res) => {
         params.push(warehouseId);
     }
     if (startDate) {
-        query += ' AND date(s.created_at) >= date(?)';
+        query += ' AND date(COALESCE(s.sale_date, s.created_at)) >= date(?)';
         params.push(startDate);
     }
     if (endDate) {
-        query += ' AND date(s.created_at) <= date(?)';
+        query += ' AND date(COALESCE(s.sale_date, s.created_at)) <= date(?)';
         params.push(endDate);
     }
-    query += ' ORDER BY s.created_at DESC';
+    query += ' ORDER BY COALESCE(s.sale_date, s.created_at) DESC, s.id DESC';
     const sales = db.prepare(query).all(...params).map((s) => ({
         id: s.id,
         invoiceNumber: s.invoice_number,
@@ -537,7 +537,7 @@ router.get('/sales', authenticate, (req, res) => {
         customerPhone: s.customer_phone,
         totalAmount: s.total_amount,
         status: s.status,
-        saleDate: s.created_at,
+        saleDate: s.sale_date || s.created_at,
         createdAt: s.created_at,
     }));
     return sendSuccess(res, sales);

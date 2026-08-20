@@ -76,6 +76,7 @@ export function initSchema() {
       customer_phone TEXT,
       total_amount REAL NOT NULL DEFAULT 0.0,
       status TEXT NOT NULL DEFAULT 'COMPLETED',
+      sale_date TEXT NOT NULL DEFAULT (datetime('now')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -168,6 +169,14 @@ export function initSchema() {
     catch { }
     try {
         db.exec('ALTER TABLE transfers ADD COLUMN confirmed_at TEXT;');
+    }
+    catch { }
+    try {
+        db.exec('ALTER TABLE sales ADD COLUMN sale_date TEXT;');
+    }
+    catch { }
+    try {
+        db.exec("UPDATE sales SET sale_date = created_at WHERE sale_date IS NULL OR sale_date = '';");
     }
     catch { }
 }

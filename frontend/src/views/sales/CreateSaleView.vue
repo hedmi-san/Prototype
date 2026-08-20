@@ -27,6 +27,19 @@ const selectedWarehouseId = ref<number>(
 const customerName = ref('');
 const customerPhone = ref('');
 
+const getLocalDefaultDateTime = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+};
+
+const saleDate = ref(getLocalDefaultDateTime());
+
 interface LineItem {
   productId: number;
   quantity: number;
@@ -115,6 +128,7 @@ async function handleSubmitSale() {
       warehouseId: selectedWarehouseId.value,
       customerName: customerName.value.trim() || undefined,
       customerPhone: customerPhone.value.trim() || undefined,
+      saleDate: saleDate.value ? saleDate.value.replace('T', ' ') : undefined,
       items: lineItems.value.map((i) => ({
         productId: i.productId,
         quantity: i.quantity,
@@ -234,6 +248,17 @@ async function handleSubmitSale() {
                 {{ w.name }} ({{ w.code }})
               </option>
             </select>
+          </div>
+
+          <div class="app-input-group">
+            <label class="input-label">Date de Vente</label>
+            <input
+              v-model="saleDate"
+              type="datetime-local"
+              step="1"
+              class="app-input"
+              required
+            />
           </div>
 
           <AppInput

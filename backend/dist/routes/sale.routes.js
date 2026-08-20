@@ -6,9 +6,9 @@ const router = Router();
 router.get('/', authenticate, (req, res) => {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
     let query = `
-    SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name,
+    SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
            s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
-           s.total_amount, s.status, s.created_at, s.updated_at
+           s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
     FROM sales s
     JOIN warehouses w ON s.warehouse_id = w.id
     JOIN users u ON s.user_id = u.id
@@ -44,11 +44,15 @@ router.get('/', authenticate, (req, res) => {
             invoiceNumber: s.invoice_number,
             warehouseId: s.warehouse_id,
             warehouseName: s.warehouse_name,
+            warehouseCode: s.warehouse_code,
             userId: s.user_id,
             userName: s.user_name,
+            createdById: s.user_id,
+            createdByName: s.user_name,
             customerName: s.customer_name,
             customerPhone: s.customer_phone,
             totalAmount: s.total_amount,
+            saleDate: s.sale_date || s.created_at,
             status: s.status,
             createdAt: s.created_at,
             updatedAt: s.updated_at,
@@ -60,9 +64,9 @@ router.get('/', authenticate, (req, res) => {
 router.get('/:id', authenticate, (req, res) => {
     const id = Number(req.params.id);
     const s = db.prepare(`
-    SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name,
+    SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
            s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
-           s.total_amount, s.status, s.created_at, s.updated_at
+           s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
     FROM sales s
     JOIN warehouses w ON s.warehouse_id = w.id
     JOIN users u ON s.user_id = u.id
@@ -91,19 +95,41 @@ router.get('/:id', authenticate, (req, res) => {
         invoiceNumber: s.invoice_number,
         warehouseId: s.warehouse_id,
         warehouseName: s.warehouse_name,
+        warehouseCode: s.warehouse_code,
         userId: s.user_id,
         userName: s.user_name,
+        createdById: s.user_id,
+        createdByName: s.user_name,
         customerName: s.customer_name,
         customerPhone: s.customer_phone,
         totalAmount: s.total_amount,
+        saleDate: s.sale_date || s.created_at,
         status: s.status,
         createdAt: s.created_at,
         updatedAt: s.updated_at,
         items,
     });
 });
+function normalizeSaleDate(input) {
+    if (!input || typeof input !== 'string')
+        return null;
+    let str = input.trim();
+    if (!str)
+        return null;
+    str = str.replace('T', ' ');
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(str)) {
+        str += ':00';
+    }
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        str += ' 00:00:00';
+    }
+    if (str.length > 19) {
+        str = str.slice(0, 19);
+    }
+    return str;
+}
 router.post('/', authenticate, (req, res) => {
-    const { warehouseId, customerName, customerPhone, items } = req.body;
+    const { warehouseId, customerName, customerPhone, saleDate, items } = req.body;
     const targetWarehouseId = warehouseId || req.user?.warehouseId;
     if (!targetWarehouseId || !items || !Array.isArray(items) || items.length === 0) {
         return sendError(res, 'warehouseId and non-empty items array are required', 400);
@@ -138,12 +164,13 @@ router.post('/', authenticate, (req, res) => {
         `).run(targetWarehouseId, item.productId, -item.quantity, invoiceNumber, `Sale to ${customerName || 'Retail Customer'}`);
                 totalAmount += item.quantity * (item.unitPrice || product.sale_price);
             }
-            // 2. Create Sale Record
+            // 2. Create Sale Record with normalized full timestamp (including seconds)
+            const formattedSaleDate = normalizeSaleDate(saleDate);
             const insertSale = db.prepare(`
-        INSERT INTO sales (invoice_number, warehouse_id, user_id, customer_name, customer_phone, total_amount, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'COMPLETED')
+        INSERT INTO sales (invoice_number, warehouse_id, user_id, customer_name, customer_phone, total_amount, status, sale_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'COMPLETED', COALESCE(?, datetime('now')), datetime('now'), datetime('now'))
       `);
-            const saleInfo = insertSale.run(invoiceNumber, targetWarehouseId, req.user ? req.user.id : 1, customerName || 'Retail Customer', customerPhone || '', totalAmount);
+            const saleInfo = insertSale.run(invoiceNumber, targetWarehouseId, req.user ? req.user.id : 1, customerName || 'Retail Customer', customerPhone || '', totalAmount, formattedSaleDate);
             const saleId = Number(saleInfo.lastInsertRowid);
             // 3. Create Sale Items
             const insertItem = db.prepare(`
@@ -155,7 +182,7 @@ router.post('/', authenticate, (req, res) => {
                 const unitPrice = item.unitPrice || product.sale_price;
                 insertItem.run(saleId, item.productId, item.quantity, unitPrice, item.quantity * unitPrice);
             }
-            return { id: saleId, invoiceNumber, totalAmount };
+            return { id: saleId, invoiceNumber, totalAmount, saleDate: formattedSaleDate };
         });
         logAudit(req.user, 'SALE_CREATED', 'SALE', sale.id, `Created sale ${sale.invoiceNumber} (Total: ${sale.totalAmount} DZD)`, targetWarehouseId);
         return sendSuccess(res, sale, 'Sale completed successfully', 201);
@@ -166,7 +193,7 @@ router.post('/', authenticate, (req, res) => {
 });
 router.put('/:id', authenticate, (req, res) => {
     const id = Number(req.params.id);
-    const { customerName, customerPhone, items } = req.body;
+    const { customerName, customerPhone, saleDate, items } = req.body;
     const currentSale = db.prepare('SELECT * FROM sales WHERE id = ?').get(id);
     if (!currentSale) {
         return sendError(res, `Sale not found with id ${id}`, 404);
@@ -176,47 +203,53 @@ router.put('/:id', authenticate, (req, res) => {
     }
     try {
         const updatedSale = runTransaction(() => {
-            // 1. Revert previous inventory items
-            const existingItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(id);
-            for (const item of existingItems) {
-                db.prepare("UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime('now') WHERE warehouse_id = ? AND product_id = ?")
-                    .run(item.quantity, currentSale.warehouse_id, item.product_id);
-            }
-            // 2. Delete existing items
-            db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(id);
-            // 3. Apply new items and validate stock
-            let newTotal = 0;
-            const insertItem = db.prepare(`
-        INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
-        VALUES (?, ?, ?, ?, ?)
-      `);
-            for (const item of items) {
-                const product = db.prepare('SELECT id, name, sale_price FROM products WHERE id = ?').get(item.productId);
-                if (!product)
-                    throw new Error(`Product not found with id ${item.productId}`);
-                const stock = db.prepare('SELECT * FROM stock WHERE warehouse_id = ? AND product_id = ?').get(currentSale.warehouse_id, item.productId);
-                const available = stock ? (stock.physical_quantity - stock.reserved_quantity) : 0;
-                if (available < item.quantity) {
-                    throw new Error(`Insufficient stock for product ${product.name}. Available: ${available}, Requested: ${item.quantity}`);
+            let newTotal = currentSale.total_amount;
+            // 1. Revert previous inventory items and re-apply if items provided
+            if (items && Array.isArray(items) && items.length > 0) {
+                const existingItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(id);
+                for (const item of existingItems) {
+                    db.prepare("UPDATE stock SET physical_quantity = physical_quantity + ?, updated_at = datetime('now') WHERE warehouse_id = ? AND product_id = ?")
+                        .run(item.quantity, currentSale.warehouse_id, item.product_id);
                 }
-                db.prepare("UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime('now') WHERE id = ?")
-                    .run(item.quantity, stock.id);
-                const unitPrice = item.unitPrice || product.sale_price;
-                const subtotal = item.quantity * unitPrice;
-                insertItem.run(id, item.productId, item.quantity, unitPrice, subtotal);
-                newTotal += subtotal;
+                // 2. Delete existing items
+                db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(id);
+                // 3. Apply new items and validate stock
+                newTotal = 0;
+                const insertItem = db.prepare(`
+          INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
+          VALUES (?, ?, ?, ?, ?)
+        `);
+                for (const item of items) {
+                    const product = db.prepare('SELECT id, name, sale_price FROM products WHERE id = ?').get(item.productId);
+                    if (!product)
+                        throw new Error(`Product not found with id ${item.productId}`);
+                    const stock = db.prepare('SELECT * FROM stock WHERE warehouse_id = ? AND product_id = ?').get(currentSale.warehouse_id, item.productId);
+                    const available = stock ? (stock.physical_quantity - stock.reserved_quantity) : 0;
+                    if (available < item.quantity) {
+                        throw new Error(`Insufficient stock for product ${product.name}. Available: ${available}, Requested: ${item.quantity}`);
+                    }
+                    db.prepare("UPDATE stock SET physical_quantity = physical_quantity - ?, updated_at = datetime('now') WHERE id = ?")
+                        .run(item.quantity, stock.id);
+                    const unitPrice = item.unitPrice || product.sale_price;
+                    const subtotal = item.quantity * unitPrice;
+                    insertItem.run(id, item.productId, item.quantity, unitPrice, subtotal);
+                    newTotal += subtotal;
+                }
+                db.prepare(`
+          INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
+          VALUES (?, ?, 'SALE_EDIT', 0, ?, 'Sale modified with inventory reconciliation')
+        `).run(currentSale.warehouse_id, items[0]?.productId || 1, currentSale.invoice_number);
             }
+            const formattedSaleDate = saleDate !== undefined
+                ? normalizeSaleDate(saleDate)
+                : currentSale.sale_date;
             // 4. Update Sale header
             db.prepare(`
         UPDATE sales
-        SET customer_name = ?, customer_phone = ?, total_amount = ?, updated_at = datetime('now')
+        SET customer_name = ?, customer_phone = ?, total_amount = ?, sale_date = COALESCE(?, sale_date, created_at), updated_at = datetime('now')
         WHERE id = ?
-      `).run(customerName || currentSale.customer_name, customerPhone || currentSale.customer_phone, newTotal, id);
-            db.prepare(`
-        INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
-        VALUES (?, ?, 'SALE_EDIT', 0, ?, 'Sale modified with inventory reconciliation')
-      `).run(currentSale.warehouse_id, items[0]?.productId || 1, currentSale.invoice_number);
-            return { id, invoiceNumber: currentSale.invoice_number, totalAmount: newTotal };
+      `).run(customerName !== undefined ? customerName : currentSale.customer_name, customerPhone !== undefined ? customerPhone : currentSale.customer_phone, newTotal, formattedSaleDate, id);
+            return { id, invoiceNumber: currentSale.invoice_number, totalAmount: newTotal, saleDate: formattedSaleDate };
         });
         logAudit(req.user, 'SALE_MODIFIED', 'SALE', id, `Modified sale ${currentSale.invoice_number}`, currentSale.warehouse_id);
         return sendSuccess(res, updatedSale, 'Sale updated successfully');

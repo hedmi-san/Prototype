@@ -49,11 +49,13 @@ export function formatDate(dateInput: string | Date | null | undefined): string 
 }
 
 /**
- * Format an ISO date string or Date into French date and time (DD/MM/YYYY HH:mm)
+ * Format an ISO date string or Date into French date and time (DD/MM/YYYY HH:mm:ss)
  */
-export function formatDateTime(dateInput: string | Date | null | undefined): string {
+export function formatDateTime(dateInput: string | Date | null | undefined, includeSeconds: boolean = true): string {
   if (!dateInput) return '-';
-  const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  const date = typeof dateInput === 'string'
+    ? (dateInput.includes(' ') && !dateInput.includes('T') ? new Date(dateInput.replace(' ', 'T')) : new Date(dateInput))
+    : dateInput;
   if (isNaN(date.getTime())) return String(dateInput);
   return new Intl.DateTimeFormat('fr-FR', {
     day: '2-digit',
@@ -61,6 +63,7 @@ export function formatDateTime(dateInput: string | Date | null | undefined): str
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    ...(includeSeconds ? { second: '2-digit' } : {}),
   }).format(date);
 }
 

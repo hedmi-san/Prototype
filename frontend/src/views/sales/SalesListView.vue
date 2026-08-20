@@ -28,6 +28,7 @@ const editingSale = ref<Sale | null>(null);
 const editForm = ref({
   customerName: '',
   customerPhone: '',
+  saleDate: '',
   items: [] as { productId: number; quantity: number }[],
 });
 const saving = ref(false);
@@ -72,6 +73,19 @@ const filteredSales = computed(() => {
   );
 });
 
+function formatToDatetimeLocal(dateStr?: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr.replace(' ', 'T'));
+  if (isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+}
+
 function viewInvoice(sale: Sale) {
   selectedSale.value = sale;
   showInvoiceModal.value = true;
@@ -82,6 +96,7 @@ function openEditModal(sale: Sale) {
   editForm.value = {
     customerName: sale.customerName || '',
     customerPhone: sale.customerPhone || '',
+    saleDate: formatToDatetimeLocal(sale.saleDate || sale.createdAt),
     items: sale.items.map((i) => ({
       productId: i.productId,
       quantity: i.quantity,
@@ -111,7 +126,12 @@ async function handleSaveEdit() {
   saving.value = true;
   editError.value = '';
   try {
-    await saleService.updateSale(editingSale.value.id, editForm.value);
+    await saleService.updateSale(editingSale.value.id, {
+      customerName: editForm.value.customerName.trim() || undefined,
+      customerPhone: editForm.value.customerPhone.trim() || undefined,
+      saleDate: editForm.value.saleDate ? editForm.value.saleDate.replace('T', ' ') : undefined,
+      items: editForm.value.items,
+    });
     showEditModal.value = false;
     await fetchSales();
   } catch (err: any) {
@@ -202,7 +222,7 @@ async function handleConfirmCancel() {
             </span>
           </td>
           <td class="font-mono font-bold">{{ formatCurrency(sale.totalAmount) }}</td>
-          <td class="font-mono text-caption">{{ formatDateTime(sale.saleDate) }}</td>
+          <td class="font-mono text-caption">{{ formatDateTime(sale.saleDate || sale.createdAt) }}</td>
           <td>
             <AppBadge :variant="sale.status === 'COMPLETED' ? 'success' : 'danger'" size="sm">
               {{ formatSaleStatus(sale.status) }}
@@ -261,7 +281,7 @@ async function handleConfirmCancel() {
           </div>
           <div class="inv-meta">
             <h3 class="font-mono">{{ selectedSale.invoiceNumber }}</h3>
-            <p class="text-caption">Date : {{ formatDateTime(selectedSale.saleDate) }}</p>
+            <p class="text-caption">Date : {{ formatDateTime(selectedSale.saleDate || selectedSale.createdAt) }}</p>
             <p class="text-caption">Entrepôt : {{ selectedSale.warehouseName }} ({{ selectedSale.warehouseCode }})</p>
             <AppBadge :variant="selectedSale.status === 'COMPLETED' ? 'success' : 'danger'" size="sm">
               {{ formatSaleStatus(selectedSale.status) }}
@@ -334,11 +354,23 @@ async function handleConfirmCancel() {
 
       <div class="modal-form">
         <div class="form-row">
+          <div class="app-input-group">
+            <label class="input-label">Date de Vente</label>
+            <input
+              v-model="editForm.saleDate"
+              type="datetime-local"
+              step="1"
+              class="app-input"
+              required
+            />
+          </div>
           <AppInput
             v-model="editForm.customerName"
             label="Nom du Client"
             placeholder="Client SARL"
           />
+        </div>
+        <div class="form-row">
           <AppInput
             v-model="editForm.customerPhone"
             label="Téléphone du Client"

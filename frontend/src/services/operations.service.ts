@@ -32,11 +32,11 @@ export const saleService = {
     const response = await api.get<ApiResponse<Sale>>(`/sales/${id}`);
     return response.data.data;
   },
-  async createSale(data: { warehouseId: number; customerName?: string; customerPhone?: string; items: { productId: number; quantity: number }[] }): Promise<Sale> {
+  async createSale(data: { warehouseId: number; customerName?: string; customerPhone?: string; saleDate?: string; items: { productId: number; quantity: number }[] }): Promise<Sale> {
     const response = await api.post<ApiResponse<Sale>>('/sales', data);
     return response.data.data;
   },
-  async updateSale(id: number, data: { customerName?: string; customerPhone?: string; items: { productId: number; quantity: number }[] }): Promise<Sale> {
+  async updateSale(id: number, data: { customerName?: string; customerPhone?: string; saleDate?: string; items?: { productId: number; quantity: number }[] }): Promise<Sale> {
     const response = await api.put<ApiResponse<Sale>>(`/sales/${id}`, data);
     return response.data.data;
   },

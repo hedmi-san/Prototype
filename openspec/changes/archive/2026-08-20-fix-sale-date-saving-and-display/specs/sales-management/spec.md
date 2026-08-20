@@ -1,8 +1,5 @@
-# sales-management Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change multi-warehouse-tool-distribution-system. Update Purpose after archive.
-## Requirements
 ### Requirement: Transactional Sale Creation and Invoice Numbering
 The system SHALL create sales transactionally, validating available inventory for every line item, snapshotting the unit price into `sale_items`, decrementing `physical_quantity`, logging `SALE` stock movements, persisting the explicit or defaulted sale transaction date (`sale_date`), and generating an invoice number.
 
@@ -37,30 +34,7 @@ The system SHALL allow authorized users to edit existing sales, dynamically reco
 - **WHEN** an Accountant edits an existing sale and modifies the `saleDate`
 - **THEN** the system SHALL update `sale_date` and `updated_at` timestamps for the sale record, preserving transactional integrity and invoice number
 
-### Requirement: Sale Voiding and Cancellation with Inventory Reversal
-The system SHALL support cancelling or voiding sales without hard-deleting records, updating the sale status to `CANCELLED`, restoring physical stock via compensating movements, and maintaining invoice audit history.
-
-#### Scenario: Void an existing sale
-- **WHEN** an Accountant or Manager cancels an active sale containing 5 units of Product A
-- **THEN** the system SHALL set the sale status to `CANCELLED`, increment `physical_quantity` by 5, record compensating stock movements, and retain the original invoice number and audit logs for traceability
-
-### Requirement: Historical Sales Range Filtering and Aggregation
-The system SHALL support querying and aggregating completed sales transactions across configurable start and end dates with warehouse scoping.
-
-#### Scenario: Query sales within custom date boundaries
-- **WHEN** an authenticated user requests sales records with `startDate="2026-07-01"` and `endDate="2026-07-31"`
-- **THEN** the system SHALL return all completed sales whose `created_at` timestamp falls within the inclusive date boundary, respecting the user's warehouse authorization scope
-
-### Requirement: Real-Time Product Search and Stock Indicator Combobox
-The point-of-sale invoicing interface SHALL provide a typeahead search combobox enabling cashiers to search products by typing partial names or references, displaying immediate matching results limited to top relevant items along with warehouse-specific available stock indicators, and emitting product selection events without altering subtotal calculations or checkout validation.
-
-#### Scenario: Cashier searches product by reference or name
-- **WHEN** a cashier enters a search query (e.g. "DCD796" or "Hammer Drill") in the invoice line item combobox
-- **THEN** the combobox SHALL display a dropdown of up to 10 matching products showing product reference, name, brand, unit sale price, and real-time available stock count for the selected warehouse
-
-#### Scenario: Cashier selects a product from the combobox
-- **WHEN** a cashier clicks or presses Enter on a search result
-- **THEN** the combobox SHALL update the line item's selected product ID, populate the input with the selected product title, close the dropdown, and update line item price and subtotal calculations
+## ADDED Requirements
 
 ### Requirement: Sale Date Persistence and Multi-View Display
 The system SHALL return and display the formatted sale transaction date (`saleDate`) across all sales views including the sales list table, the fiscal invoice preview modal, the sale edit modal, and dashboard recent sales.
@@ -76,4 +50,3 @@ The system SHALL return and display the formatted sale transaction date (`saleDa
 #### Scenario: Pre-populate sale date in edit modal
 - **WHEN** an authorized user opens the edit modal for an existing sale
 - **THEN** the form SHALL include a "Date de Vente" input field pre-filled with the sale's current `saleDate`
-
