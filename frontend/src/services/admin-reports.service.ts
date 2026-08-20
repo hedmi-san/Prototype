@@ -1,5 +1,5 @@
 import api from './api';
-import type { ApiResponse, Expense, Employee, SalaryRecord, DashboardMetrics, PeriodPreset, StockValuationReport, FinancialReport, AuditLog, User, Sale } from '../types';
+import type { ApiResponse, Expense, Employee, SalaryRecord, DashboardMetrics, PeriodPreset, StockValuationReport, FinancialReport, AuditLog, User, Sale, RoleType } from '../types';
 
 export const expenseService = {
   async getExpenses(warehouseId?: number): Promise<Expense[]> {
@@ -97,6 +97,14 @@ export const adminService = {
   },
   async createUser(data: { username: string; password: string; fullName: string; roleName: string; warehouseId?: number | null }): Promise<User> {
     const response = await api.post<ApiResponse<User>>('/admin/users', data);
+    return response.data.data;
+  },
+  async updateUser(id: number, data: { fullName?: string; roleName?: RoleType; warehouseId?: number | null; active?: boolean; password?: string }): Promise<User> {
+    const response = await api.put<ApiResponse<User>>(`/admin/users/${id}`, data);
+    return response.data.data;
+  },
+  async deleteUser(id: number): Promise<{ id: number }> {
+    const response = await api.delete<ApiResponse<{ id: number }>>(`/admin/users/${id}`);
     return response.data.data;
   }
 };
