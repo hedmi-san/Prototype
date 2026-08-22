@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { ensureDatabaseExists } from './db/database.js';
 import { initSchema } from './db/schema.js';
 import { seedData } from './db/seed.js';
 import authRoutes from './routes/auth.routes.js';
@@ -14,11 +15,6 @@ import salaryRoutes from './routes/salary.routes.js';
 import reportRoutes from './routes/report.routes.js';
 import auditRoutes from './routes/audit.routes.js';
 import userRoutes from './routes/user.routes.js';
-// 1. Initialize SQLite Database Schema & Seed Data
-console.log('Initializing database schema...');
-initSchema();
-seedData();
-console.log('Database initialized and seeded successfully.');
 const app = express();
 const PORT = process.env.PORT || 8080;
 app.use(cors({ origin: true, credentials: true }));
@@ -33,7 +29,7 @@ app.use((req, res, next) => {
 });
 // Health Checks
 app.get(['/actuator/health', '/api/health', '/health'], (req, res) => {
-    res.json({ status: 'UP', service: 'distributor-management-node', timestamp: new Date().toISOString() });
+    res.json({ status: 'UP', service: 'distributor-management-node', database: 'PostgreSQL', timestamp: new Date().toISOString() });
 });
 // Mount Routes under both /api and without /api (universal matching)
 app.use('/api/auth', authRoutes);
@@ -81,9 +77,25 @@ app.use((err, req, res, next) => {
         timestamp: new Date().toISOString(),
     });
 });
-app.listen(PORT, () => {
-    console.log(`=======================================================`);
-    console.log(` Multi-Warehouse Node.js API Server running on port ${PORT}`);
-    console.log(` Health check: http://localhost:${PORT}/actuator/health`);
-    console.log(`=======================================================`);
-});
+async function startServer() {
+    try {
+        console.log('Connecting to PostgreSQL...');
+        await ensureDatabaseExists();
+        console.log('Initializing database schema & composite indexes...');
+        await initSchema();
+        console.log('Seeding demo accounts and initial stock...');
+        await seedData();
+        console.log('Database initialized and seeded successfully.');
+        app.listen(PORT, () => {
+            console.log(`=======================================================`);
+            console.log(` Multi-Warehouse Node.js API Server (PostgreSQL) running on port ${PORT}`);
+            console.log(` Health check: http://localhost:${PORT}/actuator/health`);
+            console.log(`=======================================================`);
+        });
+    }
+    catch (err) {
+        console.error('Fatal error starting server:', err);
+        process.exit(1);
+    }
+}
+startServer();

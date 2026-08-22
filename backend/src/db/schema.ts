@@ -1,112 +1,112 @@
-import { db } from './database.js';
+import { query } from './database.js';
 
-export function initSchema(): void {
-  db.exec(`
+export async function initSchema(): Promise<void> {
+  await query(`
     CREATE TABLE IF NOT EXISTS roles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(50) NOT NULL UNIQUE,
       description TEXT
     );
 
     CREATE TABLE IF NOT EXISTS warehouses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      code TEXT NOT NULL UNIQUE,
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      code VARCHAR(20) NOT NULL UNIQUE,
       location TEXT NOT NULL,
-      contact_number TEXT,
-      active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      contact_number VARCHAR(50),
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE,
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(50) NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
-      full_name TEXT NOT NULL,
+      full_name VARCHAR(100) NOT NULL,
       role_id INTEGER NOT NULL REFERENCES roles(id),
-      warehouse_id INTEGER REFERENCES warehouses(id),
-      active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      warehouse_id INTEGER REFERENCES warehouses(id) ON DELETE SET NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      reference TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL,
-      brand TEXT NOT NULL,
-      category TEXT DEFAULT 'Tools',
+      id SERIAL PRIMARY KEY,
+      reference VARCHAR(50) NOT NULL UNIQUE,
+      name VARCHAR(255) NOT NULL,
+      brand VARCHAR(100) NOT NULL,
+      category VARCHAR(100) DEFAULT 'Tools',
       description TEXT,
-      purchase_price REAL NOT NULL DEFAULT 0.0,
-      sale_price REAL NOT NULL DEFAULT 0.0,
+      purchase_price NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      sale_price NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       min_stock_alert INTEGER NOT NULL DEFAULT 5,
-      unit TEXT NOT NULL DEFAULT 'PIECE',
-      active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      unit VARCHAR(50) NOT NULL DEFAULT 'PIECE',
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS stock (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
-      product_id INTEGER NOT NULL REFERENCES products(id),
+      id SERIAL PRIMARY KEY,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
       physical_quantity INTEGER NOT NULL DEFAULT 0 CHECK(physical_quantity >= 0),
       reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK(reserved_quantity >= 0),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(warehouse_id, product_id)
     );
 
     CREATE TABLE IF NOT EXISTS stock_movements (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
-      product_id INTEGER NOT NULL REFERENCES products(id),
-      movement_type TEXT NOT NULL,
+      id SERIAL PRIMARY KEY,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      movement_type VARCHAR(50) NOT NULL,
       quantity_change INTEGER NOT NULL,
-      reference TEXT NOT NULL,
+      reference VARCHAR(100) NOT NULL,
       notes TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS sales (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      invoice_number TEXT NOT NULL UNIQUE,
-      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      id SERIAL PRIMARY KEY,
+      invoice_number VARCHAR(50) NOT NULL UNIQUE,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id),
-      customer_name TEXT DEFAULT 'Standard Retail Customer',
-      customer_phone TEXT,
-      total_amount REAL NOT NULL DEFAULT 0.0,
-      status TEXT NOT NULL DEFAULT 'COMPLETED',
-      sale_date TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      customer_name VARCHAR(100) DEFAULT 'Standard Retail Customer',
+      customer_phone VARCHAR(50),
+      total_amount NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      status VARCHAR(50) NOT NULL DEFAULT 'COMPLETED',
+      sale_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS sale_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
       product_id INTEGER NOT NULL REFERENCES products(id),
       quantity INTEGER NOT NULL CHECK(quantity > 0),
-      unit_price REAL NOT NULL,
-      subtotal REAL NOT NULL
+      unit_price NUMERIC(14, 2) NOT NULL,
+      subtotal NUMERIC(14, 2) NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS transfers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      transfer_number TEXT NOT NULL UNIQUE,
+      id SERIAL PRIMARY KEY,
+      transfer_number VARCHAR(50) NOT NULL UNIQUE,
       source_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
       destination_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
       requested_by_user_id INTEGER NOT NULL REFERENCES users(id),
-      status TEXT NOT NULL DEFAULT 'REQUESTED',
+      status VARCHAR(50) NOT NULL DEFAULT 'REQUESTED',
       notes TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      approved_at TEXT,
-      confirmed_at TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      approved_at TIMESTAMPTZ,
+      confirmed_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS transfer_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       transfer_id INTEGER NOT NULL REFERENCES transfers(id) ON DELETE CASCADE,
       product_id INTEGER NOT NULL REFERENCES products(id),
       requested_quantity INTEGER NOT NULL CHECK(requested_quantity > 0),
@@ -114,72 +114,58 @@ export function initSchema(): void {
     );
 
     CREATE TABLE IF NOT EXISTS expenses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
-      category TEXT NOT NULL,
-      amount REAL NOT NULL,
+      id SERIAL PRIMARY KEY,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+      category VARCHAR(100) NOT NULL,
+      amount NUMERIC(14, 2) NOT NULL,
       description TEXT,
-      expense_date TEXT NOT NULL DEFAULT (date('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS employees (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
-      full_name TEXT NOT NULL,
-      national_id TEXT NOT NULL,
-      phone TEXT,
-      position TEXT NOT NULL,
-      base_salary REAL NOT NULL DEFAULT 0.0,
-      active INTEGER NOT NULL DEFAULT 1,
-      hire_date TEXT NOT NULL DEFAULT (date('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      id SERIAL PRIMARY KEY,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+      full_name VARCHAR(100) NOT NULL,
+      national_id VARCHAR(50) NOT NULL,
+      phone VARCHAR(50),
+      position VARCHAR(100) NOT NULL,
+      base_salary NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      hire_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS salaries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      employee_id INTEGER NOT NULL REFERENCES employees(id),
-      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
-      period TEXT NOT NULL,
-      base_salary REAL NOT NULL,
-      bonus1 REAL NOT NULL DEFAULT 0.0,
-      bonus2 REAL NOT NULL DEFAULT 0.0,
-      total_amount REAL NOT NULL,
-      payment_date TEXT NOT NULL DEFAULT (date('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      id SERIAL PRIMARY KEY,
+      employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+      period VARCHAR(20) NOT NULL,
+      base_salary NUMERIC(14, 2) NOT NULL,
+      bonus1 NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      bonus2 NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      total_amount NUMERIC(14, 2) NOT NULL,
+      payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS audit_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER REFERENCES users(id),
-      warehouse_id INTEGER REFERENCES warehouses(id),
-      action TEXT NOT NULL,
-      entity_type TEXT NOT NULL,
-      entity_id TEXT NOT NULL,
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      warehouse_id INTEGER REFERENCES warehouses(id) ON DELETE SET NULL,
+      action VARCHAR(100) NOT NULL,
+      entity_type VARCHAR(100) NOT NULL,
+      entity_id VARCHAR(100) NOT NULL,
       old_values TEXT,
       new_values TEXT,
       description TEXT NOT NULL,
-      ip_address TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      ip_address VARCHAR(50),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 
-  // Migrations for existing databases
-  try {
-    db.exec('ALTER TABLE transfers ADD COLUMN approved_at TEXT;');
-  } catch {}
-  try {
-    db.exec('ALTER TABLE transfers ADD COLUMN confirmed_at TEXT;');
-  } catch {}
-  try {
-    db.exec('ALTER TABLE sales ADD COLUMN sale_date TEXT;');
-  } catch {}
-  try {
-    db.exec("UPDATE sales SET sale_date = created_at WHERE sale_date IS NULL OR sale_date = '';");
-  } catch {}
-
-  // Performance Indexes for high-volume 5-year scalability
-  db.exec(`
+  // Performance composite indexes
+  await query(`
     CREATE INDEX IF NOT EXISTS idx_sales_sale_date_wh ON sales(sale_date, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sales_created_at_wh ON sales(created_at, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id);

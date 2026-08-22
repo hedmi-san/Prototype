@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { sendError } from '../common/response.js';
-import { db } from '../db/database.js';
+import { query } from '../db/database.js';
 const JWT_SECRET = process.env.JWT_SECRET || 'distributor-super-secret-jwt-key-for-auth-2026';
 export function generateToken(user) {
     return jwt.sign({
@@ -51,13 +51,21 @@ export function validateWarehouseScope(user, requestedWarehouseId) {
         throw new Error(`Access denied: User belongs to warehouse ID ${user.warehouseId}, not ${requestedWarehouseId}`);
     }
 }
-export function logAudit(user, action, entityType, entityId, description, warehouseId, oldValues, newValues) {
+export async function logAudit(user, action, entityType, entityId, description, warehouseId, oldValues, newValues) {
     try {
-        const stmt = db.prepare(`
+        await query(`
       INSERT INTO audit_logs (user_id, warehouse_id, action, entity_type, entity_id, old_values, new_values, description, ip_address)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, '127.0.0.1')
-    `);
-        stmt.run(user ? user.id : null, warehouseId !== undefined ? warehouseId : (user?.warehouseId || null), action, entityType, String(entityId), oldValues || null, newValues || null, description);
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '127.0.0.1')
+    `, [
+            user ? user.id : null,
+            warehouseId !== undefined ? warehouseId : (user?.warehouseId || null),
+            action,
+            entityType,
+            String(entityId),
+            oldValues || null,
+            newValues || null,
+            description,
+        ]);
     }
     catch (err) {
         console.error('Failed to log audit event:', err);
