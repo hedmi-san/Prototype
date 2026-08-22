@@ -15,11 +15,11 @@ The system SHALL provide a CSV export endpoint (`GET /api/products/export/csv`) 
 - **THEN** the system SHALL generate the CSV containing only the products matching the specified filter criteria.
 
 ### Requirement: Sales History CSV Export
-The system SHALL provide a CSV export endpoint (`GET /api/sales/export/csv`) and user interface action allowing authorized users to export historical sales transactions with date range filtering and warehouse scoping.
+The system SHALL provide a CSV export endpoint (`GET /api/sales/export/csv`) and user interface action allowing authorized users to export historical sales transactions with date range filtering and warehouse scoping, including issuer user and assigned follow-up worker attributes.
 
-#### Scenario: Export sales within date range
+#### Scenario: Export sales within date range with issuer and worker details
 - **WHEN** an authorized user selects a start date and end date and triggers sales CSV export
-- **THEN** the system SHALL stream a CSV file containing Sale Reference, Invoice Date, Customer Name, Customer Type, Warehouse Name, Salesperson/User, Total Amount, Discount, Net Amount, Paid Amount, Balance Due, Payment Method, and Payment Status for all transactions within that date range.
+- **THEN** the system SHALL stream a CSV file containing Invoice Number, Sale Date, Warehouse Name, Customer Name, Customer Phone, Émis par (User Name), Agent de suivi (Worker/Employee Name), Total Amount (DZD), Status, Articles, and Created Date for all transactions within that date range.
 
 #### Scenario: Role-based warehouse scoping for sales export
 - **WHEN** a Manager or Accountant requests a sales CSV export

@@ -3,7 +3,8 @@ import { ref, onMounted, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { saleService } from '../../services/operations.service';
 import { productService } from '../../services/catalog.service';
-import type { Sale, Product } from '../../types';
+import { employeeService } from '../../services/admin-reports.service';
+import type { Sale, Product, Employee } from '../../types';
 import type { ComputedPeriodRange } from '../../utils/periodNavigator';
 import { formatCurrency, formatDateTime, formatNumber, formatSaleStatus } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
@@ -18,6 +19,7 @@ import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
 const authStore = useAuthStore();
 const sales = ref<Sale[]>([]);
 const products = ref<Product[]>([]);
+const employees = ref<Employee[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
 
@@ -36,10 +38,11 @@ const selectedSale = ref<Sale | null>(null);
 const showEditModal = ref(false);
 const editingSale = ref<Sale | null>(null);
 const editForm = ref({
+  employeeId: null as number | null,
   customerName: '',
   customerPhone: '',
   saleDate: '',
-  items: [] as { productId: number; quantity: number }[],
+  items: [] as { productId: number; quantity: number; unitPrice: number }[],
 });
 const saving = ref(false);
 const editError = ref('');
@@ -51,13 +54,13 @@ const cancelling = ref(false);
 const exporting = ref(false);
 
 onMounted(async () => {
-  await Promise.all([fetchProducts()]);
+  await Promise.all([fetchProducts(), fetchEmployees()]);
 });
 
 // Watch warehouse changes to refresh sales
-watch(() => authStore.activeWarehouseId, async () => {
+watch(() => authStore.activeWarehouseId, async (newWhId) => {
   page.value = 1;
-  await fetchSales();
+  await Promise.all([fetchSales(), fetchEmployees(newWhId || undefined)]);
 });
 
 let searchTimeout: any = null;
@@ -127,6 +130,14 @@ async function fetchProducts() {
   }
 }
 
+async function fetchEmployees(warehouseId?: number) {
+  try {
+    employees.value = await employeeService.getEmployees(warehouseId || authStore.activeWarehouseId || undefined);
+  } catch (err) {
+    console.error('Failed to load employees', err);
+  }
+}
+
 function formatToDatetimeLocal(dateStr?: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr.replace(' ', 'T'));
@@ -145,26 +156,38 @@ function viewInvoice(sale: Sale) {
   showInvoiceModal.value = true;
 }
 
-function openEditModal(sale: Sale) {
+async function openEditModal(sale: Sale) {
   editingSale.value = sale;
+  await fetchEmployees(sale.warehouseId);
   editForm.value = {
+    employeeId: sale.employeeId || null,
     customerName: sale.customerName || '',
     customerPhone: sale.customerPhone || '',
     saleDate: formatToDatetimeLocal(sale.saleDate || sale.createdAt),
     items: sale.items.map((i) => ({
       productId: i.productId,
       quantity: i.quantity,
+      unitPrice: i.unitPrice,
     })),
   };
   editError.value = '';
   showEditModal.value = true;
 }
 
+function onEditProductSelect(item: { productId: number; quantity: number; unitPrice: number }) {
+  const prod = products.value.find((p) => p.id === item.productId);
+  if (prod) {
+    item.unitPrice = prod.salePrice;
+  }
+}
+
 function addEditItem() {
   if (products.value.length > 0) {
+    const defaultProd = products.value[0];
     editForm.value.items.push({
-      productId: products.value[0].id,
+      productId: defaultProd.id,
       quantity: 1,
+      unitPrice: defaultProd.salePrice,
     });
   }
 }
@@ -177,14 +200,27 @@ function removeEditItem(index: number) {
 
 async function handleSaveEdit() {
   if (!editingSale.value) return;
+
+  for (const item of editForm.value.items) {
+    if (item.unitPrice === undefined || item.unitPrice === null || Number(item.unitPrice) < 0 || isNaN(Number(item.unitPrice))) {
+      editError.value = 'Veuillez saisir un prix unitaire valide (≥ 0 DA) pour chaque ligne.';
+      return;
+    }
+  }
+
   saving.value = true;
   editError.value = '';
   try {
     await saleService.updateSale(editingSale.value.id, {
+      employeeId: editForm.value.employeeId,
       customerName: editForm.value.customerName.trim() || undefined,
       customerPhone: editForm.value.customerPhone.trim() || undefined,
       saleDate: editForm.value.saleDate ? editForm.value.saleDate.replace('T', ' ') : undefined,
-      items: editForm.value.items,
+      items: editForm.value.items.map((i) => ({
+        productId: i.productId,
+        quantity: i.quantity,
+        unitPrice: Number(i.unitPrice),
+      })),
     });
     showEditModal.value = false;
     await fetchSales();
@@ -259,7 +295,7 @@ async function handleConfirmCancel() {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Rechercher par n° facture, nom client, téléphone, entrepôt..."
+          placeholder="Rechercher par n° facture, nom client, agent de suivi, entrepôt..."
           class="search-input"
           @input="onSearchInput"
         />
@@ -275,9 +311,9 @@ async function handleConfirmCancel() {
         <th>N° Facture</th>
         <th>Entrepôt</th>
         <th>Client</th>
+        <th>Agent de suivi</th>
         <th>Montant Total</th>
         <th>Date de Vente</th>
-        <th>Statut</th>
         <th>Actions</th>
       </template>
       <template #body>
@@ -290,13 +326,12 @@ async function handleConfirmCancel() {
               {{ sale.customerPhone }}
             </span>
           </td>
+          <td>
+            <span v-if="sale.employeeName" class="agent-pill">{{ sale.employeeName }}</span>
+            <span v-else class="text-caption text-muted">Non spécifié</span>
+          </td>
           <td class="font-mono font-bold">{{ formatCurrency(sale.totalAmount) }}</td>
           <td class="font-mono text-caption">{{ formatDateTime(sale.saleDate || sale.createdAt) }}</td>
-          <td>
-            <AppBadge :variant="sale.status === 'COMPLETED' ? 'success' : 'danger'" size="sm">
-              {{ formatSaleStatus(sale.status) }}
-            </AppBadge>
-          </td>
           <td>
             <div class="action-buttons">
               <button class="icon-action-btn" title="Afficher / Imprimer la facture" @click="viewInvoice(sale)">
@@ -313,7 +348,7 @@ async function handleConfirmCancel() {
               <template v-if="sale.status === 'COMPLETED'">
                 <button class="icon-action-btn" title="Modifier les lignes de vente" @click="openEditModal(sale)">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M11 4H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                   </svg>
                   Modifier
@@ -370,7 +405,7 @@ async function handleConfirmCancel() {
 
         <div class="inv-divider" />
 
-        <!-- Customer Details -->
+        <!-- Customer & Staff Attribution -->
         <div class="inv-customer">
           <div>
             <span class="text-caption text-muted">Facturé à :</span>
@@ -379,9 +414,17 @@ async function handleConfirmCancel() {
               Tél : {{ selectedSale.customerPhone }}
             </p>
           </div>
-          <div>
-            <span class="text-caption text-muted">Émise par :</span>
-            <h4>{{ selectedSale.createdByName || 'Système' }}</h4>
+          <div class="inv-staff-box">
+            <div class="staff-row">
+              <span class="text-caption text-muted">Émise par :</span>
+              <h4>{{ selectedSale.createdByName || selectedSale.userName || 'Système' }}</h4>
+            </div>
+            <div class="staff-row">
+              <span class="text-caption text-muted">Agent de suivi :</span>
+              <h4 :class="selectedSale.employeeName ? 'text-primary font-bold' : 'text-muted'">
+                {{ selectedSale.employeeName || 'Non spécifié' }}
+              </h4>
+            </div>
           </div>
         </div>
 
@@ -425,7 +468,7 @@ async function handleConfirmCancel() {
     <AppModal
       v-model="showEditModal"
       :title="`Modifier la Vente : ${editingSale?.invoiceNumber || ''}`"
-      max-width="640px"
+      max-width="680px"
     >
       <div v-if="editError" class="modal-error mb-3">
         {{ editError }}
@@ -450,6 +493,15 @@ async function handleConfirmCancel() {
           />
         </div>
         <div class="form-row">
+          <div class="app-input-group">
+            <label class="input-label">Agent de suivi (Conseiller)</label>
+            <select v-model.number="editForm.employeeId" class="app-select">
+              <option :value="null">-- Aucun / Non spécifié --</option>
+              <option v-for="emp in employees" :key="emp.id" :value="emp.id">
+                {{ emp.fullName }} ({{ emp.position }})
+              </option>
+            </select>
+          </div>
           <AppInput
             v-model="editForm.customerPhone"
             label="Téléphone du Client"
@@ -466,22 +518,42 @@ async function handleConfirmCancel() {
           </div>
 
           <div v-for="(item, idx) in editForm.items" :key="idx" class="item-row">
-            <select v-model="item.productId" class="app-select item-product-select" required>
+            <select
+              v-model="item.productId"
+              class="app-select item-product-select"
+              required
+              @change="() => onEditProductSelect(item)"
+            >
               <option v-for="p in products" :key="p.id" :value="p.id">
-                [{{ p.reference }}] {{ p.name }} — {{ formatCurrency(p.salePrice) }}
+                [{{ p.reference }}] {{ p.name }}
               </option>
             </select>
+            <div class="edit-price-wrapper">
+              <input
+                v-model.number="item.unitPrice"
+                type="number"
+                min="0"
+                step="any"
+                class="app-input item-price-input font-mono"
+                placeholder="Prix"
+                title="Prix Unitaire (DA)"
+                required
+              />
+              <span class="unit-tag">DA</span>
+            </div>
             <input
               v-model.number="item.quantity"
               type="number"
               min="1"
               class="app-input item-qty-input"
+              title="Quantité"
               required
             />
             <button
               type="button"
               class="icon-action-btn btn-danger-action"
               :disabled="editForm.items.length <= 1"
+              title="Supprimer la ligne"
               @click="removeEditItem(idx)"
             >
               &times;
@@ -574,6 +646,27 @@ async function handleConfirmCancel() {
   font-weight: 600;
 }
 
+.user-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.agent-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background-color: rgba(59, 130, 246, 0.1);
+  color: var(--color-primary);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
 .action-buttons {
   display: flex;
   align-items: center;
@@ -627,6 +720,21 @@ async function handleConfirmCancel() {
 .inv-customer {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+}
+
+.inv-staff-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: right;
+}
+
+.staff-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .inv-table {
@@ -696,8 +804,31 @@ async function handleConfirmCancel() {
   flex: 1;
 }
 
+.edit-price-wrapper {
+  position: relative;
+  width: 130px;
+  display: flex;
+  align-items: center;
+}
+
+.item-price-input {
+  width: 100%;
+  height: 38px;
+  padding: 8px 28px 8px 8px;
+  text-align: right;
+}
+
+.unit-tag {
+  position: absolute;
+  right: 8px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+  font-weight: 500;
+}
+
 .item-qty-input {
-  width: 80px;
+  width: 70px;
 }
 
 .app-select {

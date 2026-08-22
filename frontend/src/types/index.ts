@@ -118,6 +118,10 @@ export interface Sale {
   status: SaleStatus;
   createdById: number | null;
   createdByName: string;
+  userId?: number | null;
+  userName?: string;
+  employeeId?: number | null;
+  employeeName?: string | null;
   items: SaleItem[];
   createdAt: string;
   updatedAt: string;

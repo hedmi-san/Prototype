@@ -5,7 +5,8 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { useProductStore } from '../../stores/product.store';
 import { saleService, inventoryService } from '../../services/operations.service';
-import type { Product, Stock } from '../../types';
+import { employeeService } from '../../services/admin-reports.service';
+import type { Product, Stock, Employee } from '../../types';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppButton from '../../components/common/AppButton.vue';
 import AppInput from '../../components/common/AppInput.vue';
@@ -17,6 +18,8 @@ const warehouseStore = useWarehouseStore();
 const productStore = useProductStore();
 
 const warehouseStock = ref<Stock[]>([]);
+const employees = ref<Employee[]>([]);
+const selectedEmployeeId = ref<number | null>(null);
 const loading = ref(true);
 const submitting = ref(false);
 const errorMessage = ref('');
@@ -43,19 +46,23 @@ const saleDate = ref(getLocalDefaultDateTime());
 interface LineItem {
   productId: number;
   quantity: number;
+  unitPrice: number;
 }
 
 const lineItems = ref<LineItem[]>([
-  { productId: 0, quantity: 1 },
+  { productId: 0, quantity: 1, unitPrice: 0 },
 ]);
 
 onMounted(async () => {
   await Promise.all([
     productStore.fetchProducts(),
     fetchStockForWarehouse(),
+    fetchEmployeesForWarehouse(),
   ]);
   if (lineItems.value[0].productId === 0 && productStore.products.length > 0) {
-    lineItems.value[0].productId = productStore.products[0].id;
+    const firstProd = productStore.products[0];
+    lineItems.value[0].productId = firstProd.id;
+    lineItems.value[0].unitPrice = firstProd.salePrice;
   }
 });
 
@@ -70,14 +77,31 @@ async function fetchStockForWarehouse() {
   }
 }
 
+async function fetchEmployeesForWarehouse() {
+  try {
+    employees.value = await employeeService.getEmployees(selectedWarehouseId.value);
+  } catch (err) {
+    console.error('Failed to load employees for warehouse', err);
+  }
+}
+
 function onWarehouseChange() {
   fetchStockForWarehouse();
+  fetchEmployeesForWarehouse();
+}
+
+function onProductSelect(item: LineItem) {
+  const prod = getProductById(item.productId);
+  if (prod) {
+    item.unitPrice = prod.salePrice;
+  }
 }
 
 function addLineItem() {
   lineItems.value.push({
     productId: 0,
     quantity: 1,
+    unitPrice: 0,
   });
 }
 
@@ -99,8 +123,7 @@ function getAvailableStock(productId: number): number {
 
 const totalAmount = computed(() => {
   return lineItems.value.reduce((sum, item) => {
-    const prod = getProductById(item.productId);
-    const price = prod ? prod.salePrice : 0;
+    const price = item.unitPrice !== undefined && item.unitPrice !== null ? Number(item.unitPrice) : (getProductById(item.productId)?.salePrice || 0);
     return sum + price * (item.quantity || 0);
   }, 0);
 });
@@ -108,10 +131,14 @@ const totalAmount = computed(() => {
 async function handleSubmitSale() {
   errorMessage.value = '';
 
-  // Validate items selection and stock
+  // Validate items selection, prices, and stock
   for (const item of lineItems.value) {
     if (!item.productId) {
       errorMessage.value = 'Veuillez sélectionner un produit pour chaque ligne de vente.';
+      return;
+    }
+    if (item.unitPrice === undefined || item.unitPrice === null || Number(item.unitPrice) < 0 || isNaN(Number(item.unitPrice))) {
+      errorMessage.value = 'Veuillez saisir un prix unitaire valide (≥ 0 DA) pour chaque ligne.';
       return;
     }
     const avail = getAvailableStock(item.productId);
@@ -126,12 +153,14 @@ async function handleSubmitSale() {
   try {
     await saleService.createSale({
       warehouseId: selectedWarehouseId.value,
+      employeeId: selectedEmployeeId.value || undefined,
       customerName: customerName.value.trim() || undefined,
       customerPhone: customerPhone.value.trim() || undefined,
       saleDate: saleDate.value ? saleDate.value.replace('T', ' ') : undefined,
       items: lineItems.value.map((i) => ({
         productId: i.productId,
         quantity: i.quantity,
+        unitPrice: Number(i.unitPrice),
       })),
     });
 
@@ -148,7 +177,7 @@ async function handleSubmitSale() {
   <div class="pos-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Point de Vente & Facturation (Caisse)</h1>
+        <h1 class="page-title">Point de Vente & Facturation</h1>
         <p class="text-muted">Émission de nouvelles factures clients avec déduction atomique des stocks</p>
       </div>
       <div class="header-actions">
@@ -178,7 +207,7 @@ async function handleSubmitSale() {
               <tr>
                 <th class="col-product">Produit</th>
                 <th class="col-avail">Disponible</th>
-                <th class="col-price">Prix Unitaire</th>
+                <th class="col-price">Prix Unitaire (DA)</th>
                 <th class="col-qty">Quantité</th>
                 <th class="col-subtotal">Sous-total</th>
                 <th class="col-action"></th>
@@ -192,6 +221,7 @@ async function handleSubmitSale() {
                     :warehouse-stock="warehouseStock"
                     placeholder="Taper nom ou réf (ex: DCD796)..."
                     required
+                    @update:model-value="() => onProductSelect(item)"
                   />
                 </td>
                 <td class="col-avail font-mono">
@@ -199,8 +229,16 @@ async function handleSubmitSale() {
                     {{ formatNumber(getAvailableStock(item.productId)) }} u.
                   </span>
                 </td>
-                <td class="col-price font-mono">
-                  {{ formatCurrency(getProductById(item.productId)?.salePrice) }}
+                <td class="col-price">
+                  <input
+                    v-model.number="item.unitPrice"
+                    type="number"
+                    min="0"
+                    step="any"
+                    class="app-input price-input font-mono"
+                    placeholder="0.00"
+                    required
+                  />
                 </td>
                 <td class="col-qty">
                   <input
@@ -212,7 +250,7 @@ async function handleSubmitSale() {
                   />
                 </td>
                 <td class="col-subtotal font-mono font-bold">
-                  {{ formatCurrency((getProductById(item.productId)?.salePrice || 0) * (item.quantity || 0)) }}
+                  {{ formatCurrency((item.unitPrice || 0) * (item.quantity || 0)) }}
                 </td>
                 <td class="col-action">
                   <button
@@ -251,6 +289,19 @@ async function handleSubmitSale() {
           </div>
 
           <div class="app-input-group">
+            <label class="input-label">Agent de suivi</label>
+            <select
+              v-model.number="selectedEmployeeId"
+              class="app-select"
+            >
+              <option :value="null">-- Aucun --</option>
+              <option v-for="emp in employees" :key="emp.id" :value="emp.id">
+                {{ emp.fullName }} ({{ emp.position }})
+              </option>
+            </select>
+          </div>
+
+          <div class="app-input-group">
             <label class="input-label">Date de Vente</label>
             <input
               v-model="saleDate"
@@ -264,7 +315,7 @@ async function handleSubmitSale() {
           <AppInput
             v-model="customerName"
             label="Nom du Client"
-            placeholder="Client SARL / Nom du particulier"
+            placeholder="Nom du Client"
           />
 
           <AppInput
@@ -293,7 +344,7 @@ async function handleSubmitSale() {
           size="lg"
           :loading="submitting"
         >
-          Confirmer & Émettre la Facture
+          Confirmer la Facture
         </AppButton>
       </div>
     </form>
@@ -398,7 +449,7 @@ async function handleSubmitSale() {
 }
 
 .col-price {
-  width: 90px;
+  width: 120px;
   text-align: right;
   white-space: nowrap;
   font-size: 12px;
@@ -441,6 +492,19 @@ async function handleSubmitSale() {
   height: 36px;
   text-align: center;
   padding: 4px 2px;
+}
+
+.price-input {
+  width: 100%;
+  height: 36px;
+  text-align: right;
+  padding: 4px 8px;
+}
+
+.issuer-input {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
 }
 
 .remove-btn {

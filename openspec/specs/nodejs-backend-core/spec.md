@@ -1,8 +1,10 @@
 # nodejs-backend-core Specification
 
 ## Purpose
-Defines the lightweight Node.js (Express + TypeScript + SQLite WAL) backend services, data access layer, concurrency controls, JWT security, and REST API contract parity for the Multi-Warehouse Tool Distribution Management System.
+Defines the lightweight Node.js (Express + TypeScript + PostgreSQL) backend services, data access layer, concurrency controls, JWT security, and REST API contract parity for the Multi-Warehouse Tool Distribution Management System.
+
 ## Requirements
+
 ### Requirement: Node.js REST API Server and Router Setup
 The system SHALL provide a lightweight Express + TypeScript HTTP server listening on port 8080 (or configurable `PORT`) with CORS, JSON body parser, request logging, and unified error handling middleware.
 
@@ -10,12 +12,19 @@ The system SHALL provide a lightweight Express + TypeScript HTTP server listenin
 - **WHEN** the server is launched with `npm run dev` in the backend directory
 - **THEN** it initializes the embedded database and responds to `GET /actuator/health` or `GET /api/auth/me` with status 200 or 401.
 
+### Requirement: PostgreSQL Connection Pooling and Environment Configuration
+The backend SHALL establish and manage a PostgreSQL connection pool configured via environment variables (`DATABASE_URL` or `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`), supporting connection retry and graceful shutdown.
+
+#### Scenario: Backend connects using environment variables
+- **WHEN** the backend server boots with valid PostgreSQL connection credentials
+- **THEN** it acquires pool clients, successfully verifies connectivity, and serves asynchronous API requests.
+
 ### Requirement: Database Initialization and Atomic Transactions
-The system SHALL use SQLite with Write-Ahead Logging (`WAL`) mode and immediate write transactions (`BEGIN IMMEDIATE`) to enforce strict concurrency invariants without external database daemons.
+The system SHALL use PostgreSQL with connection pooling (`pg.Pool`), parameterized query execution, schema initialization with composite indexing, and transactional isolation (`BEGIN`, `COMMIT`, `ROLLBACK`) to enforce concurrency and data consistency across multi-user enterprise operations.
 
 #### Scenario: Database schema and seed data setup on boot
-- **WHEN** the backend boots up with an empty database file
-- **THEN** it automatically creates tables for users, roles, warehouses, products, stock, movements, sales, sale_items, transfers, transfer_items, expenses, employees, salaries, and audit_logs, and seeds demo accounts and initial stock.
+- **WHEN** the backend boots up connected to a PostgreSQL database
+- **THEN** it automatically initializes tables for users, roles, warehouses, products, stock, movements, sales, sale_items, transfers, transfer_items, expenses, employees, salaries, and audit_logs, and seeds demo accounts and initial stock if empty.
 
 ### Requirement: Pessimistic Concurrency and Inventory Invariants
 The system SHALL enforce atomic stock reduction in write transactions preventing physical quantity from dropping below 0, and maintaining separate physical and reserved stock quantities during inter-warehouse transfers.
@@ -37,4 +46,3 @@ The system SHALL implement all endpoints for Warehouses, Products, Stock & Adjus
 #### Scenario: Dashboard metrics calculation
 - **WHEN** an authenticated user calls `GET /api/reports/dashboard`
 - **THEN** the system returns calculated metrics including total stock valuation (using current purchase prices), sales today, monthly sales, gross profit, expenses, salaries, and net profit.
-

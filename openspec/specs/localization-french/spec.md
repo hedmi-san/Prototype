@@ -1,5 +1,8 @@
 # localization-french Specification
 
+## Purpose
+Defines the application-wide French localization, UI translations, formatting conventions, and status terms for the Multi-Warehouse Distribution Management System.
+
 ## Requirements
 
 ### Requirement: Application-Wide French Interface Language

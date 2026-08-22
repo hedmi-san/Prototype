@@ -20,6 +20,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       FROM sales s
       JOIN warehouses w ON s.warehouse_id = w.id
       JOIN users u ON s.user_id = u.id
+      LEFT JOIN employees e ON s.employee_id = e.id
     `;
     const whereClauses: string[] = [];
     const params: any[] = [];
@@ -49,9 +50,10 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       const p2 = params.length + 2;
       const p3 = params.length + 3;
       const p4 = params.length + 4;
-      whereClauses.push(`(s.invoice_number ILIKE $${p1} OR s.customer_name ILIKE $${p2} OR s.customer_phone ILIKE $${p3} OR w.name ILIKE $${p4})`);
+      const p5 = params.length + 5;
+      whereClauses.push(`(s.invoice_number ILIKE $${p1} OR s.customer_name ILIKE $${p2} OR s.customer_phone ILIKE $${p3} OR w.name ILIKE $${p4} OR e.full_name ILIKE $${p5})`);
       const searchPattern = `%${search}%`;
-      params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+      params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
     if (whereClauses.length > 0) {
@@ -70,7 +72,8 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 
     const selectQuery = `
       SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
-             s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
+             s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
+             s.customer_name, s.customer_phone,
              s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
       ${baseFromWhere}
       ORDER BY COALESCE(s.sale_date, s.created_at) DESC, s.id DESC
@@ -119,6 +122,8 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       userName: s.user_name,
       createdById: s.user_id,
       createdByName: s.user_name,
+      employeeId: s.employee_id,
+      employeeName: s.employee_name,
       customerName: s.customer_name,
       customerPhone: s.customer_phone,
       totalAmount: Number(s.total_amount),
@@ -156,6 +161,7 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
       FROM sales s
       JOIN warehouses w ON s.warehouse_id = w.id
       JOIN users u ON s.user_id = u.id
+      LEFT JOIN employees e ON s.employee_id = e.id
     `;
     const whereClauses: string[] = [];
     const params: any[] = [];
@@ -192,9 +198,10 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
       const p2 = params.length + 2;
       const p3 = params.length + 3;
       const p4 = params.length + 4;
-      whereClauses.push(`(s.invoice_number ILIKE $${p1} OR s.customer_name ILIKE $${p2} OR s.customer_phone ILIKE $${p3} OR w.name ILIKE $${p4})`);
+      const p5 = params.length + 5;
+      whereClauses.push(`(s.invoice_number ILIKE $${p1} OR s.customer_name ILIKE $${p2} OR s.customer_phone ILIKE $${p3} OR w.name ILIKE $${p4} OR e.full_name ILIKE $${p5})`);
       const searchPattern = `%${search}%`;
-      params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+      params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
     if (whereClauses.length > 0) {
@@ -203,7 +210,8 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
 
     const selectQuery = `
       SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
-             s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
+             s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
+             s.customer_name, s.customer_phone,
              s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at
       ${baseFromWhere}
       ORDER BY COALESCE(s.sale_date, s.created_at) DESC, s.id DESC
@@ -237,7 +245,8 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
       { header: 'Dépôt', key: 'warehouse_name' },
       { header: 'Client', key: 'customer_name' },
       { header: 'Téléphone', key: 'customer_phone' },
-      { header: 'Vendeur', key: 'user_name' },
+      { header: 'Émis par', key: 'user_name' },
+      { header: 'Agent de suivi', format: (s) => s.employee_name || 'Non spécifié' },
       { header: 'Montant Total (DZD)', key: 'total_amount' },
       {
         header: 'Statut',
@@ -260,11 +269,13 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     const id = Number(req.params.id);
     const saleRes = await query(`
       SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
-             s.user_id, u.full_name as user_name, s.customer_name, s.customer_phone,
+             s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
+             s.customer_name, s.customer_phone,
              s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
       FROM sales s
       JOIN warehouses w ON s.warehouse_id = w.id
       JOIN users u ON s.user_id = u.id
+      LEFT JOIN employees e ON s.employee_id = e.id
       WHERE s.id = $1
     `, [id]);
 
@@ -301,6 +312,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       userName: s.user_name,
       createdById: s.user_id,
       createdByName: s.user_name,
+      employeeId: s.employee_id,
+      employeeName: s.employee_name,
       customerName: s.customer_name,
       customerPhone: s.customer_phone,
       totalAmount: Number(s.total_amount),
@@ -332,7 +345,7 @@ function normalizeSaleDate(input?: string | null): string | null {
 }
 
 router.post('/', authenticate, async (req: AuthRequest, res) => {
-  const { warehouseId, customerName, customerPhone, saleDate, items } = req.body;
+  const { warehouseId, employeeId, customerName, customerPhone, saleDate, items } = req.body;
   const targetWarehouseId = warehouseId || req.user?.warehouseId;
   if (!targetWarehouseId || !items || !Array.isArray(items) || items.length === 0) {
     return sendError(res, 'warehouseId and non-empty items array are required', 400);
@@ -381,20 +394,25 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
         `, [targetWarehouseId, item.productId, -Number(item.quantity), invoiceNumber, `Sale to ${customerName || 'Retail Customer'}`]);
 
         const unitPrice = item.unitPrice !== undefined ? Number(item.unitPrice) : Number(product.sale_price);
+        if (isNaN(unitPrice) || unitPrice < 0) {
+          throw new Error(`Prix unitaire invalide pour le produit ${product.name}`);
+        }
         totalAmount += Number(item.quantity) * unitPrice;
       }
 
       // 2. Create Sale Record
       const formattedSaleDate = normalizeSaleDate(saleDate);
+      const parsedEmployeeId = employeeId ? Number(employeeId) : null;
 
       const saleRes = await client.query(`
-        INSERT INTO sales (invoice_number, warehouse_id, user_id, customer_name, customer_phone, total_amount, status, sale_date, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETED', COALESCE($7::timestamptz, NOW()), NOW(), NOW())
+        INSERT INTO sales (invoice_number, warehouse_id, user_id, employee_id, customer_name, customer_phone, total_amount, status, sale_date, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'COMPLETED', COALESCE($8::timestamptz, NOW()), NOW(), NOW())
         RETURNING id
       `, [
         invoiceNumber,
         targetWarehouseId,
         req.user ? req.user.id : 1,
+        parsedEmployeeId,
         customerName || 'Retail Customer',
         customerPhone || '',
         totalAmount,
@@ -415,7 +433,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
         `, [saleId, item.productId, Number(item.quantity), unitPrice, subtotal]);
       }
 
-      return { id: saleId, invoiceNumber, totalAmount, saleDate: formattedSaleDate };
+      return { id: saleId, invoiceNumber, totalAmount, saleDate: formattedSaleDate, employeeId: parsedEmployeeId };
     });
 
     await logAudit(req.user, 'SALE_CREATED', 'SALE', sale.id, `Created sale ${sale.invoiceNumber} (Total: ${sale.totalAmount} DZD)`, targetWarehouseId);
@@ -427,7 +445,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
 
 router.put('/:id', authenticate, async (req: AuthRequest, res) => {
   const id = Number(req.params.id);
-  const { customerName, customerPhone, saleDate, items } = req.body;
+  const { employeeId, customerName, customerPhone, saleDate, items } = req.body;
 
   const currentRes = await query('SELECT * FROM sales WHERE id = $1', [id]);
   const currentSale = currentRes.rows[0];
@@ -478,6 +496,9 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
           );
 
           const unitPrice = item.unitPrice !== undefined ? Number(item.unitPrice) : Number(product.sale_price);
+          if (isNaN(unitPrice) || unitPrice < 0) {
+            throw new Error(`Prix unitaire invalide pour le produit ${product.name}`);
+          }
           const subtotal = Number(item.quantity) * unitPrice;
 
           await client.query(`
@@ -498,20 +519,26 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
         ? normalizeSaleDate(saleDate)
         : currentSale.sale_date;
 
+      const parsedEmployeeId = employeeId !== undefined
+        ? (employeeId ? Number(employeeId) : null)
+        : currentSale.employee_id;
+
       await client.query(`
         UPDATE sales
         SET customer_name = $1, customer_phone = $2, total_amount = $3,
-            sale_date = COALESCE($4::timestamptz, sale_date, created_at), updated_at = NOW()
-        WHERE id = $5
+            employee_id = $4,
+            sale_date = COALESCE($5::timestamptz, sale_date, created_at), updated_at = NOW()
+        WHERE id = $6
       `, [
         customerName !== undefined ? customerName : currentSale.customer_name,
         customerPhone !== undefined ? customerPhone : currentSale.customer_phone,
         newTotal,
+        parsedEmployeeId,
         formattedSaleDate,
         id,
       ]);
 
-      return { id, invoiceNumber: currentSale.invoice_number, totalAmount: newTotal, saleDate: formattedSaleDate };
+      return { id, invoiceNumber: currentSale.invoice_number, totalAmount: newTotal, saleDate: formattedSaleDate, employeeId: parsedEmployeeId };
     });
 
     await logAudit(req.user, 'SALE_MODIFIED', 'SALE', id, `Modified sale ${currentSale.invoice_number}`, currentSale.warehouse_id);

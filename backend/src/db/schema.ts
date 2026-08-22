@@ -68,11 +68,25 @@ export async function initSchema(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS employees (
+      id SERIAL PRIMARY KEY,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+      full_name VARCHAR(100) NOT NULL,
+      national_id VARCHAR(50) NOT NULL,
+      phone VARCHAR(50),
+      position VARCHAR(100) NOT NULL,
+      base_salary NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      hire_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS sales (
       id SERIAL PRIMARY KEY,
       invoice_number VARCHAR(50) NOT NULL UNIQUE,
       warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id),
+      employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL,
       customer_name VARCHAR(100) DEFAULT 'Standard Retail Customer',
       customer_phone VARCHAR(50),
       total_amount NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
@@ -123,19 +137,6 @@ export async function initSchema(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS employees (
-      id SERIAL PRIMARY KEY,
-      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
-      full_name VARCHAR(100) NOT NULL,
-      national_id VARCHAR(50) NOT NULL,
-      phone VARCHAR(50),
-      position VARCHAR(100) NOT NULL,
-      base_salary NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
-      active BOOLEAN NOT NULL DEFAULT TRUE,
-      hire_date DATE NOT NULL DEFAULT CURRENT_DATE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-
     CREATE TABLE IF NOT EXISTS salaries (
       id SERIAL PRIMARY KEY,
       employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
@@ -164,10 +165,16 @@ export async function initSchema(): Promise<void> {
     );
   `);
 
+  // Migrations for existing databases
+  await query(`
+    ALTER TABLE sales ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL;
+  `);
+
   // Performance composite indexes
   await query(`
     CREATE INDEX IF NOT EXISTS idx_sales_sale_date_wh ON sales(sale_date, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sales_created_at_wh ON sales(created_at, warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_sales_employee_id ON sales(employee_id);
     CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id);
     CREATE INDEX IF NOT EXISTS idx_stock_movements_created_wh ON stock_movements(created_at, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_stock_movements_type_created ON stock_movements(movement_type, created_at);

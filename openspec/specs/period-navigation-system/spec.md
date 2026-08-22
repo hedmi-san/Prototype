@@ -1,5 +1,8 @@
 # Period Navigation System
 
+## Purpose
+Defines the reusable time-period navigation component, granular time scales, stepper actions, fast-jump picker, and boundary protections for the system's operational tables and analytics dashboards.
+
 ## Requirements
 
 ### Requirement: Granular Time Scale Selection
