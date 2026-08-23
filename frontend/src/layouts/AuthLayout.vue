@@ -3,8 +3,8 @@
     <div class="auth-box">
       <div class="brand-header">
         <div class="brand-logo">
-          <div class="logo-mark" />
-          <span class="logo-text">DISTRI-TOOLS DZ</span>
+          <img class="logo-mark" src="../assets/images/logo.png" alt="Logo" />
+          <span class="logo-text">BOUSFOR HOSNA</span>
         </div>
         <p class="brand-tagline">Gestion Multi-Entrepôts de Distribution d'Outillage Industriel</p>
       </div>
@@ -12,7 +12,7 @@
         <router-view />
       </div>
       <div class="auth-footer">
-        <span>© 2026 Distri-Tools Algérie. Tous droits réservés.</span>
+        <span>© 2026 ERUL BOUSFOR GEN TRADING IMP & EXP. Tous droits réservés.</span>
       </div>
     </div>
   </div>
@@ -53,7 +53,6 @@
 .logo-mark {
   width: 28px;
   height: 28px;
-  background-color: var(--color-primary);
   border-radius: var(--radius-sm);
 }
 

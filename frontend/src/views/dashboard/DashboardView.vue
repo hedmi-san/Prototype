@@ -492,7 +492,7 @@ const maxTrendAmount = computed(() => {
 }
 
 .trend-chart-container {
-  padding: 16px 8px 8px 8px;
+  padding: 22px 8px 8px 8px;
   background-color: var(--color-surface);
   border-radius: var(--radius-sm);
   overflow-x: auto;

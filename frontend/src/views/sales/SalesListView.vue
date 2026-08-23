@@ -659,12 +659,8 @@ async function handleConfirmCancel() {
 .agent-pill {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  background-color: rgba(59, 130, 246, 0.1);
-  color: var(--color-primary);
-  border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
 .action-buttons {

@@ -47,8 +47,8 @@ function handleLogout() {
           </svg>
         </button>
         <div class="brand">
-          <div class="brand-mark" />
-          <span class="brand-title">DISTRI-TOOLS DZ</span>
+          <img class="brand-mark" src="../assets/images/logo.png" alt="Logo" />
+          <span class="brand-title">BOUSFOR HOSNA</span>
         </div>
       </div>
 
@@ -61,7 +61,7 @@ function handleLogout() {
             :value="authStore.selectedWarehouseId || ''"
             @change="handleWarehouseChange"
           >
-            <option value="">Tous les entrepôts (Consolidé)</option>
+            <option value="">Tous les entrepôts</option>
             <option
               v-for="w in warehouseStore.warehouses"
               :key="w.id"
@@ -303,7 +303,6 @@ function handleLogout() {
 .brand-mark {
   width: 20px;
   height: 20px;
-  background-color: var(--color-primary);
   border-radius: 4px;
 }
 
