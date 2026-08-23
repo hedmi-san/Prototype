@@ -15,6 +15,7 @@ import AppInput from '../../components/common/AppInput.vue';
 import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
 import AppPagination from '../../components/common/AppPagination.vue';
 import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
+import InvoiceDocument from '../../components/sales/InvoiceDocument.vue';
 
 const authStore = useAuthStore();
 const sales = ref<Sale[]>([]);
@@ -382,85 +383,15 @@ async function handleConfirmCancel() {
     <!-- Invoice Viewer Modal -->
     <AppModal
       v-model="showInvoiceModal"
-      :title="`Facture Fiscale : ${selectedSale?.invoiceNumber || ''}`"
-      max-width="680px"
+      :title="`Facture / Bon de Caisse : ${selectedSale?.invoiceNumber || ''}`"
+      max-width="880px"
     >
-      <div v-if="selectedSale" class="invoice-container">
-        <!-- Invoice Header -->
-        <div class="inv-header">
-          <div class="inv-brand">
-            <h2>DISTRI-TOOLS DZ</h2>
-            <p class="text-caption">Distribution d'Outillage Industriel & Équipements SARL</p>
-            <p class="text-caption">Hubs d'Alger / Oran / Constantine</p>
-          </div>
-          <div class="inv-meta">
-            <h3 class="font-mono">{{ selectedSale.invoiceNumber }}</h3>
-            <p class="text-caption">Date : {{ formatDateTime(selectedSale.saleDate || selectedSale.createdAt) }}</p>
-            <p class="text-caption">Entrepôt : {{ selectedSale.warehouseName }} ({{ selectedSale.warehouseCode }})</p>
-            <AppBadge :variant="selectedSale.status === 'COMPLETED' ? 'success' : 'danger'" size="sm">
-              {{ formatSaleStatus(selectedSale.status) }}
-            </AppBadge>
-          </div>
-        </div>
-
-        <div class="inv-divider" />
-
-        <!-- Customer & Staff Attribution -->
-        <div class="inv-customer">
-          <div>
-            <span class="text-caption text-muted">Facturé à :</span>
-            <h4>{{ selectedSale.customerName || 'Client Comptoir (Passage)' }}</h4>
-            <p v-if="selectedSale.customerPhone" class="text-caption text-muted">
-              Tél : {{ selectedSale.customerPhone }}
-            </p>
-          </div>
-          <div class="inv-staff-box">
-            <div class="staff-row">
-              <span class="text-caption text-muted">Émise par :</span>
-              <h4>{{ selectedSale.createdByName || selectedSale.userName || 'Système' }}</h4>
-            </div>
-            <div class="staff-row">
-              <span class="text-caption text-muted">Agent de suivi :</span>
-              <h4 :class="selectedSale.employeeName ? 'text-primary font-bold' : 'text-muted'">
-                {{ selectedSale.employeeName || 'Non spécifié' }}
-              </h4>
-            </div>
-          </div>
-        </div>
-
-        <!-- Items Table -->
-        <table class="inv-table">
-          <thead>
-            <tr>
-              <th>Réf</th>
-              <th>Désignation</th>
-              <th>Prix Unitaire</th>
-              <th>Qté</th>
-              <th>Total (DA)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in selectedSale.items" :key="item.id">
-              <td class="font-mono">{{ item.productReference }}</td>
-              <td>{{ item.productName }} ({{ item.productBrand }})</td>
-              <td class="font-mono">{{ formatCurrency(item.unitPrice) }}</td>
-              <td class="font-mono">{{ formatNumber(item.quantity) }}</td>
-              <td class="font-mono font-bold">{{ formatCurrency(item.subtotal) }}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <!-- Totals -->
-        <div class="inv-totals">
-          <div class="total-row">
-            <span>Montant Total à Payer :</span>
-            <strong class="font-mono font-bold text-h2">{{ formatCurrency(selectedSale.totalAmount) }}</strong>
-          </div>
-        </div>
+      <div v-if="selectedSale" class="invoice-preview-wrapper">
+        <InvoiceDocument :sale="selectedSale" />
       </div>
       <template #footer>
         <AppButton variant="secondary" @click="showInvoiceModal = false">Fermer</AppButton>
-        <AppButton variant="primary" onclick="window.print()">Imprimer la Facture</AppButton>
+        <AppButton variant="primary" onclick="window.print()">Imprimer le Bon / Facture (A4)</AppButton>
       </template>
     </AppModal>
 
@@ -695,75 +626,17 @@ async function handleConfirmCancel() {
   border-color: var(--color-danger-border);
 }
 
-/* Invoice Modal */
-.invoice-container {
+/* Invoice Modal Preview */
+.invoice-preview-wrapper {
+  background: #1e293b;
+  padding: 20px;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  max-height: 75vh;
   display: flex;
-  flex-direction: column;
-  gap: 16px;
+  justify-content: center;
 }
 
-.inv-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.inv-divider {
-  height: 1px;
-  background-color: var(--color-border);
-}
-
-.inv-customer {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.inv-staff-box {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  text-align: right;
-}
-
-.staff-row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.inv-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 12px;
-}
-
-.inv-table th {
-  background-color: var(--color-surface);
-  padding: 8px 12px;
-  font-size: 11px;
-  text-align: left;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.inv-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  font-size: 13px;
-}
-
-.inv-totals {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-
-.total-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
 
 /* Edit modal */
 .modal-form {

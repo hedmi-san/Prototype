@@ -6,11 +6,13 @@ import { useWarehouseStore } from '../../stores/warehouse.store';
 import { useProductStore } from '../../stores/product.store';
 import { saleService, inventoryService } from '../../services/operations.service';
 import { employeeService } from '../../services/admin-reports.service';
-import type { Product, Stock, Employee } from '../../types';
+import type { Product, Stock, Employee, Sale } from '../../types';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppButton from '../../components/common/AppButton.vue';
 import AppInput from '../../components/common/AppInput.vue';
+import AppModal from '../../components/common/AppModal.vue';
 import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
+import InvoiceDocument from '../../components/sales/InvoiceDocument.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -23,6 +25,9 @@ const selectedEmployeeId = ref<number | null>(null);
 const loading = ref(true);
 const submitting = ref(false);
 const errorMessage = ref('');
+
+const showSuccessModal = ref(false);
+const createdSale = ref<Sale | null>(null);
 
 const selectedWarehouseId = ref<number>(
   authStore.activeWarehouseId || warehouseStore.warehouses[0]?.id || 1
@@ -151,7 +156,7 @@ async function handleSubmitSale() {
 
   submitting.value = true;
   try {
-    await saleService.createSale({
+    const result = await saleService.createSale({
       warehouseId: selectedWarehouseId.value,
       employeeId: selectedEmployeeId.value || undefined,
       customerName: customerName.value.trim() || undefined,
@@ -164,12 +169,46 @@ async function handleSubmitSale() {
       })),
     });
 
-    router.push('/sales');
+    if (result && result.id) {
+      try {
+        const full = await saleService.getSaleById(result.id);
+        createdSale.value = full || result;
+      } catch {
+        createdSale.value = result;
+      }
+    } else {
+      createdSale.value = result;
+    }
+    showSuccessModal.value = true;
   } catch (err: any) {
     errorMessage.value = err.response?.data?.message || "Échec de l'enregistrement de la vente";
   } finally {
     submitting.value = false;
   }
+}
+
+function resetFormForNewSale() {
+  showSuccessModal.value = false;
+  createdSale.value = null;
+  customerName.value = '';
+  customerPhone.value = '';
+  saleDate.value = getLocalDefaultDateTime();
+  selectedEmployeeId.value = null;
+  lineItems.value = [{ productId: 0, quantity: 1, unitPrice: 0 }];
+  if (productStore.products.length > 0) {
+    lineItems.value[0].productId = productStore.products[0].id;
+    lineItems.value[0].unitPrice = productStore.products[0].salePrice;
+  }
+  fetchStockForWarehouse();
+}
+
+function goToSalesList() {
+  showSuccessModal.value = false;
+  router.push('/sales');
+}
+
+function printCreatedInvoice() {
+  window.print();
 }
 </script>
 
@@ -348,6 +387,22 @@ async function handleSubmitSale() {
         </AppButton>
       </div>
     </form>
+
+    <!-- Post Checkout Invoice & Print Modal -->
+    <AppModal
+      v-model="showSuccessModal"
+      :title="`Vente Validée : ${createdSale?.invoiceNumber || ''}`"
+      max-width="880px"
+    >
+      <div v-if="createdSale" class="invoice-preview-wrapper">
+        <InvoiceDocument :sale="createdSale" />
+      </div>
+      <template #footer>
+        <!-- <AppButton variant="secondary" @click="resetFormForNewSale">+ Nouvelle Vente</AppButton> -->
+        <AppButton variant="secondary" @click="goToSalesList">Fermer</AppButton>
+        <AppButton variant="primary" @click="printCreatedInvoice">Imprimer le Bon</AppButton>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -599,5 +654,16 @@ async function handleSubmitSale() {
   .pos-layout {
     grid-template-columns: 1fr;
   }
+}
+
+/* Invoice Modal Preview */
+.invoice-preview-wrapper {
+  background: #1e293b;
+  padding: 20px;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  max-height: 75vh;
+  display: flex;
+  justify-content: center;
 }
 </style>

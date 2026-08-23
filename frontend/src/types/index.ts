@@ -110,6 +110,8 @@ export interface Sale {
   warehouseId: number;
   warehouseName: string;
   warehouseCode: string;
+  warehousePhone?: string;
+  warehouseAddress?: string;
   invoiceNumber: string;
   customerName: string | null;
   customerPhone: string | null;

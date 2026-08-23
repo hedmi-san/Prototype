@@ -241,3 +241,71 @@ export function formatEntityType(entity: string | null | undefined): string {
       return entity;
   }
 }
+
+/**
+ * Format numeric amount for trade invoices (e.g. 11 640.00 or 970.00)
+ */
+export function formatInvoiceAmount(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || isNaN(amount)) {
+    return '0.00';
+  }
+  const parts = Number(amount).toFixed(2).split('.');
+  const integerWithSpaces = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return `${integerWithSpaces}.${parts[1]}`;
+}
+
+/**
+ * Format invoice date (DD/MM/YYYY)
+ */
+export function formatInvoiceDate(dateInput: string | Date | null | undefined): string {
+  if (!dateInput) return '-';
+  const date = typeof dateInput === 'string'
+    ? (dateInput.includes(' ') && !dateInput.includes('T') ? new Date(dateInput.replace(' ', 'T')) : new Date(dateInput))
+    : dateInput;
+  if (isNaN(date.getTime())) return String(dateInput);
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+/**
+ * Format print timestamp (DD/MM/YYYY à H:mm:ss)
+ */
+export function formatInvoicePrintTimestamp(dateInput?: string | Date | null): string {
+  const date = dateInput
+    ? (typeof dateInput === 'string'
+      ? (dateInput.includes(' ') && !dateInput.includes('T') ? new Date(dateInput.replace(' ', 'T')) : new Date(dateInput))
+      : dateInput)
+    : new Date();
+  const validDate = isNaN(date.getTime()) ? new Date() : date;
+
+  const day = String(validDate.getDate()).padStart(2, '0');
+  const month = String(validDate.getMonth() + 1).padStart(2, '0');
+  const year = validDate.getFullYear();
+  const hours = validDate.getHours();
+  const minutes = String(validDate.getMinutes()).padStart(2, '0');
+  const seconds = String(validDate.getSeconds()).padStart(2, '0');
+
+  return `${day}/${month}/${year} à ${hours}:${minutes}:${seconds}`;
+}
+
+/**
+ * Extract clean sequential document number (e.g. 2761 from INV-002761 or 2761)
+ */
+export function extractInvoiceSequence(invoiceNumber?: string | null, saleId?: number | null): string {
+  if (invoiceNumber) {
+    const digitsOnly = invoiceNumber.replace(/\D/g, '');
+    if (digitsOnly.length > 0) {
+      // Return un-padded or trimmed sequence number if it looks like a sequence
+      const num = parseInt(digitsOnly.slice(-6), 10);
+      if (!isNaN(num) && num > 0) {
+        return String(num);
+      }
+      return digitsOnly;
+    }
+    return invoiceNumber;
+  }
+  return saleId ? String(saleId) : '1';
+}
+

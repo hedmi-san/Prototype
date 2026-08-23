@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { warehouseService } from '../../services/catalog.service';
+import { useWarehouseStore } from '../../stores/warehouse.store';
 import type { Warehouse } from '../../types';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
@@ -8,6 +9,7 @@ import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
 import AppInput from '../../components/common/AppInput.vue';
 
+const warehouseStore = useWarehouseStore();
 const warehouses = ref<Warehouse[]>([]);
 const loading = ref(true);
 
@@ -55,8 +57,8 @@ function openEditModal(w: Warehouse) {
   form.value = {
     name: w.name,
     code: w.code,
-    address: w.address,
-    phone: w.phone,
+    address: w.address || (w as any).location || '',
+    phone: w.phone || (w as any).contactNumber || (w as any).contact_number || '',
   };
   errorMessage.value = '';
   showModal.value = true;
@@ -66,13 +68,24 @@ async function handleSave() {
   saving.value = true;
   errorMessage.value = '';
   try {
+    const payload = {
+      name: form.value.name.trim(),
+      code: form.value.code.trim(),
+      address: form.value.address.trim(),
+      location: form.value.address.trim(),
+      phone: form.value.phone.trim(),
+      contactNumber: form.value.phone.trim(),
+    };
     if (editingWarehouse.value) {
-      await warehouseService.updateWarehouse(editingWarehouse.value.id, form.value);
+      await warehouseService.updateWarehouse(editingWarehouse.value.id, payload);
     } else {
-      await warehouseService.createWarehouse(form.value);
+      await warehouseService.createWarehouse(payload);
     }
     showModal.value = false;
-    await fetchWarehouses();
+    await Promise.all([
+      fetchWarehouses(),
+      warehouseStore.fetchWarehouses(),
+    ]);
   } catch (err: any) {
     errorMessage.value = err.response?.data?.message || "Échec de l'enregistrement de l'entrepôt";
   } finally {

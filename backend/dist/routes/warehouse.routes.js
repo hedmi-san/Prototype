@@ -3,10 +3,25 @@ import { query } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { authenticate, requireRole, logAudit } from '../middleware/auth.js';
 const router = Router();
+function mapWarehouseRow(w) {
+    return {
+        id: w.id,
+        name: w.name,
+        code: w.code,
+        location: w.location || '',
+        address: w.location || '',
+        contactNumber: w.contact_number || '',
+        contact_number: w.contact_number || '',
+        phone: w.contact_number || '',
+        active: w.active,
+        createdAt: w.created_at,
+        updatedAt: w.updated_at,
+    };
+}
 router.get('/', authenticate, async (req, res) => {
     try {
         const result = await query('SELECT * FROM warehouses ORDER BY id ASC');
-        return sendSuccess(res, result.rows);
+        return sendSuccess(res, result.rows.map(mapWarehouseRow));
     }
     catch (err) {
         return sendError(res, err.message, 500);
@@ -20,7 +35,7 @@ router.get('/:id', authenticate, async (req, res) => {
         if (!warehouse) {
             return sendError(res, `Warehouse not found with id ${id}`, 404);
         }
-        return sendSuccess(res, warehouse);
+        return sendSuccess(res, mapWarehouseRow(warehouse));
     }
     catch (err) {
         return sendError(res, err.message, 500);
@@ -28,10 +43,11 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
     try {
-        const { name, code, location, contactNumber, contact_number } = req.body;
-        const phone = contactNumber || contact_number || '';
-        if (!name || !code || !location) {
-            return sendError(res, 'Name, code, and location are required', 400);
+        const { name, code, location, address, contactNumber, contact_number, phone } = req.body;
+        const warehouseLocation = location || address || '';
+        const warehousePhone = contactNumber || contact_number || phone || '';
+        if (!name || !code || !warehouseLocation) {
+            return sendError(res, 'Name, code, and location/address are required', 400);
         }
         const existing = await query('SELECT id FROM warehouses WHERE code = $1', [code]);
         if (existing.rowCount && existing.rowCount > 0) {
@@ -41,10 +57,10 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
       INSERT INTO warehouses (name, code, location, contact_number, active)
       VALUES ($1, $2, $3, $4, TRUE)
       RETURNING *
-    `, [name, code, location, phone]);
+    `, [name, code, warehouseLocation, warehousePhone]);
         const newWarehouse = insertRes.rows[0];
         await logAudit(req.user, 'WAREHOUSE_CREATED', 'WAREHOUSE', newWarehouse.id, `Created warehouse ${name} (${code})`);
-        return sendSuccess(res, newWarehouse, 'Warehouse created successfully', 201);
+        return sendSuccess(res, mapWarehouseRow(newWarehouse), 'Warehouse created successfully', 201);
     }
     catch (err) {
         return sendError(res, err.message, 500);
@@ -53,26 +69,28 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
 router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
     try {
         const id = Number(req.params.id);
-        const { name, location, contactNumber, contact_number, active } = req.body;
-        const phone = contactNumber || contact_number;
+        const { name, code, location, address, contactNumber, contact_number, phone, active } = req.body;
+        const warehouseLocation = location !== undefined ? location : address;
+        const warehousePhone = contactNumber !== undefined ? contactNumber : (contact_number !== undefined ? contact_number : phone);
         const currentRes = await query('SELECT * FROM warehouses WHERE id = $1', [id]);
         const current = currentRes.rows[0];
         if (!current) {
             return sendError(res, `Warehouse not found with id ${id}`, 404);
         }
         const updatedName = name !== undefined ? name : current.name;
-        const updatedLocation = location !== undefined ? location : current.location;
-        const updatedPhone = phone !== undefined ? phone : current.contact_number;
+        const updatedCode = code !== undefined ? code : current.code;
+        const updatedLocation = warehouseLocation !== undefined ? warehouseLocation : current.location;
+        const updatedPhone = warehousePhone !== undefined ? warehousePhone : current.contact_number;
         const updatedActive = active !== undefined ? Boolean(active) : Boolean(current.active);
         const updateRes = await query(`
       UPDATE warehouses
-      SET name = $1, location = $2, contact_number = $3, active = $4, updated_at = NOW()
-      WHERE id = $5
+      SET name = $1, code = $2, location = $3, contact_number = $4, active = $5, updated_at = NOW()
+      WHERE id = $6
       RETURNING *
-    `, [updatedName, updatedLocation, updatedPhone, updatedActive, id]);
+    `, [updatedName, updatedCode, updatedLocation, updatedPhone, updatedActive, id]);
         const updatedWarehouse = updateRes.rows[0];
         await logAudit(req.user, 'WAREHOUSE_UPDATED', 'WAREHOUSE', id, `Updated warehouse ${updatedName}`);
-        return sendSuccess(res, updatedWarehouse, 'Warehouse updated successfully');
+        return sendSuccess(res, mapWarehouseRow(updatedWarehouse), 'Warehouse updated successfully');
     }
     catch (err) {
         return sendError(res, err.message, 500);

@@ -62,6 +62,7 @@ router.get('/', authenticate, async (req, res) => {
         const offsetIdx = selectParams.length;
         const selectQuery = `
       SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
+             w.location as warehouse_address, w.contact_number as warehouse_phone,
              s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
              s.customer_name, s.customer_phone,
              s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
@@ -103,6 +104,8 @@ router.get('/', authenticate, async (req, res) => {
             warehouseId: s.warehouse_id,
             warehouseName: s.warehouse_name,
             warehouseCode: s.warehouse_code,
+            warehousePhone: s.warehouse_phone || '',
+            warehouseAddress: s.warehouse_address || '',
             userId: s.user_id,
             userName: s.user_name,
             createdById: s.user_id,
@@ -241,6 +244,7 @@ router.get('/:id', authenticate, async (req, res) => {
         const id = Number(req.params.id);
         const saleRes = await query(`
       SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
+             w.location as warehouse_address, w.contact_number as warehouse_phone,
              s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
              s.customer_name, s.customer_phone,
              s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
@@ -276,6 +280,8 @@ router.get('/:id', authenticate, async (req, res) => {
             warehouseId: s.warehouse_id,
             warehouseName: s.warehouse_name,
             warehouseCode: s.warehouse_code,
+            warehousePhone: s.warehouse_phone || '',
+            warehouseAddress: s.warehouse_address || '',
             userId: s.user_id,
             userName: s.user_name,
             createdById: s.user_id,
@@ -388,7 +394,59 @@ router.post('/', authenticate, async (req, res) => {
             return { id: saleId, invoiceNumber, totalAmount, saleDate: formattedSaleDate, employeeId: parsedEmployeeId };
         });
         await logAudit(req.user, 'SALE_CREATED', 'SALE', sale.id, `Created sale ${sale.invoiceNumber} (Total: ${sale.totalAmount} DZD)`, targetWarehouseId);
-        return sendSuccess(res, sale, 'Sale completed successfully', 201);
+        const fullSaleRes = await query(`
+      SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
+             w.location as warehouse_address, w.contact_number as warehouse_phone,
+             s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
+             s.customer_name, s.customer_phone,
+             s.total_amount, s.status, COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
+      FROM sales s
+      JOIN warehouses w ON s.warehouse_id = w.id
+      JOIN users u ON s.user_id = u.id
+      LEFT JOIN employees e ON s.employee_id = e.id
+      WHERE s.id = $1
+    `, [sale.id]);
+        const s = fullSaleRes.rows[0];
+        const itemsRes = await query(`
+      SELECT si.id, si.product_id, p.name as product_name, p.reference as product_reference,
+             si.quantity, si.unit_price, si.subtotal
+      FROM sale_items si
+      JOIN products p ON si.product_id = p.id
+      WHERE si.sale_id = $1
+    `, [sale.id]);
+        const fullItems = itemsRes.rows.map((i) => ({
+            id: i.id,
+            productId: i.product_id,
+            productName: i.product_name,
+            productReference: i.product_reference,
+            quantity: Number(i.quantity),
+            unitPrice: Number(i.unit_price),
+            subtotal: Number(i.subtotal),
+        }));
+        const responsePayload = {
+            id: s.id,
+            invoiceNumber: s.invoice_number,
+            warehouseId: s.warehouse_id,
+            warehouseName: s.warehouse_name,
+            warehouseCode: s.warehouse_code,
+            warehousePhone: s.warehouse_phone || '',
+            warehouseAddress: s.warehouse_address || '',
+            userId: s.user_id,
+            userName: s.user_name,
+            createdById: s.user_id,
+            createdByName: s.user_name,
+            employeeId: s.employee_id,
+            employeeName: s.employee_name,
+            customerName: s.customer_name,
+            customerPhone: s.customer_phone,
+            totalAmount: Number(s.total_amount),
+            saleDate: s.sale_date || s.created_at,
+            status: s.status,
+            createdAt: s.created_at,
+            updatedAt: s.updated_at,
+            items: fullItems,
+        };
+        return sendSuccess(res, responsePayload, 'Sale completed successfully', 201);
     }
     catch (err) {
         return sendError(res, err.message, 400);
