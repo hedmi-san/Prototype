@@ -82,7 +82,7 @@ function openCreateModal() {
     password: '',
     fullName: '',
     roleName: 'MANAGER',
-    warehouseId: warehouseStore.warehouses[0]?.id || null,
+    warehouseId: warehouseStore.activeWarehouses[0]?.id || null,
   };
   createErrorMessage.value = '';
   showCreateModal.value = true;
@@ -329,7 +329,7 @@ async function handleQuickDeactivate() {
         <div v-if="createForm.roleName !== 'ADMIN'" class="app-input-group">
           <label class="input-label">Entrepôt Assigné</label>
           <select v-model.number="createForm.warehouseId" class="app-select" required>
-            <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
+            <option v-for="w in warehouseStore.activeWarehouses" :key="w.id" :value="w.id">
               {{ w.name }} ({{ w.code }})
             </option>
           </select>
@@ -387,8 +387,8 @@ async function handleQuickDeactivate() {
         <div v-if="editForm.roleName !== 'ADMIN'" class="app-input-group">
           <label class="input-label">Entrepôt Assigné</label>
           <select v-model.number="editForm.warehouseId" class="app-select" required>
-            <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
-              {{ w.name }} ({{ w.code }})
+            <option v-for="w in warehouseStore.allWarehousesFormatted" :key="w.id" :value="w.id">
+              {{ w.label }} ({{ w.code }})
             </option>
           </select>
         </div>

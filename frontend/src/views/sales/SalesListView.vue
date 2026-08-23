@@ -268,7 +268,7 @@ async function handleConfirmCancel() {
           </svg>
           Exporter CSV
         </AppButton>
-        <router-link to="/sales/new">
+        <router-link v-if="!authStore.isReadOnly" to="/sales/new">
           <AppButton variant="primary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -346,7 +346,7 @@ async function handleConfirmCancel() {
                 Facture
               </button>
 
-              <template v-if="sale.status === 'COMPLETED'">
+              <template v-if="sale.status === 'COMPLETED' && !authStore.isReadOnly">
                 <button class="icon-action-btn" title="Modifier les lignes de vente" @click="openEditModal(sale)">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />

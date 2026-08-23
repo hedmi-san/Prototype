@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
-import { authenticate, AuthRequest, logAudit } from '../middleware/auth.js';
+import { authenticate, requireRole, AuthRequest, logAudit } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -234,6 +234,18 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
     return sendError(res, 'Source and destination warehouses must be different', 400);
   }
 
+  // Validate that source and destination warehouses are active
+  const whCheck = await query('SELECT id, name, active FROM warehouses WHERE id IN ($1, $2)', [sourceWarehouseId, destinationWarehouseId]);
+  const sourceWh = whCheck.rows.find(w => w.id === sourceWarehouseId);
+  const destWh = whCheck.rows.find(w => w.id === destinationWarehouseId);
+
+  if (!sourceWh || !sourceWh.active) {
+    return sendError(res, `Impossible de créer un transfert : le dépôt source (${sourceWh ? sourceWh.name : sourceWarehouseId}) est inactif`, 400);
+  }
+  if (!destWh || !destWh.active) {
+    return sendError(res, `Impossible de créer un transfert : le dépôt de destination (${destWh ? destWh.name : destinationWarehouseId}) est inactif`, 400);
+  }
+
   if (user?.role !== 'ADMIN' && user?.warehouseId && user.warehouseId !== destinationWarehouseId) {
     return sendError(res, 'Access denied: You can only request transfers destined for your assigned warehouse', 403);
   }
@@ -261,6 +273,203 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
 
     await logAudit(req.user, 'TRANSFER_REQUESTED', 'TRANSFER', result.id, `Created transfer request ${result.transferNumber}`, destinationWarehouseId);
     return sendSuccess(res, result, 'Transfer requested successfully', 201);
+  } catch (err: any) {
+    return sendError(res, err.message, 400);
+  }
+});
+
+router.post('/bulk-relocation', authenticate, requireRole('ADMIN', 'SUPER_MANAGER'), async (req: AuthRequest, res) => {
+  const { sourceWarehouseId, distributions, immediateExecution, notes } = req.body;
+  if (!sourceWarehouseId || !distributions || !Array.isArray(distributions) || distributions.length === 0) {
+    return sendError(res, 'sourceWarehouseId and non-empty distributions array are required', 400);
+  }
+
+  // Validate source warehouse exists
+  const sourceWhRes = await query('SELECT id, name, code, active FROM warehouses WHERE id = $1', [sourceWarehouseId]);
+  const sourceWh = sourceWhRes.rows[0];
+  if (!sourceWh) {
+    return sendError(res, `Dépôt source introuvable avec l'ID ${sourceWarehouseId}`, 404);
+  }
+
+  // Validate destination warehouses are active and distinct from source
+  const destIds = distributions.map((d: any) => Number(d.destinationWarehouseId)).filter(id => Boolean(id));
+  if (destIds.includes(Number(sourceWarehouseId))) {
+    return sendError(res, 'Le dépôt source ne peut pas être une destination de transfert', 400);
+  }
+
+  if (destIds.length === 0) {
+    return sendError(res, 'Aucune destination valide spécifiée', 400);
+  }
+
+  const destWhsRes = await query('SELECT id, name, code, active FROM warehouses WHERE id = ANY($1::int[])', [destIds]);
+  for (const dId of destIds) {
+    const dWh = destWhsRes.rows.find((w: any) => w.id === dId);
+    if (!dWh || !dWh.active) {
+      return sendError(res, `Le dépôt de destination (${dWh ? dWh.name : dId}) est inactif ou introuvable`, 400);
+    }
+  }
+
+  try {
+    const result = await runTransaction(async (client) => {
+      // Aggregate total quantity needed per product across all destinations
+      const productTotalAllocated: Record<number, number> = {};
+      for (const dist of distributions) {
+        if (!dist.items || !Array.isArray(dist.items)) continue;
+        for (const item of dist.items) {
+          const pId = Number(item.productId);
+          const qty = Number(item.quantity);
+          if (qty > 0) {
+            productTotalAllocated[pId] = (productTotalAllocated[pId] || 0) + qty;
+          }
+        }
+      }
+
+      const productIds = Object.keys(productTotalAllocated).map(Number);
+      if (productIds.length === 0) {
+        throw new Error('Aucun article avec une quantité supérieure à 0 à relocaliser');
+      }
+
+      // Verify source stock availability with row locking
+      for (const pId of productIds) {
+        const allocatedQty = productTotalAllocated[pId];
+        const stockRes = await client.query(
+          'SELECT * FROM stock WHERE warehouse_id = $1 AND product_id = $2 FOR UPDATE',
+          [sourceWarehouseId, pId]
+        );
+        const stock = stockRes.rows[0];
+        const physQty = stock ? Number(stock.physical_quantity) : 0;
+        const resQty = stock ? Number(stock.reserved_quantity) : 0;
+        const available = physQty - resQty;
+
+        if (available < allocatedQty) {
+          const prodRes = await client.query('SELECT name, reference FROM products WHERE id = $1', [pId]);
+          const prod = prodRes.rows[0];
+          const prodLabel = prod ? `${prod.name} (${prod.reference})` : `ID ${pId}`;
+          throw new Error(`Stock disponible insuffisant pour ${prodLabel}. Requis: ${allocatedQty}, Disponible: ${available}`);
+        }
+      }
+
+      const createdTransfers: any[] = [];
+      const timestampSuffix = Date.now().toString().slice(-6);
+      let transferCounter = 1;
+
+      for (const dist of distributions) {
+        const destId = Number(dist.destinationWarehouseId);
+        const validItems = (dist.items || []).filter((i: any) => Number(i.quantity) > 0);
+        if (validItems.length === 0) continue;
+
+        const transferNumber = `TRF-RELOC-${timestampSuffix}-${transferCounter++}`;
+        const transferStatus = immediateExecution ? 'CONFIRMED' : 'REQUESTED';
+
+        const insertRes = await client.query(`
+          INSERT INTO transfers (
+            transfer_number, source_warehouse_id, destination_warehouse_id,
+            requested_by_user_id, status, notes,
+            ${immediateExecution ? 'confirmed_at,' : ''}
+            created_at, updated_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6,
+            ${immediateExecution ? 'NOW(),' : ''}
+            NOW(), NOW()
+          )
+          RETURNING id
+        `, [
+          transferNumber,
+          sourceWarehouseId,
+          destId,
+          req.user?.id || 1,
+          transferStatus,
+          notes || (immediateExecution ? 'Relocalisation immédiate de stock' : 'Demande de relocalisation de stock')
+        ]);
+
+        const transferId = insertRes.rows[0].id;
+
+        for (const item of validItems) {
+          const pId = Number(item.productId);
+          const qty = Number(item.quantity);
+
+          await client.query(`
+            INSERT INTO transfer_items (transfer_id, product_id, requested_quantity, approved_quantity)
+            VALUES ($1, $2, $3, $4)
+          `, [transferId, pId, qty, immediateExecution ? qty : 0]);
+
+          if (immediateExecution) {
+            // Decrement source physical stock
+            await client.query(`
+              UPDATE stock
+              SET physical_quantity = physical_quantity - $1, updated_at = NOW()
+              WHERE warehouse_id = $2 AND product_id = $3
+            `, [qty, sourceWarehouseId, pId]);
+
+            await client.query(`
+              INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
+              VALUES ($1, $2, 'TRANSFER_OUT', $3, $4, $5)
+            `, [sourceWarehouseId, pId, -qty, transferNumber, `Relocalisation vers dépôt ID ${destId}`]);
+
+            // Increment destination physical stock (upsert)
+            const destStockRes = await client.query(
+              'SELECT id FROM stock WHERE warehouse_id = $1 AND product_id = $2',
+              [destId, pId]
+            );
+
+            if (destStockRes.rowCount && destStockRes.rowCount > 0) {
+              await client.query(`
+                UPDATE stock
+                SET physical_quantity = physical_quantity + $1, updated_at = NOW()
+                WHERE warehouse_id = $2 AND product_id = $3
+              `, [qty, destId, pId]);
+            } else {
+              await client.query(`
+                INSERT INTO stock (warehouse_id, product_id, physical_quantity, reserved_quantity)
+                VALUES ($1, $2, $3, 0)
+              `, [destId, pId, qty]);
+            }
+
+            await client.query(`
+              INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
+              VALUES ($1, $2, 'TRANSFER_IN', $3, $4, $5)
+            `, [destId, pId, qty, transferNumber, `Relocalisation reçue depuis dépôt ID ${sourceWarehouseId}`]);
+          }
+        }
+
+        createdTransfers.push({
+          id: transferId,
+          transferNumber,
+          destinationWarehouseId: destId,
+          itemsCount: validItems.length,
+          status: transferStatus,
+        });
+      }
+
+      // Check remaining physical stock at source
+      const remainingStockRes = await client.query(`
+        SELECT COALESCE(SUM(physical_quantity), 0) as total_remaining
+        FROM stock
+        WHERE warehouse_id = $1
+      `, [sourceWarehouseId]);
+
+      const totalRemaining = Number(remainingStockRes.rows[0]?.total_remaining || 0);
+
+      return {
+        transfers: createdTransfers,
+        immediateExecution: Boolean(immediateExecution),
+        sourceWarehouseId,
+        totalRemainingStock: totalRemaining,
+        sourceIsEmpty: totalRemaining === 0,
+      };
+    });
+
+    await logAudit(
+      req.user,
+      'BULK_STOCK_RELOCATION',
+      'WAREHOUSE',
+      sourceWarehouseId,
+      `Relocalisation de stock depuis l'entrepôt ${sourceWh.name} (${result.transfers.length} transferts créés, immédiat: ${immediateExecution})`,
+      sourceWarehouseId
+    );
+
+    return sendSuccess(res, result, 'Relocalisation de stock traitée avec succès', 201);
   } catch (err: any) {
     return sendError(res, err.message, 400);
   }

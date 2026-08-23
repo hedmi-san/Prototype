@@ -16,6 +16,7 @@ import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
 import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
 import AppPagination from '../../components/common/AppPagination.vue';
 import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
+import StockRelocationModal from '../../components/transfers/StockRelocationModal.vue';
 
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
@@ -135,16 +136,20 @@ async function fetchSourceWarehouseStock(warehouseId?: number) {
   }
 }
 
+const showRelocationModal = ref(false);
+
 async function openCreateModal() {
-  const warehouses = warehouseStore.warehouses;
-  const destId = authStore.activeWarehouseId || warehouses[0]?.id || 1;
-  const sourceId = warehouses.find((w) => w.id !== destId)?.id || 2;
+  const activeWhs = warehouseStore.activeWarehouses;
+  const userWhId = authStore.user?.warehouseId;
+  const destId = userWhId || (activeWhs.length > 0 ? activeWhs[0].id : 0);
+  const otherWh = activeWhs.find((w) => w.id !== destId);
+  const sourceId = otherWh ? otherWh.id : (activeWhs.length > 0 ? activeWhs[0].id : 0);
 
   createForm.value = {
     sourceWarehouseId: sourceId,
     destinationWarehouseId: destId,
     notes: '',
-    items: [{ productId: productStore.products[0]?.id || 1, requestedQuantity: 5 }],
+    items: [{ productId: productStore.products[0]?.id || 0, requestedQuantity: 5 }],
   };
   errorMessage.value = '';
   showCreateModal.value = true;
@@ -293,7 +298,7 @@ function canCancel(t: Transfer): boolean {
 }
 
 const canCreateTransfer = computed(() => {
-  return authStore.isAdmin || authStore.isManager;
+  return (authStore.isAdmin || authStore.isManager) && !authStore.isReadOnly;
 });
 
 function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger' | 'warning' | 'info' {
@@ -316,6 +321,19 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
         <p class="text-muted">Demandes de transfert, réservation de stock source et confirmation de réception</p>
       </div>
       <div class="header-actions">
+        <AppButton
+          v-if="authStore.isAdmin || authStore.isSuperManager"
+          variant="secondary"
+          @click="showRelocationModal = true"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="17 1 21 5 17 9"></polyline>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+            <polyline points="7 23 3 19 7 15"></polyline>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+          </svg>
+          Relocalisation Multi-Dépôts
+        </AppButton>
         <AppButton v-if="canCreateTransfer" variant="primary" @click="openCreateModal">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19" />
@@ -458,7 +476,7 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
               required
               @change="fetchSourceWarehouseStock(createForm.sourceWarehouseId)"
             >
-              <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
+              <option v-for="w in warehouseStore.activeWarehouses" :key="w.id" :value="w.id">
                 {{ w.name }} ({{ w.code }})
               </option>
             </select>
@@ -467,7 +485,7 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
           <div class="app-input-group">
             <label class="input-label">Entrepôt Destination (Arrivée)</label>
             <select v-model.number="createForm.destinationWarehouseId" class="app-select" required>
-              <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
+              <option v-for="w in warehouseStore.activeWarehouses" :key="w.id" :value="w.id">
                 {{ w.name }} ({{ w.code }})
               </option>
             </select>
@@ -641,6 +659,12 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
       variant="danger"
       :loading="saving"
       @confirm="handleConfirmCancel"
+    />
+
+    <!-- Multi-Warehouse Stock Relocation Modal -->
+    <StockRelocationModal
+      v-model="showRelocationModal"
+      @relocated="fetchTransfers"
     />
   </div>
 </template>

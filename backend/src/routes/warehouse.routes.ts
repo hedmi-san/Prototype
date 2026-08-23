@@ -91,6 +91,23 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, 
     const updatedPhone = warehousePhone !== undefined ? warehousePhone : current.contact_number;
     const updatedActive = active !== undefined ? Boolean(active) : Boolean(current.active);
 
+    // If deactivating the warehouse, check for any pending transfers
+    if (current.active && !updatedActive) {
+      const pendingTransfersRes = await query(`
+        SELECT COUNT(*) as cnt FROM transfers
+        WHERE (source_warehouse_id = $1 OR destination_warehouse_id = $1)
+          AND status IN ('REQUESTED', 'APPROVED')
+      `, [id]);
+      const pendingCount = Number(pendingTransfersRes.rows[0]?.cnt || 0);
+      if (pendingCount > 0) {
+        return sendError(
+          res,
+          `Impossible de désactiver cet entrepôt car ${pendingCount} transfert(s) inter-dépôts sont en attente ou en cours. Veuillez d'abord les confirmer ou les annuler.`,
+          400
+        );
+      }
+    }
+
     const updateRes = await query(`
       UPDATE warehouses
       SET name = $1, code = $2, location = $3, contact_number = $4, active = $5, updated_at = NOW()
@@ -99,7 +116,28 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, 
     `, [updatedName, updatedCode, updatedLocation, updatedPhone, updatedActive, id]);
 
     const updatedWarehouse = updateRes.rows[0];
-    await logAudit(req.user, 'WAREHOUSE_UPDATED', 'WAREHOUSE', id, `Updated warehouse ${updatedName}`);
+
+    let auditAction = 'WAREHOUSE_UPDATED';
+    let auditDesc = `Mis à jour l'entrepôt ${updatedName}`;
+    if (current.active && !updatedActive) {
+      auditAction = 'WAREHOUSE_DEACTIVATED';
+      auditDesc = `Désactivation de l'entrepôt ${updatedName} (${updatedCode})`;
+    } else if (!current.active && updatedActive) {
+      auditAction = 'WAREHOUSE_REACTIVATED';
+      auditDesc = `Réactivation de l'entrepôt ${updatedName} (${updatedCode})`;
+    }
+
+    await logAudit(
+      req.user,
+      auditAction,
+      'WAREHOUSE',
+      id,
+      auditDesc,
+      id,
+      JSON.stringify({ name: current.name, code: current.code, active: current.active }),
+      JSON.stringify({ name: updatedName, code: updatedCode, active: updatedActive })
+    );
+
     return sendSuccess(res, mapWarehouseRow(updatedWarehouse), 'Warehouse updated successfully');
   } catch (err: any) {
     return sendError(res, err.message, 500);

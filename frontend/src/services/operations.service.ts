@@ -129,5 +129,23 @@ export const transferService = {
   async cancelTransfer(id: number): Promise<Transfer> {
     const response = await api.post<ApiResponse<Transfer>>(`/transfers/${id}/cancel`);
     return response.data.data;
+  },
+  async bulkRelocateStock(data: {
+    sourceWarehouseId: number;
+    distributions: {
+      destinationWarehouseId: number;
+      items: { productId: number; quantity: number }[];
+    }[];
+    immediateExecution?: boolean;
+    notes?: string;
+  }): Promise<{
+    transfers: any[];
+    immediateExecution: boolean;
+    sourceWarehouseId: number;
+    totalRemainingStock: number;
+    sourceIsEmpty: boolean;
+  }> {
+    const response = await api.post<ApiResponse<any>>('/transfers/bulk-relocation', data);
+    return response.data.data;
   }
 };

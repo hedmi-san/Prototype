@@ -63,11 +63,11 @@ function handleLogout() {
           >
             <option value="">Tous les entrepôts</option>
             <option
-              v-for="w in warehouseStore.warehouses"
+              v-for="w in warehouseStore.allWarehousesFormatted"
               :key="w.id"
               :value="w.id"
             >
-              {{ w.name }} ({{ w.code }})
+              {{ w.label }} ({{ w.code }})
             </option>
           </select>
         </div>
@@ -243,6 +243,17 @@ function handleLogout() {
 
       <!-- Main Content Stage -->
       <main class="main-content">
+        <!-- Inactive Warehouse Read-Only Notice Banner -->
+        <div v-if="authStore.isReadOnly" class="read-only-banner">
+          <div class="banner-icon">⚠️</div>
+          <div class="banner-content">
+            <div class="banner-title">Entrepôt Inactif — Mode Consultation Seule</div>
+            <div class="banner-desc">
+              L'entrepôt assigné ({{ authStore.user?.warehouseName || 'Actuel' }}) est actuellement inactif. Toutes les opérations de vente, mouvements de stock et saisies sont temporairement suspendues.
+            </div>
+          </div>
+        </div>
+
         <div class="content-container">
           <router-view />
         </div>
@@ -488,5 +499,35 @@ function handleLogout() {
 .content-container {
   max-width: var(--container-max-width);
   margin: 0 auto;
+}
+
+.read-only-banner {
+  background-color: var(--color-warning-bg, #fffbeb);
+  border: 1px solid var(--color-warning-border, #fde68a);
+  border-left: 4px solid var(--color-warning, #d97706);
+  padding: 12px 18px;
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.read-only-banner .banner-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.read-only-banner .banner-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--color-warning-dark, #92400e);
+  margin-bottom: 2px;
+}
+
+.read-only-banner .banner-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary);
 }
 </style>

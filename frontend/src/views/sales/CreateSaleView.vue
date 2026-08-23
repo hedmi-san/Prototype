@@ -187,7 +187,10 @@ async function handleSubmitSale() {
       </div>
     </div>
 
-    <div v-if="errorMessage" class="error-alert">
+    <div v-if="authStore.isReadOnly" class="error-alert">
+      ⚠️ Votre entrepôt est actuellement inactif. L'émission de nouvelles factures est suspendue (Mode Consultation Seule).
+    </div>
+    <div v-else-if="errorMessage" class="error-alert">
       {{ errorMessage }}
     </div>
 
@@ -279,10 +282,10 @@ async function handleSubmitSale() {
             <select
               v-model.number="selectedWarehouseId"
               class="app-select"
-              :disabled="!authStore.canSwitchWarehouse"
+              :disabled="!authStore.canSwitchWarehouse || authStore.isReadOnly"
               @change="onWarehouseChange"
             >
-              <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
+              <option v-for="w in warehouseStore.activeWarehouses" :key="w.id" :value="w.id">
                 {{ w.name }} ({{ w.code }})
               </option>
             </select>
@@ -342,6 +345,7 @@ async function handleSubmitSale() {
           type="submit"
           variant="primary"
           size="lg"
+          :disabled="authStore.isReadOnly"
           :loading="submitting"
         >
           Confirmer la Facture

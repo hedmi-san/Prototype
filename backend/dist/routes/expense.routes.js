@@ -54,6 +54,12 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), as
                 return sendError(res, err.message, 403);
             }
         }
+        // Validate that target warehouse is active
+        const whRes = await query('SELECT id, name, active FROM warehouses WHERE id = $1', [targetWarehouseId]);
+        const targetWh = whRes.rows[0];
+        if (!targetWh || !targetWh.active) {
+            return sendError(res, `Impossible d'enregistrer une dépense : l'entrepôt (${targetWh ? targetWh.name : targetWarehouseId}) est inactif`, 400);
+        }
         const insertRes = await query(`
       INSERT INTO expenses (warehouse_id, category, amount, description, expense_date)
       VALUES ($1, $2, $3, $4, $5)

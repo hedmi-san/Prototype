@@ -83,6 +83,13 @@ router.post('/', authenticate, requireRole('ADMIN', 'ACCOUNTANT'), async (req: A
       }
     }
 
+    // Validate that employee warehouse is active
+    const whRes = await query('SELECT id, name, active FROM warehouses WHERE id = $1', [employee.warehouse_id]);
+    const targetWh = whRes.rows[0];
+    if (!targetWh || !targetWh.active) {
+      return sendError(res, `Impossible d'enregistrer un salaire : l'entrepôt (${targetWh ? targetWh.name : employee.warehouse_id}) est inactif`, 400);
+    }
+
     const existingRes = await query('SELECT id FROM salaries WHERE employee_id = $1 AND period = $2', [employeeId, period]);
     if (existingRes.rowCount && existingRes.rowCount > 0) {
       return sendError(res, `Salary for employee ${employee.full_name} for period ${period} already recorded`, 400);

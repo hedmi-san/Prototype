@@ -365,6 +365,13 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
     }
   }
 
+  // Validate that target warehouse is active
+  const whRes = await query('SELECT id, name, active FROM warehouses WHERE id = $1', [targetWarehouseId]);
+  const targetWh = whRes.rows[0];
+  if (!targetWh || !targetWh.active) {
+    return sendError(res, `Impossible de créer une vente : l'entrepôt (${targetWh ? targetWh.name : targetWarehouseId}) est inactif`, 400);
+  }
+
   try {
     const sale = await runTransaction(async (client) => {
       const invoiceNumber = `INV-${Date.now().toString().slice(-8)}`;

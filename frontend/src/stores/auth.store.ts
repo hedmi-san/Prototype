@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { User, RoleType, AuthResponse } from '../types';
 import { authService } from '../services/auth.service';
+import { useWarehouseStore } from './warehouse.store';
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'));
@@ -26,6 +27,19 @@ export const useAuthStore = defineStore('auth', () => {
       return selectedWarehouseId.value;
     }
     return user.value?.warehouseId || null;
+  });
+
+  const isCurrentWarehouseInactive = computed(() => {
+    const warehouseStore = useWarehouseStore();
+    const currentWhId = activeWarehouseId.value;
+    if (!currentWhId) return false;
+    const wh = warehouseStore.warehouses.find(w => w.id === currentWhId);
+    return wh ? !wh.active : false;
+  });
+
+  const isReadOnly = computed(() => {
+    if (isAdmin.value) return false;
+    return isCurrentWarehouseInactive.value;
   });
 
   async function login(credentials: { username: string; password: string }) {
@@ -88,6 +102,8 @@ export const useAuthStore = defineStore('auth', () => {
     canSwitchWarehouse,
     selectedWarehouseId,
     activeWarehouseId,
+    isCurrentWarehouseInactive,
+    isReadOnly,
     login,
     setWarehouseContext,
     logout,

@@ -62,7 +62,7 @@ const filteredEmployees = computed(() => {
 function openCreateModal() {
   editingEmployee.value = null;
   form.value = {
-    warehouseId: authStore.activeWarehouseId || warehouseStore.warehouses[0]?.id || 1,
+    warehouseId: authStore.activeWarehouseId || warehouseStore.activeWarehouses[0]?.id || 1,
     firstName: '',
     lastName: '',
     position: 'Magasinier / Cariste',
@@ -195,8 +195,8 @@ async function handleSave() {
         <div class="app-input-group">
           <label class="input-label">Entrepôt d'Affectation</label>
           <select v-model.number="form.warehouseId" class="app-select" required>
-            <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
-              {{ w.name }} ({{ w.code }})
+            <option v-for="w in warehouseStore.allWarehousesFormatted" :key="w.id" :value="w.id">
+              {{ w.label }} ({{ w.code }})
             </option>
           </select>
         </div>
