@@ -27,7 +27,9 @@ export interface Warehouse {
   name: string;
   code: string;
   address: string;
+  location?: string;
   phone: string;
+  contactNumber?: string;
   active: boolean;
   createdAt: string;
   updatedAt: string;

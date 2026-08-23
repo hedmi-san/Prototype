@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import type { Sale } from '../../types';
+import { useWarehouseStore } from '../../stores/warehouse.store';
 import { generateBarcodeSvg, formatTradeBarcode } from '../../utils/barcode';
 import {
   formatInvoiceAmount,
@@ -30,14 +31,53 @@ const props = withDefaults(defineProps<Props>(), {
   printDate: () => new Date(),
 });
 
+const warehouseStore = useWarehouseStore();
+
+onMounted(async () => {
+  if (warehouseStore.warehouses.length === 0) {
+    try {
+      await warehouseStore.fetchWarehouses();
+    } catch (e) {
+      console.error('Failed to load warehouses in InvoiceDocument', e);
+    }
+  }
+});
+
 const warehouseDisplay = computed(() => {
-  if (props.warehouseNameOverride) return props.warehouseNameOverride.toUpperCase();
-  if (props.sale?.warehouseName) {
-    // If it's something like "Dépôt Central Alger", we can prefix with SHOWROOM or use the name directly
+  if (props.warehouseNameOverride && props.warehouseNameOverride.trim().length > 0) {
+    const name = props.warehouseNameOverride.toUpperCase();
+    return name.includes('SHOWROOM') ? name : `SHOWROOM ${name}`;
+  }
+  if (props.sale?.warehouseName && props.sale.warehouseName.trim().length > 0) {
     const name = props.sale.warehouseName.toUpperCase();
     return name.includes('SHOWROOM') ? name : `SHOWROOM ${name}`;
   }
-  return '------';
+  const wh = warehouseStore.warehouses.find((w) => w.id === props.sale?.warehouseId);
+  if (wh?.name && wh.name.trim().length > 0) {
+    const name = wh.name.toUpperCase();
+    return name.includes('SHOWROOM') ? name : `SHOWROOM ${name}`;
+  }
+  return 'SHOWROOM BOUSFOR';
+});
+
+const displayedPhoneNumbers = computed(() => {
+  if (props.phoneNumbers && props.phoneNumbers.trim().length > 0) {
+    return props.phoneNumbers.trim();
+  }
+  if (props.sale?.warehousePhone && props.sale.warehousePhone.trim().length > 0) {
+    return props.sale.warehousePhone.trim();
+  }
+  const wh = warehouseStore.warehouses.find((w) => w.id === props.sale?.warehouseId);
+  if (wh?.phone && wh.phone.trim().length > 0) {
+    return wh.phone.trim();
+  }
+  if (wh?.contactNumber && wh.contactNumber.trim().length > 0) {
+    return wh.contactNumber.trim();
+  }
+  if ((wh as any)?.contact_number && (wh as any).contact_number.trim().length > 0) {
+    return (wh as any).contact_number.trim();
+  }
+  return '-';
 });
 
 const sequenceNumber = computed(() => {
@@ -83,7 +123,7 @@ const computedCartonCount = computed(() => {
     <header class="invoice-header">
       <h1 class="company-title">{{ companyName }}</h1>
       <h2 class="showroom-title">{{ warehouseDisplay }}</h2>
-      <p class="phone-numbers">{{ phoneNumbers }}</p>
+      <p class="phone-numbers">{{ displayedPhoneNumbers }}</p>
     </header>
 
     <div class="divider-line" />
@@ -211,7 +251,12 @@ const computedCartonCount = computed(() => {
 
 /* Header Section */
 .invoice-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
+  width: 100%;
   margin-bottom: 8px;
 }
 
@@ -222,6 +267,8 @@ const computedCartonCount = computed(() => {
   margin: 0 0 3px 0;
   color: #000000;
   text-transform: uppercase;
+  text-align: center;
+  width: 100%;
 }
 
 .showroom-title {
@@ -230,14 +277,19 @@ const computedCartonCount = computed(() => {
   margin: 0 0 3px 0;
   color: #000000;
   letter-spacing: 0.5px;
+  text-align: center;
+  width: 100%;
 }
 
 .phone-numbers {
   font-size: 12px;
   font-weight: 600;
-  margin: 0;
+  margin: 0 auto;
   color: #000000;
   letter-spacing: 0.5px;
+  text-align: center;
+  width: 100%;
+  max-width: 100%;
 }
 
 .divider-line {
