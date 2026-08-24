@@ -53,14 +53,55 @@ export const employeeService = {
   }
 };
 
+export interface SalaryQueryParams {
+  warehouseId?: number;
+  period?: string;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedSalaries extends PaginatedData<SalaryRecord> {
+  summary?: {
+    totalDisbursed: number;
+  };
+}
+
 export const salaryService = {
-  async getSalaries(warehouseId?: number): Promise<SalaryRecord[]> {
-    const params = warehouseId ? { warehouseId } : {};
-    const response = await api.get<ApiResponse<SalaryRecord[]>>('/salaries', { params });
-    return response.data.data;
+  async getSalaries(params?: SalaryQueryParams | number): Promise<PaginatedSalaries> {
+    const queryParams = typeof params === 'number' ? { warehouseId: params } : (params || {});
+    const response = await api.get<ApiResponse<any>>('/salaries', { params: queryParams });
+    const data = response.data.data;
+    if (data && typeof data === 'object' && Array.isArray(data.items) && data.pagination) {
+      return data as PaginatedSalaries;
+    }
+    const items = Array.isArray(data) ? data : [];
+    const totalDisbursed = items.reduce((sum: number, s: any) => sum + (Number(s.totalAmount) || 0), 0);
+    return {
+      items,
+      pagination: {
+        page: 1,
+        limit: items.length || 25,
+        total: items.length,
+        totalPages: 1,
+      },
+      summary: {
+        totalDisbursed,
+      },
+    };
   },
   async recordSalary(data: { employeeId: number; period: string; baseSalary: number; bonus1?: number; bonus2?: number; paymentDate: string }): Promise<SalaryRecord> {
     const response = await api.post<ApiResponse<SalaryRecord>>('/salaries', data);
+    return response.data.data;
+  },
+  async updateSalary(id: number, data: { period?: string; baseSalary?: number; bonus1?: number; bonus2?: number; paymentDate?: string }): Promise<SalaryRecord> {
+    const response = await api.put<ApiResponse<SalaryRecord>>(`/salaries/${id}`, data);
+    return response.data.data;
+  },
+  async deleteSalary(id: number): Promise<{ id: number }> {
+    const response = await api.delete<ApiResponse<{ id: number }>>(`/salaries/${id}`);
     return response.data.data;
   }
 };
