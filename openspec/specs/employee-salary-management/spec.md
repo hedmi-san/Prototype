@@ -17,3 +17,10 @@ The system SHALL record monthly salary disbursement records and support up to tw
 - **WHEN** a Manager logs a salary record for period "2026-08" with base salary 60,000 DZD, bonus 1 of 10,000 DZD, and bonus 2 of 0 DZD
 - **THEN** the system SHALL compute total amount 70,000 DZD, save the salary record in `PAID` status, and include it in warehouse salary totals
 
+### Requirement: Employee Operational Status Enforcement in Business Workflows
+The system SHALL enforce that employees with non-active statuses (`ON_LEAVE`, `SUSPENDED`, `TERMINATED`) are excluded from active operational assignments including POS sale creation and live order attribution, while preserving their historical performance and remuneration records.
+
+#### Scenario: Filter employees by active status for operational services
+- **WHEN** frontend operational views request employees with `status: 'ACTIVE'` via `employeeService.getEmployees`
+- **THEN** the API SHALL return exclusively employees whose `status` equals `ACTIVE` and `active` is `true`
+

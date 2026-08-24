@@ -131,9 +131,25 @@ async function fetchProducts() {
   }
 }
 
-async function fetchEmployees(warehouseId?: number) {
+async function fetchEmployees(warehouseId?: number, preserveEmployeeId?: number | null) {
   try {
-    employees.value = await employeeService.getEmployees(warehouseId || authStore.activeWarehouseId || undefined);
+    const activeEmps = await employeeService.getEmployees({
+      warehouseId: warehouseId || authStore.activeWarehouseId || undefined,
+      status: 'ACTIVE',
+    });
+
+    if (preserveEmployeeId && !activeEmps.some((e) => e.id === preserveEmployeeId)) {
+      try {
+        const currentEmp = await employeeService.getEmployee(preserveEmployeeId);
+        if (currentEmp) {
+          employees.value = [currentEmp, ...activeEmps];
+          return;
+        }
+      } catch {
+        // ignore if not found
+      }
+    }
+    employees.value = activeEmps;
   } catch (err) {
     console.error('Failed to load employees', err);
   }
@@ -159,7 +175,7 @@ function viewInvoice(sale: Sale) {
 
 async function openEditModal(sale: Sale) {
   editingSale.value = sale;
-  await fetchEmployees(sale.warehouseId);
+  await fetchEmployees(sale.warehouseId, sale.employeeId);
   editForm.value = {
     employeeId: sale.employeeId || null,
     customerName: sale.customerName || '',

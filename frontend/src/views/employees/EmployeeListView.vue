@@ -264,7 +264,6 @@ function getStatusBadge(status?: EmployeeStatus | string) {
         <th>Statut</th>
         <th>Téléphone</th>
         <th>Date d'Embauche</th>
-        <th>Salaire de Base</th>
         <th style="text-align: right;">Actions</th>
       </template>
       <template #body>
@@ -293,7 +292,6 @@ function getStatusBadge(status?: EmployeeStatus | string) {
           </td>
           <td class="font-mono">{{ emp.phone || '—' }}</td>
           <td class="font-mono text-caption">{{ formatDate(emp.hireDate) }}</td>
-          <td class="font-mono font-bold">{{ formatCurrency(emp.baseSalary) }}</td>
           <td style="text-align: right;" @click.stop>
             <div class="row-actions">
               <button class="icon-action-btn primary-action" title="Voir le profil complet" @click="navigateToProfile(emp.id)">

@@ -79,7 +79,10 @@ async function fetchStockForWarehouse() {
 
 async function fetchEmployeesForWarehouse() {
   try {
-    employees.value = await employeeService.getEmployees(selectedWarehouseId.value);
+    employees.value = await employeeService.getEmployees({
+      warehouseId: selectedWarehouseId.value,
+      status: 'ACTIVE',
+    });
   } catch (err) {
     console.error('Failed to load employees for warehouse', err);
   }
@@ -299,7 +302,7 @@ async function handleSubmitSale() {
             >
               <option :value="null">-- Aucun --</option>
               <option v-for="emp in employees" :key="emp.id" :value="emp.id">
-                {{ emp.fullName }} ({{ emp.position }}) {{ emp.status && emp.status !== 'ACTIVE' ? `[${emp.status === 'ON_LEAVE' ? 'En congé' : emp.status === 'SUSPENDED' ? 'Suspendu' : 'Inactif'}]` : '' }}
+                {{ emp.fullName }} ({{ emp.position }})
               </option>
             </select>
           </div>
