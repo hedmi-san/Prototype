@@ -75,6 +75,7 @@ export async function initSchema() {
       phone VARCHAR(50),
       position VARCHAR(100) NOT NULL,
       base_salary NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
       active BOOLEAN NOT NULL DEFAULT TRUE,
       hire_date DATE NOT NULL DEFAULT CURRENT_DATE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -166,12 +167,15 @@ export async function initSchema() {
     // Migrations for existing databases
     await query(`
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL;
+    ALTER TABLE employees ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE';
+    UPDATE employees SET status = CASE WHEN active = FALSE THEN 'TERMINATED' ELSE 'ACTIVE' END WHERE status IS NULL OR status = '';
   `);
     // Performance composite indexes
     await query(`
     CREATE INDEX IF NOT EXISTS idx_sales_sale_date_wh ON sales(sale_date, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sales_created_at_wh ON sales(created_at, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sales_employee_id ON sales(employee_id);
+    CREATE INDEX IF NOT EXISTS idx_employees_status_wh ON employees(status, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id);
     CREATE INDEX IF NOT EXISTS idx_stock_movements_created_wh ON stock_movements(created_at, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_stock_movements_type_created ON stock_movements(movement_type, created_at);

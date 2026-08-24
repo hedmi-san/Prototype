@@ -82,6 +82,12 @@ const router = createRouter({
           meta: { title: 'Gestion du Personnel' },
         },
         {
+          path: 'employees/:id',
+          name: 'employee-detail',
+          component: () => import('../views/employees/EmployeeDetailView.vue'),
+          meta: { title: 'Profil Employé & Activité' },
+        },
+        {
           path: 'salaries',
           name: 'salaries',
           component: () => import('../views/salaries/SalaryManagementView.vue'),

@@ -183,21 +183,59 @@ export interface Expense {
   updatedAt: string;
 }
 
+export type EmployeeStatus = 'ACTIVE' | 'ON_LEAVE' | 'SUSPENDED' | 'TERMINATED';
+
 export interface Employee {
   id: number;
   warehouseId: number;
   warehouseName: string;
-  warehouseCode: string;
-  firstName: string;
-  lastName: string;
+  warehouseCode?: string;
+  warehouseLocation?: string;
+  warehousePhone?: string;
   fullName: string;
+  nationalId?: string;
   position: string;
   phone: string;
   hireDate: string;
-  monthlySalary: number;
+  baseSalary: number;
+  status: EmployeeStatus;
   active: boolean;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
+}
+
+export interface EmployeeTopProduct {
+  productId: number;
+  productName: string;
+  productReference: string;
+  productBrand: string;
+  quantitySold: number;
+  totalAmount: number;
+}
+
+export interface EmployeePerformanceMetrics {
+  employeeId: number;
+  employeeName: string;
+  currentBaseSalary: number;
+  period: {
+    preset?: string;
+    startDate: string;
+    endDate: string;
+    periodLabel: string;
+  };
+  metrics: {
+    salesCount: number;
+    totalRevenue: number;
+    totalUnitsSold: number;
+    averageBasket: number;
+    priorSalesCount: number;
+    priorTotalRevenue: number;
+    salesGrowthPct: number;
+    revenueGrowthPct: number;
+    lifetimePaid: number;
+    totalPayouts: number;
+  };
+  topProducts: EmployeeTopProduct[];
 }
 
 export type SalaryStatus = 'PAID' | 'PENDING';

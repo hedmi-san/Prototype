@@ -73,7 +73,7 @@ const totalDisbursed = computed(() => {
 function onEmployeeSelectChange() {
   const emp = employees.value.find((e) => e.id === form.value.employeeId);
   if (emp) {
-    form.value.baseSalary = emp.monthlySalary;
+    form.value.baseSalary = emp.baseSalary;
   }
 }
 
@@ -82,7 +82,7 @@ function openDisburseModal() {
   form.value = {
     employeeId: defaultEmp ? defaultEmp.id : 0,
     period: new Date().toISOString().slice(0, 7),
-    baseSalary: defaultEmp ? defaultEmp.monthlySalary : 0,
+    baseSalary: defaultEmp ? defaultEmp.baseSalary : 0,
     bonus1: 0,
     bonus2: 0,
     paymentDate: new Date().toISOString().split('T')[0],
@@ -197,7 +197,7 @@ async function handleSaveSalary() {
             @change="onEmployeeSelectChange"
           >
             <option v-for="emp in employees" :key="emp.id" :value="emp.id">
-              {{ emp.fullName }} ({{ emp.position }} - {{ emp.warehouseName }})
+              {{ emp.fullName }} ({{ emp.position }} - {{ emp.warehouseName }}) {{ emp.status && emp.status !== 'ACTIVE' ? `[${emp.status === 'ON_LEAVE' ? 'En congé' : emp.status === 'SUSPENDED' ? 'Suspendu' : 'Inactif'}]` : '' }}
             </option>
           </select>
         </div>

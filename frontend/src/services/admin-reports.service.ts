@@ -1,5 +1,5 @@
 import api from './api';
-import type { ApiResponse, Expense, Employee, SalaryRecord, DashboardMetrics, PeriodPreset, StockValuationReport, FinancialReport, AuditLog, User, Sale, RoleType, PaginationParams, PaginatedData } from '../types';
+import type { ApiResponse, Expense, Employee, EmployeeStatus, EmployeePerformanceMetrics, SalaryRecord, DashboardMetrics, PeriodPreset, StockValuationReport, FinancialReport, AuditLog, User, Sale, RoleType, PaginationParams, PaginatedData } from '../types';
 
 export const expenseService = {
   async getExpenses(warehouseId?: number): Promise<Expense[]> {
@@ -22,9 +22,13 @@ export const expenseService = {
 };
 
 export const employeeService = {
-  async getEmployees(warehouseId?: number): Promise<Employee[]> {
-    const params = warehouseId ? { warehouseId } : {};
-    const response = await api.get<ApiResponse<Employee[]>>('/employees', { params });
+  async getEmployees(params?: { warehouseId?: number; status?: string } | number): Promise<Employee[]> {
+    const queryParams = typeof params === 'number' ? { warehouseId: params } : (params || {});
+    const response = await api.get<ApiResponse<Employee[]>>('/employees', { params: queryParams });
+    return response.data.data;
+  },
+  async getEmployee(id: number): Promise<Employee> {
+    const response = await api.get<ApiResponse<Employee>>(`/employees/${id}`);
     return response.data.data;
   },
   async createEmployee(data: Partial<Employee>): Promise<Employee> {
@@ -33,6 +37,18 @@ export const employeeService = {
   },
   async updateEmployee(id: number, data: Partial<Employee>): Promise<Employee> {
     const response = await api.put<ApiResponse<Employee>>(`/employees/${id}`, data);
+    return response.data.data;
+  },
+  async getEmployeePerformance(id: number, params?: { preset?: string; startDate?: string; endDate?: string; granularity?: string }): Promise<EmployeePerformanceMetrics> {
+    const response = await api.get<ApiResponse<EmployeePerformanceMetrics>>(`/employees/${id}/performance`, { params });
+    return response.data.data;
+  },
+  async getEmployeeSales(id: number, params?: { page?: number; limit?: number; startDate?: string; endDate?: string; search?: string }): Promise<PaginatedData<Sale>> {
+    const response = await api.get<ApiResponse<PaginatedData<Sale>>>(`/employees/${id}/sales`, { params });
+    return response.data.data;
+  },
+  async getEmployeeSalaries(id: number): Promise<SalaryRecord[]> {
+    const response = await api.get<ApiResponse<SalaryRecord[]>>(`/employees/${id}/salaries`);
     return response.data.data;
   }
 };

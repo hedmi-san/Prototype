@@ -429,7 +429,7 @@ async function handleConfirmCancel() {
             <select v-model.number="editForm.employeeId" class="app-select">
               <option :value="null">-- Aucun / Non spécifié --</option>
               <option v-for="emp in employees" :key="emp.id" :value="emp.id">
-                {{ emp.fullName }} ({{ emp.position }})
+                {{ emp.fullName }} ({{ emp.position }}) {{ emp.status && emp.status !== 'ACTIVE' ? `[${emp.status === 'ON_LEAVE' ? 'En congé' : emp.status === 'SUSPENDED' ? 'Suspendu' : 'Inactif'}]` : '' }}
               </option>
             </select>
           </div>
