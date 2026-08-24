@@ -14,6 +14,10 @@ export const expenseService = {
   async updateExpense(id: number, data: Partial<Expense>): Promise<Expense> {
     const response = await api.put<ApiResponse<Expense>>(`/expenses/${id}`, data);
     return response.data.data;
+  },
+  async deleteExpense(id: number): Promise<{ id: number }> {
+    const response = await api.delete<ApiResponse<{ id: number }>>(`/expenses/${id}`);
+    return response.data.data;
   }
 };
 

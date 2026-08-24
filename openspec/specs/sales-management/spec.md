@@ -1,7 +1,8 @@
 # sales-management Specification
 
 ## Purpose
-TBD - created by archiving change multi-warehouse-tool-distribution-system. Update Purpose after archive.
+Manages sales operations, customer invoicing, dynamic pricing adjustments, cashier workflows, date precision, POS search, pagination, and standardized A4 fiscal documents.
+
 ## Requirements
 ### Requirement: Transactional Sale Creation and Invoice Numbering
 The system SHALL create sales transactionally, validating available inventory for every line item, snapshotting the specified or default unit price into `sale_items`, decrementing `physical_quantity`, logging `SALE` stock movements, persisting the explicit or defaulted sale transaction date (`sale_date`), recording the authenticated user as the creator/issuer (`user_id`), optionally persisting the assigned warehouse worker/employee who followed up with the customer (`employee_id`), and generating an invoice number.
@@ -144,5 +145,13 @@ The system SHALL provide a standardized A4 commercial invoice ("Bon de Caisse / 
 - **WHEN** warehouse pickers or cashiers view or print the invoice document
 - **THEN** each row in the items table SHALL include an empty square checkbox `[ ]` for manual physical picking confirmation
 
+### Requirement: Inactive Warehouse Sale Creation Prevention
+The system SHALL prevent creating new sales or issuing invoices for an inactive warehouse while preserving full access to search, view, and reprint historical invoices.
 
+#### Scenario: Attempting sale creation on inactive warehouse
+- **WHEN** a user or client sends a `POST /api/sales` request specifying or bound to an inactive warehouse
+- **THEN** the system SHALL abort the transaction with an HTTP 400 Bad Request error stating that sales cannot be recorded for an inactive warehouse
 
+#### Scenario: Historical invoice consultation for inactive warehouse
+- **WHEN** an authenticated user searches or views sales records associated with an inactive warehouse
+- **THEN** the system SHALL return the historical sale records and render the complete A4 invoice preview and reprint layout normally

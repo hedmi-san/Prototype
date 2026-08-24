@@ -89,27 +89,94 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), as
 router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: AuthRequest, res) => {
   try {
     const id = Number(req.params.id);
-    const { category, amount, description, expenseDate } = req.body;
+    const { category, amount, description, expenseDate, warehouseId } = req.body;
 
     const currentRes = await query('SELECT * FROM expenses WHERE id = $1', [id]);
     const current = currentRes.rows[0];
     if (!current) return sendError(res, `Expense not found with id ${id}`, 404);
 
+    if (req.user) {
+      try {
+        validateWarehouseScope(req.user, current.warehouse_id);
+        if (warehouseId && warehouseId !== current.warehouse_id) {
+          validateWarehouseScope(req.user, warehouseId);
+        }
+      } catch (err: any) {
+        return sendError(res, err.message, 403);
+      }
+    }
+
+    const updatedWarehouseId = (req.user?.role === 'ADMIN' && warehouseId) ? warehouseId : current.warehouse_id;
     const updatedCategory = category || current.category;
     const updatedAmount = amount !== undefined ? Number(amount) : Number(current.amount);
     const updatedDesc = description !== undefined ? description : current.description;
     const updatedDate = expenseDate || current.expense_date;
 
+    if (updatedAmount <= 0) {
+      return sendError(res, 'Le montant de la dépense doit être strictement positif', 400);
+    }
+
     const updateRes = await query(`
       UPDATE expenses
-      SET category = $1, amount = $2, description = $3, expense_date = $4
-      WHERE id = $5
+      SET warehouse_id = $1, category = $2, amount = $3, description = $4, expense_date = $5
+      WHERE id = $6
       RETURNING *
-    `, [updatedCategory, updatedAmount, updatedDesc, updatedDate, id]);
+    `, [updatedWarehouseId, updatedCategory, updatedAmount, updatedDesc, updatedDate, id]);
 
     const updated = updateRes.rows[0];
-    await logAudit(req.user, 'EXPENSE_UPDATED', 'EXPENSE', id, `Updated expense of ${updatedAmount} DZD`, current.warehouse_id);
-    return sendSuccess(res, updated, 'Expense updated successfully');
+    await logAudit(
+      req.user,
+      'EXPENSE_UPDATED',
+      'EXPENSE',
+      id,
+      `Updated ${updatedCategory} expense to ${updatedAmount} DZD`,
+      updatedWarehouseId,
+      JSON.stringify(current),
+      JSON.stringify(updated)
+    );
+
+    return sendSuccess(res, {
+      id: updated.id,
+      warehouseId: updated.warehouse_id,
+      category: updated.category,
+      amount: Number(updated.amount),
+      description: updated.description,
+      expenseDate: updated.expense_date,
+      createdAt: updated.created_at,
+    }, 'Expense updated successfully');
+  } catch (err: any) {
+    return sendError(res, err.message, 500);
+  }
+});
+
+router.delete('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: AuthRequest, res) => {
+  try {
+    const id = Number(req.params.id);
+    const currentRes = await query('SELECT * FROM expenses WHERE id = $1', [id]);
+    const current = currentRes.rows[0];
+    if (!current) return sendError(res, `Expense not found with id ${id}`, 404);
+
+    if (req.user) {
+      try {
+        validateWarehouseScope(req.user, current.warehouse_id);
+      } catch (err: any) {
+        return sendError(res, err.message, 403);
+      }
+    }
+
+    await query('DELETE FROM expenses WHERE id = $1', [id]);
+    await logAudit(
+      req.user,
+      'EXPENSE_DELETED',
+      'EXPENSE',
+      id,
+      `Deleted ${current.category} expense of ${current.amount} DZD`,
+      current.warehouse_id,
+      JSON.stringify(current),
+      null
+    );
+
+    return sendSuccess(res, { id }, 'Expense deleted successfully');
   } catch (err: any) {
     return sendError(res, err.message, 500);
   }

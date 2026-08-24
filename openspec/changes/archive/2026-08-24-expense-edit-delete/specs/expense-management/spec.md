@@ -1,8 +1,5 @@
-# expense-management Specification
+## MODIFIED Requirements
 
-## Purpose
-Enables recording, editing, viewing, and deleting operating expenses categorized by warehouse with role-based access control, scoping validations, and audit trails.
-## Requirements
 ### Requirement: Warehouse Expense Tracking and Categorization
 The system SHALL allow authorized users (Admin, Manager, Accountant) to record, edit, view, and delete operating expenses for warehouses categorized under predefined categories, with warehouse scoping and audit logging.
 
@@ -25,4 +22,3 @@ The system SHALL allow authorized users (Admin, Manager, Accountant) to record, 
 #### Scenario: Prevent cross-warehouse expense mutation
 - **WHEN** a Manager attempts to edit or delete an expense belonging to a different warehouse
 - **THEN** the system SHALL reject the request with an unauthorized 403 error
-
