@@ -93,7 +93,11 @@ async function loadSourceStock() {
   loadingStock.value = true;
   errorMessage.value = '';
   try {
-    const items = await inventoryService.getStock(sourceWarehouseId.value);
+    const res = await inventoryService.getStock({
+      warehouseId: sourceWarehouseId.value,
+      limit: 1000,
+    });
+    const items = res.items;
     // Only keep items with available stock > 0
     sourceStock.value = items.filter((item) => (item.availableQuantity || item.physicalQuantity) > 0);
 

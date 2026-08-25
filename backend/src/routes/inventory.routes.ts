@@ -9,6 +9,12 @@ const router = Router();
 router.get('/stock', authenticate, async (req: AuthRequest, res) => {
   try {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const status = (req.query.status as string | undefined)?.toLowerCase();
+    const search = (req.query.search as string | undefined)?.trim();
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
+    const offset = (page - 1) * limit;
+
     if (warehouseId && req.user) {
       try {
         validateWarehouseScope(req.user, warehouseId);
@@ -17,39 +23,101 @@ router.get('/stock', authenticate, async (req: AuthRequest, res) => {
       }
     }
 
-    let sql = `
-      SELECT s.id, s.warehouse_id, w.name as warehouse_name,
-             s.product_id, p.name as product_name, p.reference as product_reference, p.brand,
+    const baseWhere = 'FROM stock s JOIN warehouses w ON s.warehouse_id = w.id JOIN products p ON s.product_id = p.id';
+    const baseWhereClauses: string[] = [];
+    const baseParams: any[] = [];
+
+    if (warehouseId) {
+      baseParams.push(warehouseId);
+      baseWhereClauses.push(`s.warehouse_id = $${baseParams.length}`);
+    } else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
+      baseParams.push(req.user.warehouseId);
+      baseWhereClauses.push(`s.warehouse_id = $${baseParams.length}`);
+    }
+
+    const baseWhereSql = baseWhereClauses.length > 0 ? ` WHERE ${baseWhereClauses.join(' AND ')}` : '';
+
+    // Calculate aggregated counts for status tabs across the current warehouse scope in one single-pass query
+    const countsSql = `
+      SELECT 
+        COUNT(*) as total_count,
+        COUNT(*) FILTER (WHERE (s.physical_quantity - s.reserved_quantity) > p.min_stock_alert) as normal_count,
+        COUNT(*) FILTER (WHERE (s.physical_quantity - s.reserved_quantity) > 0 AND (s.physical_quantity - s.reserved_quantity) <= p.min_stock_alert) as low_count,
+        COUNT(*) FILTER (WHERE (s.physical_quantity - s.reserved_quantity) <= 0) as out_count
+      ${baseWhere}
+      ${baseWhereSql}
+    `;
+    const countsRes = await query(countsSql, baseParams);
+    const countsRow = countsRes.rows[0] || {};
+    const counts = {
+      total: Number(countsRow.total_count || 0),
+      normal: Number(countsRow.normal_count || 0),
+      low: Number(countsRow.low_count || 0),
+      out: Number(countsRow.out_count || 0),
+    };
+
+    // Filtered Query (combining warehouse scope + status filter + search filter)
+    const filteredWhereClauses = [...baseWhereClauses];
+    const filteredParams = [...baseParams];
+
+    if (status === 'normal') {
+      filteredWhereClauses.push('(s.physical_quantity - s.reserved_quantity) > p.min_stock_alert');
+    } else if (status === 'low') {
+      filteredWhereClauses.push('(s.physical_quantity - s.reserved_quantity) > 0 AND (s.physical_quantity - s.reserved_quantity) <= p.min_stock_alert');
+    } else if (status === 'out') {
+      filteredWhereClauses.push('(s.physical_quantity - s.reserved_quantity) <= 0');
+    }
+
+    if (search) {
+      const p1 = filteredParams.length + 1;
+      const p2 = filteredParams.length + 2;
+      const p3 = filteredParams.length + 3;
+      const p4 = filteredParams.length + 4;
+      filteredWhereClauses.push(`(p.name ILIKE $${p1} OR p.reference ILIKE $${p2} OR p.brand ILIKE $${p3} OR w.name ILIKE $${p4})`);
+      const term = `%${search}%`;
+      filteredParams.push(term, term, term, term);
+    }
+
+    const filteredWhereSql = filteredWhereClauses.length > 0 ? ` WHERE ${filteredWhereClauses.join(' AND ')}` : '';
+
+    const countQuery = `SELECT COUNT(*) as count ${baseWhere} ${filteredWhereSql}`;
+    const countRes = await query(countQuery, filteredParams);
+    const total = Number(countRes.rows[0]?.count || 0);
+
+    const selectParams = [...filteredParams, limit, offset];
+    const limitParamIdx = selectParams.length - 1;
+    const offsetParamIdx = selectParams.length;
+
+    const selectSql = `
+      SELECT s.id, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
+             s.product_id, p.name as product_name, p.reference as product_reference, p.brand as product_brand, p.unit as product_unit,
              s.physical_quantity, s.reserved_quantity,
              (s.physical_quantity - s.reserved_quantity) as available_quantity,
+             p.purchase_price as product_purchase_price, p.sale_price as product_sale_price,
              p.purchase_price, p.sale_price,
              (s.physical_quantity * p.purchase_price) as total_valuation,
              p.min_stock_alert, s.updated_at
-      FROM stock s
-      JOIN warehouses w ON s.warehouse_id = w.id
-      JOIN products p ON s.product_id = p.id
+      ${baseWhere}
+      ${filteredWhereSql}
+      ORDER BY w.name ASC, p.name ASC
+      LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}
     `;
 
-    const params: any[] = [];
-    if (warehouseId) {
-      params.push(warehouseId);
-      sql += ` WHERE s.warehouse_id = $${params.length}`;
-    } else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
-      params.push(req.user.warehouseId);
-      sql += ` WHERE s.warehouse_id = $${params.length}`;
-    }
-
-    sql += ' ORDER BY w.name ASC, p.name ASC';
-    const result = await query(sql, params);
+    const result = await query(selectSql, selectParams);
 
     const rows = result.rows.map((row: any) => ({
       id: row.id,
       warehouseId: row.warehouse_id,
       warehouseName: row.warehouse_name,
+      warehouseCode: row.warehouse_code,
       productId: row.product_id,
       productName: row.product_name,
       productReference: row.product_reference,
-      brand: row.brand,
+      productBrand: row.product_brand,
+      brand: row.product_brand,
+      productUnit: row.product_unit,
+      productPurchasePrice: Number(row.product_purchase_price),
+      productSalePrice: Number(row.product_sale_price),
       physicalQuantity: Number(row.physical_quantity),
       reservedQuantity: Number(row.reserved_quantity),
       availableQuantity: Number(row.available_quantity),
@@ -60,7 +128,18 @@ router.get('/stock', authenticate, async (req: AuthRequest, res) => {
       updatedAt: row.updated_at,
     }));
 
-    return sendSuccess(res, rows);
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    return sendSuccess(res, {
+      items: rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+      counts,
+    });
   } catch (err: any) {
     return sendError(res, err.message, 500);
   }
@@ -69,6 +148,7 @@ router.get('/stock', authenticate, async (req: AuthRequest, res) => {
 router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
   try {
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const status = (req.query.status as string | undefined)?.toLowerCase();
     const lowStock = req.query.lowStock === 'true';
     const search = (req.query.search as string | undefined)?.trim();
 
@@ -104,8 +184,12 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
       whereClauses.push(`s.warehouse_id = $${params.length}`);
     }
 
-    if (lowStock) {
-      whereClauses.push('(s.physical_quantity - s.reserved_quantity) <= p.min_stock_alert');
+    if (status === 'normal') {
+      whereClauses.push('(s.physical_quantity - s.reserved_quantity) > p.min_stock_alert');
+    } else if (status === 'low' || lowStock) {
+      whereClauses.push('(s.physical_quantity - s.reserved_quantity) > 0 AND (s.physical_quantity - s.reserved_quantity) <= p.min_stock_alert');
+    } else if (status === 'out') {
+      whereClauses.push('(s.physical_quantity - s.reserved_quantity) <= 0');
     }
 
     if (search) {

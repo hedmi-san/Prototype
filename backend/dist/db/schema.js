@@ -184,5 +184,9 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_transfer_items_transfer_id ON transfer_items(transfer_id);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_wh ON audit_logs(created_at, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_action_created ON audit_logs(action, created_at);
+    CREATE INDEX IF NOT EXISTS idx_stock_product_id ON stock(product_id);
+    CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+    CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand);
+    CREATE INDEX IF NOT EXISTS idx_products_search ON products(reference, name, brand);
   `);
 }

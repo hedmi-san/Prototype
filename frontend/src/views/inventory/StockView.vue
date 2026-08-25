@@ -1,26 +1,43 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
+import { useProductStore } from '../../stores/product.store';
 import { inventoryService } from '../../services/operations.service';
-import { productService } from '../../services/catalog.service';
-import type { Stock, Product } from '../../types';
+import type { Stock, StockStatusCounts } from '../../types';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
 import AppInput from '../../components/common/AppInput.vue';
+import AppPagination from '../../components/common/AppPagination.vue';
+import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
 
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
+const productStore = useProductStore();
 
 const stockList = ref<Stock[]>([]);
-const products = ref<Product[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
+const statusFilter = ref<'all' | 'normal' | 'low' | 'out'>('all');
 
-// Adjustment Modal
+// Pagination state
+const page = ref(1);
+const limit = ref(25);
+const total = ref(0);
+const totalPages = ref(1);
+
+// Live aggregate counters for status tabs
+const counts = ref<StockStatusCounts>({
+  total: 0,
+  normal: 0,
+  low: 0,
+  out: 0,
+});
+
+// Adjustment Modal State
 const showAdjustModal = ref(false);
 const adjustForm = ref({
   warehouseId: 0,
@@ -30,12 +47,18 @@ const adjustForm = ref({
 });
 const adjustStockTarget = ref<Stock | null>(null);
 
-// Initial Stock Receipt Modal
+// Initial Stock Receipt Modal State
 const showReceiptModal = ref(false);
-const receiptForm = ref({
+const receiptForm = ref<{
+  warehouseId: number;
+  productId: number | null;
+  quantity: number;
+  reference: string;
+  notes: string;
+}>({
   warehouseId: 0,
-  productId: 0,
-  quantity: 1,
+  productId: null,
+  quantity: 10,
   reference: '',
   notes: '',
 });
@@ -45,13 +68,55 @@ const errorMessage = ref('');
 const exporting = ref(false);
 
 onMounted(async () => {
-  await Promise.all([fetchStock(), fetchProducts()]);
+  await fetchStock();
 });
+
+// Watch warehouse changes to refresh
+watch(() => authStore.activeWarehouseId, async () => {
+  page.value = 1;
+  await fetchStock();
+});
+
+// Watch status filter tab changes
+watch(statusFilter, async () => {
+  page.value = 1;
+  await fetchStock();
+});
+
+let searchTimeout: any = null;
+function onSearchInput() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    page.value = 1;
+    await fetchStock();
+  }, 300);
+}
+
+function onPageChange(payload: { page: number; limit: number }) {
+  page.value = payload.page;
+  limit.value = payload.limit;
+  fetchStock();
+}
 
 async function fetchStock() {
   loading.value = true;
   try {
-    stockList.value = await inventoryService.getStock(authStore.activeWarehouseId || undefined);
+    const res = await inventoryService.getStock({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      status: statusFilter.value !== 'all' ? statusFilter.value : undefined,
+      search: searchQuery.value.trim() || undefined,
+      page: page.value,
+      limit: limit.value,
+    });
+
+    stockList.value = res.items;
+    total.value = res.pagination.total;
+    totalPages.value = res.pagination.totalPages;
+    page.value = res.pagination.page;
+
+    if (res.counts) {
+      counts.value = res.counts;
+    }
   } catch (err) {
     console.error('Failed to load stock', err);
   } finally {
@@ -64,6 +129,7 @@ async function handleExportCsv() {
   try {
     await inventoryService.exportStockCsv({
       warehouseId: authStore.activeWarehouseId || undefined,
+      status: statusFilter.value !== 'all' ? statusFilter.value : undefined,
       search: searchQuery.value.trim() || undefined,
     });
   } catch (err) {
@@ -72,25 +138,6 @@ async function handleExportCsv() {
     exporting.value = false;
   }
 }
-
-async function fetchProducts() {
-  try {
-    products.value = await productService.getProducts();
-  } catch (err) {
-    console.error('Failed to load products', err);
-  }
-}
-
-const filteredStock = computed(() => {
-  if (!searchQuery.value.trim()) return stockList.value;
-  const q = searchQuery.value.toLowerCase();
-  return stockList.value.filter(
-    (s) =>
-      s.productName.toLowerCase().includes(q) ||
-      s.productReference.toLowerCase().includes(q) ||
-      s.warehouseName.toLowerCase().includes(q)
-  );
-});
 
 function openAdjustModal(stock: Stock) {
   adjustStockTarget.value = stock;
@@ -104,16 +151,21 @@ function openAdjustModal(stock: Stock) {
   showAdjustModal.value = true;
 }
 
-function openReceiptModal() {
+async function openReceiptModal() {
   receiptForm.value = {
     warehouseId: authStore.activeWarehouseId || warehouseStore.warehouses[0]?.id || 1,
-    productId: products.value[0]?.id || 1,
+    productId: null,
     quantity: 10,
     reference: `REC-${Date.now().toString().slice(-6)}`,
     notes: '',
   };
   errorMessage.value = '';
   showReceiptModal.value = true;
+
+  // Smart loading: Defer products catalog fetching until receipt modal is actually opened
+  if (!productStore.products.length) {
+    productStore.fetchProducts().catch((err) => console.error('Failed to preload products in modal', err));
+  }
 }
 
 async function handleSaveAdjustment() {
@@ -140,15 +192,29 @@ async function handleSaveAdjustment() {
 }
 
 async function handleSaveReceipt() {
+  if (!receiptForm.value.productId) {
+    errorMessage.value = "Veuillez sélectionner un produit";
+    return;
+  }
   if (!receiptForm.value.reference.trim()) {
     errorMessage.value = "La référence du lot / expédition est obligatoire";
+    return;
+  }
+  if (receiptForm.value.quantity <= 0) {
+    errorMessage.value = "La quantité entrante doit être supérieure à zéro";
     return;
   }
 
   saving.value = true;
   errorMessage.value = '';
   try {
-    await inventoryService.receiveInitialStock(receiptForm.value);
+    await inventoryService.receiveInitialStock({
+      warehouseId: receiptForm.value.warehouseId,
+      productId: receiptForm.value.productId,
+      quantity: receiptForm.value.quantity,
+      reference: receiptForm.value.reference,
+      notes: receiptForm.value.notes,
+    });
     showReceiptModal.value = false;
     await fetchStock();
   } catch (err: any) {
@@ -184,7 +250,46 @@ async function handleSaveReceipt() {
       </div>
     </div>
 
-    <!-- Filter Bar -->
+    <!-- Status Tabs Filter Bar -->
+    <div class="status-tabs-container">
+      <button
+        class="status-tab-pill"
+        :class="{ active: statusFilter === 'all' }"
+        @click="statusFilter = 'all'"
+      >
+        <span>Tous les articles</span>
+        <span class="tab-badge">{{ formatNumber(counts.total) }}</span>
+      </button>
+
+      <button
+        class="status-tab-pill"
+        :class="{ active: statusFilter === 'normal' }"
+        @click="statusFilter = 'normal'"
+      >
+        <span>En stock</span>
+        <span class="tab-badge badge-normal">{{ formatNumber(counts.normal) }}</span>
+      </button>
+
+      <button
+        class="status-tab-pill"
+        :class="{ active: statusFilter === 'low' }"
+        @click="statusFilter = 'low'"
+      >
+        <span>Stock faible</span>
+        <span class="tab-badge badge-warning">{{ formatNumber(counts.low) }}</span>
+      </button>
+
+      <button
+        class="status-tab-pill"
+        :class="{ active: statusFilter === 'out' }"
+        @click="statusFilter = 'out'"
+      >
+        <span>En rupture</span>
+        <span class="tab-badge badge-danger">{{ formatNumber(counts.out) }}</span>
+      </button>
+    </div>
+
+    <!-- Search & Filter Controls -->
     <div class="filter-bar">
       <div class="search-box">
         <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -194,17 +299,27 @@ async function handleSaveReceipt() {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Rechercher par référence, produit, entrepôt..."
+          placeholder="Rechercher par référence, désignation, marque, entrepôt..."
           class="search-input"
+          @input="onSearchInput"
         />
+        <button
+          v-if="searchQuery"
+          class="clear-search-btn"
+          title="Effacer la recherche"
+          @click="searchQuery = ''; onSearchInput()"
+        >
+          ✕
+        </button>
       </div>
+
       <div class="count-badge text-muted font-mono">
-        {{ filteredStock.length }} {{ filteredStock.length > 1 ? 'articles en stock' : 'article en stock' }}
+        {{ total }} {{ total > 1 ? 'articles trouvés' : 'article trouvé' }}
       </div>
     </div>
 
     <!-- Stock Table -->
-    <AppTable :loading="loading" :empty="!filteredStock.length" empty-text="Aucun enregistrement de stock trouvé" :columns-count="8">
+    <AppTable :loading="loading" :empty="!stockList.length" empty-text="Aucun enregistrement de stock trouvé" :columns-count="8">
       <template #header>
         <th>Entrepôt</th>
         <th>Référence</th>
@@ -216,7 +331,7 @@ async function handleSaveReceipt() {
         <th>Actions</th>
       </template>
       <template #body>
-        <tr v-for="stock in filteredStock" :key="stock.id">
+        <tr v-for="stock in stockList" :key="stock.id">
           <td>
             <strong>{{ stock.warehouseName }}</strong>
             <span class="text-caption" style="display: block;">{{ stock.warehouseCode }}</span>
@@ -244,7 +359,7 @@ async function handleSaveReceipt() {
                 RUPTURE
               </AppBadge>
               <AppBadge
-                v-else-if="stock.availableQuantity <= 10"
+                v-else-if="stock.availableQuantity <= (stock.minStockAlert ?? 5)"
                 variant="warning"
                 size="sm"
               >
@@ -269,6 +384,18 @@ async function handleSaveReceipt() {
         </tr>
       </template>
     </AppTable>
+
+    <!-- Standard Reusable Pagination Component -->
+    <AppPagination
+      :page="page"
+      :limit="limit"
+      :total="total"
+      :total-pages="totalPages"
+      :loading="loading"
+      @update:page="page = $event"
+      @update:limit="limit = $event"
+      @change="onPageChange"
+    />
 
     <!-- Stock Adjustment Modal -->
     <AppModal
@@ -353,11 +480,11 @@ async function handleSaveReceipt() {
 
         <div class="app-input-group">
           <label class="input-label">Produit</label>
-          <select v-model="receiptForm.productId" class="app-select" required>
-            <option v-for="p in products" :key="p.id" :value="p.id">
-              [{{ p.reference }}] {{ p.name }}
-            </option>
-          </select>
+          <AppProductCombobox
+            v-model="receiptForm.productId"
+            placeholder="Rechercher un produit (nom ou référence)..."
+            required
+          />
         </div>
 
         <AppInput
@@ -412,6 +539,90 @@ async function handleSaveReceipt() {
   gap: 12px;
 }
 
+/* Status Tabs Bar */
+.status-tabs-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: fit-content;
+}
+
+.status-tab-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.status-tab-pill:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg);
+}
+
+.status-tab-pill.active {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg);
+  border-color: var(--color-border-dark);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  border-radius: 10px;
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-secondary);
+}
+
+.status-tab-pill.active .tab-badge {
+  background-color: var(--color-border-dark);
+  color: var(--color-bg);
+}
+
+.badge-normal {
+  color: var(--color-success);
+}
+.status-tab-pill.active .badge-normal {
+  background-color: var(--color-success);
+  color: #ffffff;
+}
+
+.badge-warning {
+  color: var(--color-warning);
+}
+.status-tab-pill.active .badge-warning {
+  background-color: var(--color-warning);
+  color: #ffffff;
+}
+
+.badge-danger {
+  color: var(--color-danger);
+}
+.status-tab-pill.active .badge-danger {
+  background-color: var(--color-danger);
+  color: #ffffff;
+}
+
 .filter-bar {
   display: flex;
   align-items: center;
@@ -422,7 +633,7 @@ async function handleSaveReceipt() {
 .search-box {
   position: relative;
   flex: 1;
-  max-width: 480px;
+  max-width: 520px;
 }
 
 .search-icon {
@@ -433,10 +644,27 @@ async function handleSaveReceipt() {
   color: var(--color-text-secondary);
 }
 
+.clear-search-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px;
+}
+
+.clear-search-btn:hover {
+  color: var(--color-text-primary);
+}
+
 .search-input {
   width: 100%;
   height: 38px;
-  padding: 8px 12px 8px 36px;
+  padding: 8px 32px 8px 36px;
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);

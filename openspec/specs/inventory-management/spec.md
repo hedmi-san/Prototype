@@ -68,4 +68,44 @@ The system SHALL maintain composite database indexes on `stock_movements(created
 - **WHEN** a query requests stock movements over a historical date range on a table containing 500,000+ movements
 - **THEN** the database SHALL utilize the composite index on `created_at` to avoid full table scans and execute in under 10 milliseconds
 
+### Requirement: Typeahead Product Search for Stock Receipts
+The inventory stock reception interface SHALL provide a searchable typeahead combobox allowing users to filter and select products by reference, name, brand, or category from the cached product catalog, omitting current stock quantity badges and updating the receipt form selection upon confirmation.
+
+#### Scenario: User searches product by reference or name in receipt modal
+- **WHEN** a user opens the manufacturer stock receipt modal and types a search query (e.g. "BOSCH" or "226") in the product combobox
+- **THEN** the combobox SHALL display matching products in a dropdown limited to top results showing product reference, name, brand, and unit sale price without rendering warehouse stock availability badges
+
+#### Scenario: User selects a product for receipt
+- **WHEN** a user selects a product from the combobox dropdown or presses Enter on a highlighted result
+- **THEN** the combobox SHALL update the receipt form's product ID, format the input with the selected product reference and name, and allow the user to submit the stock receipt
+
+### Requirement: Server-Side Paginated Stock Query and Filtering
+The system SHALL provide server-side pagination and status filtering for the stock inventory query (`GET /api/inventory/stock`), accepting `page`, `limit`, `warehouseId`, `status` (`all`, `normal`, `low`, `out`), and `search` query parameters, returning a paginated payload containing the stock records slice, pagination metadata, and aggregate status counts.
+
+#### Scenario: Query stock with default pagination
+- **WHEN** an authenticated user requests stock without explicit pagination parameters
+- **THEN** the system SHALL return page 1 with a default limit (25 items), total record count, total pages, and aggregate counters for total, normal, low stock, and out-of-stock items
+
+#### Scenario: Filter stock by status
+- **WHEN** an authenticated user queries stock with `status=low`
+- **THEN** the system SHALL return only stock items where available quantity is strictly greater than 0 and less than or equal to the product's `min_stock_alert`
+
+#### Scenario: Filter stock by out-of-stock status
+- **WHEN** an authenticated user queries stock with `status=out`
+- **THEN** the system SHALL return only stock items where available quantity is less than or equal to 0
+
+#### Scenario: Filter stock by normal status
+- **WHEN** an authenticated user queries stock with `status=normal`
+- **THEN** the system SHALL return only stock items where available quantity is strictly greater than the product's `min_stock_alert`
+
+#### Scenario: Debounced search across product references and names
+- **WHEN** an authenticated user queries stock with `search=perceuse`
+- **THEN** the system SHALL return matching stock items where product name, reference, brand, or warehouse name matches the search term (case-insensitive)
+
+### Requirement: High-Performance Database Indexing for Stock Queries
+The system SHALL maintain database indexes on `stock(product_id)`, `products(reference)`, `products(name)`, and `products(brand)` to support high-throughput concurrent reads, fast search filtering, and non-blocking index scans on catalogs exceeding 1,000 products.
+
+#### Scenario: High-volume stock catalog query
+- **WHEN** a paginated stock query is executed on a warehouse with 5,000+ stock rows
+- **THEN** the database SHALL execute join and pagination queries utilizing index scans with an execution time under 15 milliseconds
 

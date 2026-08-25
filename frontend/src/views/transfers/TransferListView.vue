@@ -129,7 +129,11 @@ async function fetchSourceWarehouseStock(warehouseId?: number) {
     return;
   }
   try {
-    sourceWarehouseStock.value = await inventoryService.getStock(targetId);
+    const res = await inventoryService.getStock({
+      warehouseId: targetId,
+      limit: 1000,
+    });
+    sourceWarehouseStock.value = res.items;
   } catch (err) {
     console.error('Failed to load stock for source warehouse', err);
     sourceWarehouseStock.value = [];

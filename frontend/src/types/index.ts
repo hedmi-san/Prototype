@@ -66,6 +66,7 @@ export interface Stock {
   physicalQuantity: number;
   reservedQuantity: number;
   availableQuantity: number;
+  minStockAlert?: number;
   totalValuation: number;
   updatedAt: string;
 }
@@ -383,9 +384,21 @@ export interface PaginationMeta {
   totalPages: number;
 }
 
+export interface StockStatusCounts {
+  total: number;
+  normal: number;
+  low: number;
+  out: number;
+}
+
 export interface PaginatedData<T> {
   items: T[];
   pagination: PaginationMeta;
+  counts?: StockStatusCounts;
+}
+
+export interface PaginatedStockData extends PaginatedData<Stock> {
+  counts: StockStatusCounts;
 }
 
 export interface PaginationParams {

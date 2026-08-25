@@ -99,7 +99,7 @@ function handleExportCsv() {
     <div class="card statement-card">
       <div class="statement-header">
         <div>
-          <h2>DISTRI-TOOLS DZ</h2>
+          <h2>BOUSFOR HOSNA</h2>
           <p class="text-caption text-muted">Compte de Résultat pour la période : {{ report?.period }}</p>
           <p class="text-caption text-muted">Entité Entrepôt : {{ report?.warehouseName }}</p>
         </div>

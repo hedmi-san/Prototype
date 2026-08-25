@@ -69,7 +69,11 @@ onMounted(async () => {
 async function fetchStockForWarehouse() {
   loading.value = true;
   try {
-    warehouseStock.value = await inventoryService.getStock(selectedWarehouseId.value);
+    const res = await inventoryService.getStock({
+      warehouseId: selectedWarehouseId.value,
+      limit: 1000,
+    });
+    warehouseStock.value = res.items;
   } catch (err) {
     console.error('Failed to load stock for warehouse', err);
   } finally {

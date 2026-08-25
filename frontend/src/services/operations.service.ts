@@ -22,14 +22,20 @@ function normalizePaginatedResponse<T>(data: any): PaginatedData<T> {
       total: items.length,
       totalPages: 1,
     },
+    counts: {
+      total: items.length,
+      normal: items.length,
+      low: 0,
+      out: 0,
+    },
   };
 }
 
 export const inventoryService = {
-  async getStock(warehouseId?: number): Promise<Stock[]> {
-    const params = warehouseId ? { warehouseId } : {};
-    const response = await api.get<ApiResponse<Stock[]>>('/inventory/stock', { params });
-    return response.data.data;
+  async getStock(params?: PaginationParams | number): Promise<PaginatedData<Stock>> {
+    const queryParams = normalizeParams(params);
+    const response = await api.get<ApiResponse<any>>('/inventory/stock', { params: queryParams });
+    return normalizePaginatedResponse<Stock>(response.data.data);
   },
   async getMovements(params?: PaginationParams | number): Promise<PaginatedData<StockMovement>> {
     const queryParams = normalizeParams(params);
@@ -44,7 +50,7 @@ export const inventoryService = {
     const response = await api.post<ApiResponse<Stock>>('/inventory/initial-receipt', data);
     return response.data.data;
   },
-  async exportStockCsv(params?: { warehouseId?: number; lowStock?: boolean; search?: string }): Promise<void> {
+  async exportStockCsv(params?: { warehouseId?: number; status?: string; lowStock?: boolean; search?: string }): Promise<void> {
     const response = await api.get('/inventory/export/csv', {
       params,
       responseType: 'blob',
