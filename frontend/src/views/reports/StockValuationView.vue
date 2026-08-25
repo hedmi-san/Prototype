@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { reportService } from '../../services/admin-reports.service';
 import { inventoryService } from '../../services/operations.service';
 import type { StockValuationReport } from '../../types';
-import { formatCurrency, formatNumber } from '../../utils/formatters';
+import { formatCurrency, formatNumber, formatDateTime } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 
@@ -12,6 +12,8 @@ const authStore = useAuthStore();
 const report = ref<StockValuationReport | null>(null);
 const loading = ref(true);
 const exporting = ref(false);
+
+const printTimestamp = computed(() => formatDateTime(new Date(), false));
 
 onMounted(async () => {
   await fetchReport();
@@ -38,10 +40,30 @@ async function handleExportCsv() {
     exporting.value = false;
   }
 }
+
+function handlePrint() {
+  window.print();
+}
 </script>
 
 <template>
   <div class="valuation-view">
+    <!-- Printable Document Header (visible exclusively in print) -->
+    <header class="print-header">
+      <div class="print-header-top">
+        <div>
+          <div class="print-company-name">EURL BOUSFOR HOSNA</div>
+          <h1 class="print-doc-title">État de Valorisation des Stocks </h1>
+          <p class="print-doc-subtitle">Valorisation des actifs basée sur les prix d'achat actuels : &sum;(Unités Physiques &times; Prix d'Achat)</p>
+        </div>
+        <div class="print-meta-box">
+          <div><span class="meta-label">Périmètre Entrepôt :</span> <strong>{{ report?.warehouseName || 'Tous les entrepôts' }}</strong></div>
+          <div><span class="meta-label">Date d'édition :</span> <strong>{{ printTimestamp }}</strong></div>
+        </div>
+      </div>
+      <div class="print-header-divider" />
+    </header>
+
     <div class="page-header">
       <div>
         <h1 class="page-title">État de Valorisation des Stocks</h1>
@@ -58,7 +80,7 @@ async function handleExportCsv() {
           </svg>
           Exporter CSV
         </AppButton>
-        <AppButton variant="secondary" onclick="window.print()">
+        <AppButton variant="secondary" @click="handlePrint">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 6 2 18 2 18 9" />
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
@@ -132,6 +154,11 @@ async function handleExportCsv() {
   gap: 20px;
 }
 
+/* Print header hidden in standard screen view */
+.print-header {
+  display: none;
+}
+
 .page-header {
   display: flex;
   align-items: center;
@@ -189,6 +216,141 @@ async function handleExportCsv() {
 @media (max-width: 900px) {
   .valuation-cards {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ==========================================================
+   PRINT MEDIA STYLES - A4 LANDSCAPE VALUATION STATEMENT
+   ========================================================== */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm 10mm;
+  }
+
+  .valuation-view {
+    display: block !important;
+    width: 100% !important;
+    gap: 0 !important;
+  }
+
+  .page-header {
+    display: none !important;
+  }
+
+  .print-header {
+    display: block !important;
+    margin-bottom: 12px;
+  }
+
+  .print-header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .print-company-name {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: #000000;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .print-doc-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #000000;
+    margin-bottom: 2px;
+  }
+
+  .print-doc-subtitle {
+    font-size: 11px;
+    color: #555555;
+    margin: 0;
+  }
+
+  .print-meta-box {
+    font-size: 12px;
+    text-align: right;
+    color: #000000;
+    line-height: 1.5;
+  }
+
+  .meta-label {
+    color: #444444;
+  }
+
+  .print-header-divider {
+    width: 100%;
+    height: 1.5px;
+    background-color: #000000;
+    margin: 8px 0 14px 0;
+  }
+
+  .valuation-cards {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 8px !important;
+    margin-bottom: 14px !important;
+    page-break-inside: avoid;
+  }
+
+  .val-card {
+    padding: 8px 10px !important;
+    border: 1px solid #777777 !important;
+    border-radius: 4px !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  .val-label {
+    font-size: 10px !important;
+    color: #333333 !important;
+  }
+
+  .val-card strong {
+    font-size: 15px !important;
+  }
+
+  .text-caption {
+    font-size: 10px !important;
+    color: #555555 !important;
+  }
+
+  :deep(.table-container) {
+    border: 1px solid #777777 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  :deep(.app-table) {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 11px !important;
+  }
+
+  :deep(th) {
+    background-color: #f2f2f2 !important;
+    color: #000000 !important;
+    border-bottom: 1.5px solid #000000 !important;
+    padding: 5px 8px !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+  }
+
+  :deep(td) {
+    padding: 5px 8px !important;
+    border-bottom: 1px solid #cccccc !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+  }
+
+  :deep(tr) {
+    page-break-inside: avoid;
   }
 }
 </style>

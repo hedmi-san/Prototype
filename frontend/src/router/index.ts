@@ -149,8 +149,8 @@ router.beforeEach((to, from, next) => {
 });
 
 router.afterEach((to) => {
-  const title = (to.meta?.title as string) || 'DISTRI-TOOLS DZ';
-  document.title = `${title} | DISTRI-TOOLS DZ`;
+  const title = (to.meta?.title as string) || 'BOUSFOR HOSNA';
+  document.title = `${title} | BOUSFOR HOSNA`;
 });
 
 export default router;

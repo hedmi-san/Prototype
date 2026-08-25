@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { reportService } from '../../services/admin-reports.service';
 import type { FinancialReport } from '../../types';
 import type { ComputedPeriodRange } from '../../utils/periodNavigator';
-import { formatCurrency, formatExpenseCategory } from '../../utils/formatters';
+import { formatCurrency, formatExpenseCategory, formatDateTime } from '../../utils/formatters';
 import { downloadBlob } from '../../utils/export';
 import AppButton from '../../components/common/AppButton.vue';
 import AppSkeleton from '../../components/common/AppSkeleton.vue';
@@ -15,6 +15,8 @@ const period = ref(new Date().toISOString().slice(0, 7)); // YYYY-MM
 const activeRange = ref<ComputedPeriodRange | null>(null);
 const report = ref<FinancialReport | null>(null);
 const loading = ref(true);
+
+const printTimestamp = computed(() => formatDateTime(new Date(), false));
 
 onMounted(async () => {
   if (!activeRange.value) {
@@ -60,10 +62,31 @@ function handleExportCsv() {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   downloadBlob(blob, `compte_de_resultat_${report.value.period || 'bilan'}.csv`);
 }
+
+function handlePrint() {
+  window.print();
+}
 </script>
 
 <template>
   <div class="financial-view">
+    <!-- Printable Document Header (visible exclusively in print) -->
+    <header class="print-header">
+      <div class="print-header-top">
+        <div>
+          <div class="print-company-name">DISTRI-TOOLS DZ &bull; EURL BOUSFOR HOSNA</div>
+          <h1 class="print-doc-title">Compte de Résultat Financier (P&L)</h1>
+          <p class="print-doc-subtitle">Revenus consolidés, coût des marchandises vendues, charges d'exploitation et marge nette</p>
+        </div>
+        <div class="print-meta-box">
+          <div><span class="meta-label">Périmètre Entrepôt :</span> <strong>{{ report?.warehouseName || 'Tous les entrepôts' }}</strong></div>
+          <div><span class="meta-label">Période :</span> <strong>{{ activeRange?.label || report?.period || period }}</strong></div>
+          <div><span class="meta-label">Date d'édition :</span> <strong>{{ printTimestamp }}</strong></div>
+        </div>
+      </div>
+      <div class="print-header-divider" />
+    </header>
+
     <div class="page-header">
       <div>
         <h1 class="page-title">Compte de Résultat Financier (P&L)</h1>
@@ -78,7 +101,7 @@ function handleExportCsv() {
           </svg>
           Exporter CSV
         </AppButton>
-        <AppButton variant="secondary" onclick="window.print()">
+        <AppButton variant="secondary" @click="handlePrint">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 6 2 18 2 18 9" />
             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
@@ -100,7 +123,7 @@ function handleExportCsv() {
       <div class="statement-header">
         <div>
           <h2>BOUSFOR HOSNA</h2>
-          <p class="text-caption text-muted">Compte de Résultat pour la période : {{ report?.period }}</p>
+          <p class="text-caption text-muted">Compte de Résultat pour la période : {{ activeRange?.label || report?.period }}</p>
           <p class="text-caption text-muted">Entité Entrepôt : {{ report?.warehouseName }}</p>
         </div>
         <div class="net-profit-badge" :class="(report?.netProfit || 0) >= 0 ? 'bg-success-subtle' : 'bg-danger-subtle'">
@@ -189,6 +212,11 @@ function handleExportCsv() {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+/* Print header hidden in standard screen view */
+.print-header {
+  display: none;
 }
 
 .page-header {
@@ -311,4 +339,113 @@ function handleExportCsv() {
 
 .mt-3 { margin-top: 16px; }
 .mt-4 { margin-top: 24px; }
+
+/* ==========================================================
+   PRINT MEDIA STYLES - A4 PORTRAIT FINANCIAL STATEMENT
+   ========================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  .financial-view {
+    display: block !important;
+    width: 100% !important;
+    gap: 0 !important;
+  }
+
+  .page-header,
+  :deep(.app-period-navigator) {
+    display: none !important;
+  }
+
+  .print-header {
+    display: block !important;
+    margin-bottom: 14px;
+  }
+
+  .print-header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .print-company-name {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: #000000;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .print-doc-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #000000;
+    margin-bottom: 2px;
+  }
+
+  .print-doc-subtitle {
+    font-size: 11px;
+    color: #555555;
+    margin: 0;
+  }
+
+  .print-meta-box {
+    font-size: 12px;
+    text-align: right;
+    color: #000000;
+    line-height: 1.5;
+  }
+
+  .meta-label {
+    color: #444444;
+  }
+
+  .print-header-divider {
+    width: 100%;
+    height: 1.5px;
+    background-color: #000000;
+    margin: 8px 0 14px 0;
+  }
+
+  .statement-card {
+    max-width: 100% !important;
+    border: 1px solid #777777 !important;
+    box-shadow: none !important;
+    padding: 16px !important;
+    background: #ffffff !important;
+    page-break-inside: avoid;
+  }
+
+  .statement-header {
+    padding-bottom: 12px !important;
+    margin-bottom: 12px !important;
+    border-bottom: 2px solid #000000 !important;
+  }
+
+  .net-profit-badge {
+    border: 1px solid #777777 !important;
+    background: transparent !important;
+  }
+
+  .line-row {
+    padding: 6px 8px !important;
+    border-bottom: 1px solid #e0e0e0 !important;
+    font-size: 12px !important;
+  }
+
+  .subtotal-row {
+    background-color: #f5f5f5 !important;
+    border-bottom: 1px solid #999999 !important;
+  }
+
+  .final-total-row {
+    border: 2px solid #000000 !important;
+    background-color: #f9f9f9 !important;
+    padding: 12px 16px !important;
+  }
+}
 </style>

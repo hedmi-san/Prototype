@@ -185,24 +185,52 @@ p, .text-body {
     print-color-adjust: exact !important;
   }
 
-  /* Hide background application container when printing from modal */
-  #app {
+  /* 1. Modal Isolation: Hide background application container ONLY when printing from an active modal */
+  body:has(.modal-backdrop) #app {
     display: none !important;
   }
 
-  /* Hide modal chrome, buttons, headers, footers */
+  /* 2. Direct Page Report Printing: Suppress UI chrome & navigation elements */
+  .top-header,
+  .sidebar,
+  .header-actions,
+  .read-only-banner,
   .modal-header,
   .modal-footer,
   .close-btn,
   .modal-close-btn,
   .app-sidebar,
   .app-header,
-  .page-header,
-  .header-actions,
   .icon-action-btn,
+  .period-picker,
+  .filter-bar,
+  .pagination-container,
   button,
   .app-button {
     display: none !important;
+  }
+
+  /* Direct page layout stretch */
+  #app {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  .app-layout,
+  .app-body,
+  .main-content {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+    background: transparent !important;
   }
 
   /* Reset teleported modal backdrop to full-page print canvas */
