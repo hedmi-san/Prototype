@@ -19,7 +19,7 @@ export const useProductStore = defineStore('product', () => {
 
     loading.value = true;
     try {
-      products.value = await productService.getProducts();
+      products.value = await productService.getAllProducts();
       lastFetched.value = Date.now();
       return products.value;
     } finally {

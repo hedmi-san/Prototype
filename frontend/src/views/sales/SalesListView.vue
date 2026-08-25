@@ -125,7 +125,7 @@ async function handleExportCsv() {
 
 async function fetchProducts() {
   try {
-    products.value = await productService.getProducts();
+    products.value = await productService.getAllProducts();
   } catch (err) {
     console.error('Failed to load products', err);
   }

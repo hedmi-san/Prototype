@@ -413,6 +413,20 @@ export interface PaginationParams {
   action?: string;
 }
 
+export type ProductSortBy = 'name' | 'salePrice' | 'purchasePrice' | 'reference' | 'brand' | 'createdAt' | 'id';
+export type SortOrder = 'asc' | 'desc';
+
+export interface ProductQueryParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  brand?: string;
+  category?: string;
+  sortBy?: ProductSortBy;
+  sortOrder?: SortOrder;
+  all?: boolean;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   message: string;

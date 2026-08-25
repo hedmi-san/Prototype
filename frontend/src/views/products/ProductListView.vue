@@ -1,19 +1,36 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { productService } from '../../services/catalog.service';
-import type { Product } from '../../types';
+import type { Product, ProductSortBy, SortOrder } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
 import AppInput from '../../components/common/AppInput.vue';
+import AppPagination from '../../components/common/AppPagination.vue';
 
 const authStore = useAuthStore();
 const products = ref<Product[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
+const selectedBrand = ref('');
+const sortBy = ref<ProductSortBy>('name');
+const sortOrder = ref<SortOrder>('asc');
+
+// Pagination state
+const page = ref(1);
+const limit = ref(25);
+const total = ref(0);
+const totalPages = ref(1);
+
+// Brands list
+const brands = ref<string[]>([]);
+const loadingBrands = ref(false);
+
+// Stale request tracking
+let lastRequestId = 0;
 
 // Product Create/Edit Modal State
 const showProductModal = ref(false);
@@ -38,24 +55,128 @@ const saving = ref(false);
 const exporting = ref(false);
 
 onMounted(async () => {
+  window.addEventListener('focus', handleWindowFocus);
+  document.addEventListener('visibilitychange', handleWindowFocus);
+  await Promise.all([fetchProducts(), fetchBrands()]);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', handleWindowFocus);
+  document.removeEventListener('visibilitychange', handleWindowFocus);
+  clearTimeout(searchTimeout);
+});
+
+function handleWindowFocus() {
+  if (document.visibilityState === 'visible' && !showProductModal.value && !showPriceModal.value) {
+    fetchProducts(false);
+    fetchBrands();
+  }
+}
+
+async function fetchBrands() {
+  loadingBrands.value = true;
+  try {
+    brands.value = await productService.getBrands();
+  } catch (err) {
+    console.error('Failed to load brands', err);
+  } finally {
+    loadingBrands.value = false;
+  }
+}
+
+async function fetchProducts(showLoading = true) {
+  if (showLoading) loading.value = true;
+  const currentReqId = ++lastRequestId;
+
+  try {
+    const res = await productService.getProducts({
+      page: page.value,
+      limit: limit.value,
+      search: searchQuery.value.trim() || undefined,
+      brand: selectedBrand.value || undefined,
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value,
+    });
+
+    if (currentReqId !== lastRequestId) return;
+
+    products.value = res.items;
+    total.value = res.pagination.total;
+    totalPages.value = res.pagination.totalPages;
+    page.value = res.pagination.page;
+  } catch (err) {
+    if (currentReqId === lastRequestId) {
+      console.error('Failed to load products', err);
+    }
+  } finally {
+    if (currentReqId === lastRequestId) {
+      loading.value = false;
+    }
+  }
+}
+
+let searchTimeout: any = null;
+function onSearchInput() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    page.value = 1;
+    await fetchProducts();
+  }, 300);
+}
+
+function clearSearch() {
+  searchQuery.value = '';
+  page.value = 1;
+  fetchProducts();
+}
+
+watch(selectedBrand, async () => {
+  page.value = 1;
   await fetchProducts();
 });
 
-async function fetchProducts() {
-  loading.value = true;
-  try {
-    products.value = await productService.getProducts();
-  } catch (err) {
-    console.error('Failed to load products', err);
-  } finally {
-    loading.value = false;
+function onSortDropdownChange(event: Event) {
+  const value = (event.target as HTMLSelectElement).value;
+  const [newSortBy, newSortOrder] = value.split('_') as [ProductSortBy, SortOrder];
+  sortBy.value = newSortBy;
+  sortOrder.value = newSortOrder;
+  page.value = 1;
+  fetchProducts();
+}
+
+function toggleSort(column: ProductSortBy) {
+  if (sortBy.value === column) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortBy.value = column;
+    sortOrder.value = 'asc';
   }
+  page.value = 1;
+  fetchProducts();
+}
+
+function onPageChange(payload: { page: number; limit: number }) {
+  page.value = payload.page;
+  limit.value = payload.limit;
+  fetchProducts();
+}
+
+function resetFilters() {
+  searchQuery.value = '';
+  selectedBrand.value = '';
+  sortBy.value = 'name';
+  sortOrder.value = 'asc';
+  page.value = 1;
+  fetchProducts();
 }
 
 async function handleExportCsv() {
   exporting.value = true;
   try {
-    await productService.exportProductsCsv({ search: searchQuery.value });
+    await productService.exportProductsCsv({
+      search: searchQuery.value.trim() || undefined,
+      brand: selectedBrand.value || undefined,
+    });
   } catch (err) {
     console.error('Failed to export products CSV', err);
   } finally {
@@ -63,23 +184,12 @@ async function handleExportCsv() {
   }
 }
 
-const filteredProducts = computed(() => {
-  if (!searchQuery.value.trim()) return products.value;
-  const q = searchQuery.value.toLowerCase();
-  return products.value.filter(
-    (p) =>
-      p.name.toLowerCase().includes(q) ||
-      p.reference.toLowerCase().includes(q) ||
-      p.brand.toLowerCase().includes(q)
-  );
-});
-
 function openCreateModal() {
   editingProduct.value = null;
   productForm.value = {
     reference: '',
     name: '',
-    brand: 'KRAFT',
+    brand: brands.value[0] || 'KRAFT',
     purchasePrice: 0,
     salePrice: 0,
     unit: 'PIECE',
@@ -118,7 +228,7 @@ async function handleSaveProduct() {
       await productService.createProduct(productForm.value);
     }
     showProductModal.value = false;
-    await fetchProducts();
+    await Promise.all([fetchProducts(), fetchBrands()]);
   } catch (err) {
     console.error('Failed to save product', err);
   } finally {
@@ -167,38 +277,139 @@ async function handleUpdatePrice() {
       </div>
     </div>
 
-    <!-- Search & Filters -->
+    <!-- Search & Filters Control Bar -->
     <div class="filter-bar">
-      <div class="search-box">
-        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        </svg>
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Rechercher par référence, désignation ou marque..."
-          class="search-input"
-        />
+      <div class="filter-controls-left">
+        <!-- Search Box -->
+        <div class="search-box">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Rechercher par référence, désignation..."
+            class="search-input"
+            @input="onSearchInput"
+          />
+          <button
+            v-if="searchQuery"
+            class="clear-search-btn"
+            title="Effacer la recherche"
+            @click="clearSearch"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Brand Filter Dropdown -->
+        <div class="select-wrapper">
+          <select v-model="selectedBrand" class="filter-select">
+            <option value="">Toutes les marques</option>
+            <option v-for="b in brands" :key="b" :value="b">
+              {{ b }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Quick Sort Dropdown -->
+        <div class="select-wrapper">
+          <select :value="`${sortBy}_${sortOrder}`" class="filter-select sort-select" @change="onSortDropdownChange">
+            <option value="name_asc">Nom : A ➔ Z</option>
+            <option value="name_desc">Nom : Z ➔ A</option>
+            <option value="salePrice_asc">Prix Vente : Moins cher ➔ Plus cher</option>
+            <option value="salePrice_desc">Prix Vente : Plus cher ➔ Moins cher</option>
+            <option value="purchasePrice_asc">Prix Achat : Moins cher ➔ Plus cher</option>
+            <option value="purchasePrice_desc">Prix Achat : Plus cher ➔ Moins cher</option>
+            <option value="reference_asc">Référence : A ➔ Z</option>
+            <option value="reference_desc">Référence : Z ➔ A</option>
+            <option value="createdAt_desc">Plus récents d'abord</option>
+          </select>
+        </div>
+
+        <button
+          v-if="searchQuery || selectedBrand || sortBy !== 'name' || sortOrder !== 'asc'"
+          class="reset-filters-btn"
+          title="Réinitialiser les filtres et le tri"
+          @click="resetFilters"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+          </svg>
+          Réinitialiser
+        </button>
       </div>
+
       <div class="count-badge text-muted font-mono">
-        {{ filteredProducts.length }} {{ filteredProducts.length > 1 ? 'produits' : 'produit' }}
+        {{ total }} {{ total > 1 ? 'produits' : 'produit' }}
       </div>
     </div>
 
     <!-- Products Table -->
-    <AppTable :loading="loading" :empty="!filteredProducts.length" empty-text="Aucun produit trouvé" :columns-count="7">
+    <AppTable :loading="loading" :empty="!products.length" empty-text="Aucun produit trouvé" :columns-count="7">
       <template #header>
-        <th>Référence</th>
-        <th>Désignation Produit</th>
-        <th>Marque</th>
-        <th>Prix d'Achat</th>
-        <th>Prix de Vente</th>
+        <th>
+          <button class="th-sort-btn" @click="toggleSort('reference')">
+            <span>Référence</span>
+            <span class="sort-indicator">
+              <template v-if="sortBy === 'reference'">
+                {{ sortOrder === 'asc' ? '▲' : '▼' }}
+              </template>
+              <template v-else>▲▼</template>
+            </span>
+          </button>
+        </th>
+        <th>
+          <button class="th-sort-btn" @click="toggleSort('name')">
+            <span>Désignation Produit</span>
+            <span class="sort-indicator">
+              <template v-if="sortBy === 'name'">
+                {{ sortOrder === 'asc' ? '▲' : '▼' }}
+              </template>
+              <template v-else>▲▼</template>
+            </span>
+          </button>
+        </th>
+        <th>
+          <button class="th-sort-btn" @click="toggleSort('brand')">
+            <span>Marque</span>
+            <span class="sort-indicator">
+              <template v-if="sortBy === 'brand'">
+                {{ sortOrder === 'asc' ? '▲' : '▼' }}
+              </template>
+              <template v-else>▲▼</template>
+            </span>
+          </button>
+        </th>
+        <th>
+          <button class="th-sort-btn" @click="toggleSort('purchasePrice')">
+            <span>Prix d'Achat</span>
+            <span class="sort-indicator">
+              <template v-if="sortBy === 'purchasePrice'">
+                {{ sortOrder === 'asc' ? '▲' : '▼' }}
+              </template>
+              <template v-else>▲▼</template>
+            </span>
+          </button>
+        </th>
+        <th>
+          <button class="th-sort-btn" @click="toggleSort('salePrice')">
+            <span>Prix de Vente</span>
+            <span class="sort-indicator">
+              <template v-if="sortBy === 'salePrice'">
+                {{ sortOrder === 'asc' ? '▲' : '▼' }}
+              </template>
+              <template v-else>▲▼</template>
+            </span>
+          </button>
+        </th>
         <th>Marge Brute</th>
         <th>Actions</th>
       </template>
       <template #body>
-        <tr v-for="product in filteredProducts" :key="product.id">
+        <tr v-for="product in products" :key="product.id">
           <td class="font-mono font-bold">{{ product.reference }}</td>
           <td>
             <strong>{{ product.name }}</strong>
@@ -243,6 +454,18 @@ async function handleUpdatePrice() {
       </template>
     </AppTable>
 
+    <!-- Standard Reusable Pagination Component -->
+    <AppPagination
+      :page="page"
+      :limit="limit"
+      :total="total"
+      :total-pages="totalPages"
+      :loading="loading"
+      @update:page="page = $event"
+      @update:limit="limit = $event"
+      @change="onPageChange"
+    />
+
     <!-- Create/Edit Product Modal -->
     <AppModal
       v-model="showProductModal"
@@ -266,7 +489,7 @@ async function handleUpdatePrice() {
         <AppInput
           v-model="productForm.brand"
           label="Marque / Fabricant"
-          placeholder="ex. KRAFT"
+          placeholder="ex. WEHAND, KRAFT, BOSCH"
           required
         />
         <div class="form-row">
@@ -360,12 +583,22 @@ async function handleUpdatePrice() {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
+}
+
+.filter-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  flex-wrap: wrap;
 }
 
 .search-box {
   position: relative;
   flex: 1;
-  max-width: 480px;
+  min-width: 240px;
+  max-width: 380px;
 }
 
 .search-icon {
@@ -376,10 +609,27 @@ async function handleUpdatePrice() {
   color: var(--color-text-secondary);
 }
 
+.clear-search-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px;
+}
+
+.clear-search-btn:hover {
+  color: var(--color-text-primary);
+}
+
 .search-input {
   width: 100%;
   height: 38px;
-  padding: 8px 12px 8px 36px;
+  padding: 8px 32px 8px 36px;
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -391,6 +641,85 @@ async function handleUpdatePrice() {
 .search-input:focus {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.select-wrapper {
+  position: relative;
+}
+
+.filter-select {
+  height: 38px;
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.filter-select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.sort-select {
+  min-width: 220px;
+}
+
+.reset-filters-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background-color: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.reset-filters-btn:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger-border);
+  background-color: var(--color-danger-bg);
+}
+
+.th-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+
+.th-sort-btn:hover {
+  color: var(--color-primary);
+}
+
+.sort-indicator {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
+.th-sort-btn:hover .sort-indicator {
+  opacity: 1;
+  color: var(--color-primary);
 }
 
 .font-bold {
@@ -441,3 +770,4 @@ async function handleUpdatePrice() {
   gap: 12px;
 }
 </style>
+

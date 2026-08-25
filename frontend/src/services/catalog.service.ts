@@ -1,6 +1,22 @@
 import api from './api';
-import type { ApiResponse, Warehouse, Product } from '../types';
+import type { ApiResponse, Warehouse, Product, ProductQueryParams, PaginatedData } from '../types';
 import { downloadCsvResponse } from '../utils/export';
+
+function normalizePaginatedResponse<T>(data: any): PaginatedData<T> {
+  if (data && typeof data === 'object' && Array.isArray(data.items) && data.pagination) {
+    return data as PaginatedData<T>;
+  }
+  const items = Array.isArray(data) ? data : [];
+  return {
+    items,
+    pagination: {
+      page: 1,
+      limit: items.length || 25,
+      total: items.length,
+      totalPages: 1,
+    },
+  };
+}
 
 export const warehouseService = {
   async getWarehouses(): Promise<Warehouse[]> {
@@ -22,9 +38,20 @@ export const warehouseService = {
 };
 
 export const productService = {
-  async getProducts(): Promise<Product[]> {
-    const response = await api.get<ApiResponse<Product[]>>('/products');
-    return response.data.data;
+  async getProducts(params?: ProductQueryParams): Promise<PaginatedData<Product>> {
+    const response = await api.get<ApiResponse<any>>('/products', { params });
+    return normalizePaginatedResponse<Product>(response.data.data);
+  },
+  async getAllProducts(params?: Omit<ProductQueryParams, 'all'>): Promise<Product[]> {
+    const response = await api.get<ApiResponse<any>>('/products', { params: { ...params, all: true } });
+    if (Array.isArray(response.data.data)) {
+      return response.data.data;
+    }
+    return response.data.data?.items || [];
+  },
+  async getBrands(): Promise<string[]> {
+    const response = await api.get<ApiResponse<string[]>>('/products/brands');
+    return response.data.data || [];
   },
   async getProductById(id: number): Promise<Product> {
     const response = await api.get<ApiResponse<Product>>(`/products/${id}`);
@@ -42,7 +69,7 @@ export const productService = {
     const response = await api.patch<ApiResponse<Product>>(`/products/${id}/price`, data);
     return response.data.data;
   },
-  async exportProductsCsv(params?: { search?: string; category?: string }): Promise<void> {
+  async exportProductsCsv(params?: { search?: string; brand?: string; category?: string }): Promise<void> {
     const response = await api.get('/products/export/csv', {
       params,
       responseType: 'blob',
@@ -50,4 +77,5 @@ export const productService = {
     downloadCsvResponse(response, `produits_${new Date().toISOString().split('T')[0]}.csv`);
   }
 };
+
 
