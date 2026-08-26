@@ -41,6 +41,7 @@ app.use('/products', productRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/inventory', inventoryRoutes);
 app.use('/api/operations', inventoryRoutes);
+app.use('/operations', inventoryRoutes);
 app.use('/api/sales', saleRoutes);
 app.use('/sales', saleRoutes);
 app.use('/api/transfers', transferRoutes);
@@ -54,11 +55,15 @@ app.use('/salaries', salaryRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/admin/reports', reportRoutes);
 app.use('/reports', reportRoutes);
+app.use('/admin/reports', reportRoutes);
 app.use('/api/audit-logs', auditRoutes);
 app.use('/api/admin/audit-logs', auditRoutes);
 app.use('/audit-logs', auditRoutes);
+app.use('/admin/audit-logs', auditRoutes);
 app.use('/api/admin/users', userRoutes);
 app.use('/api/users', userRoutes);
+app.use('/admin/users', userRoutes);
+app.use('/users', userRoutes);
 // 404 Fallback
 app.use((req, res) => {
     res.status(404).json({
