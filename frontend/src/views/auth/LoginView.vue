@@ -77,49 +77,6 @@ function quickLogin(user: string, pass: string) {
         Se connecter
       </AppButton>
     </form>
-
-    <div class="quick-login-section">
-      <div class="quick-title">
-        <span>ACCÈS RAPIDE DÉMO</span>
-      </div>
-      <div class="quick-grid">
-        <button
-          type="button"
-          class="quick-btn"
-          @click="quickLogin('admin', 'AdminPass123!')"
-        >
-          <strong>Administrateur</strong>
-          <span>Accès Global</span>
-        </button>
-
-        <button
-          type="button"
-          class="quick-btn"
-          @click="quickLogin('manager_algiers', 'ManagerPass123!')"
-        >
-          <strong>Responsable</strong>
-          <span>Hub d'Alger</span>
-        </button>
-
-        <button
-          type="button"
-          class="quick-btn"
-          @click="quickLogin('super_oran', 'SuperPass123!')"
-        >
-          <strong>Super Gestionnaire</strong>
-          <span>Hub d'Oran</span>
-        </button>
-
-        <button
-          type="button"
-          class="quick-btn"
-          @click="quickLogin('accountant_constantine', 'AccountantPass123!')"
-        >
-          <strong>Comptable</strong>
-          <span>Hub de Constantine</span>
-        </button>
-      </div>
-    </div>
   </div>
 </template>
 
