@@ -99,7 +99,13 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 async function startServer() {
   try {
-    console.log('Connecting to PostgreSQL...');
+    const hasDbUrl = Boolean(process.env.DATABASE_URL || process.env.INTERNAL_DATABASE_URL || process.env.POSTGRES_URL);
+    if (hasDbUrl) {
+      console.log('Connecting to PostgreSQL using connection URL (DATABASE_URL)...');
+    } else {
+      console.log(`Connecting to PostgreSQL via fallback host: ${process.env.PGHOST || 'localhost'}:${process.env.PGPORT || 5432}/${process.env.PGDATABASE || 'distributor_db'}...`);
+    }
+
     await ensureDatabaseExists();
     console.log('Initializing database schema & composite indexes...');
     await initSchema();
