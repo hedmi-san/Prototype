@@ -17,7 +17,7 @@ export const useAuthStore = defineStore('auth', () => {
   const role = computed<RoleType | null>(() => user.value?.role || null);
   const isAdmin = computed(() => role.value === 'ADMIN');
   const isSuperManager = computed(() => role.value === 'SUPER_MANAGER');
-  const isManager = computed(() => role.value === 'MANAGER');
+  const isManager = computed(() => role.value === 'MANAGER' || role.value === 'SUPER_MANAGER');
   const isAccountant = computed(() => role.value === 'ACCOUNTANT');
   const canSwitchWarehouse = computed(() => isAdmin.value || isSuperManager.value);
 

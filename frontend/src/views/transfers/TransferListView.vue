@@ -144,8 +144,11 @@ const showRelocationModal = ref(false);
 
 async function openCreateModal() {
   const activeWhs = warehouseStore.activeWarehouses;
-  const userWhId = authStore.user?.warehouseId;
-  const destId = userWhId || (activeWhs.length > 0 ? activeWhs[0].id : 0);
+  const userWhId = Number(authStore.user?.warehouseId || authStore.activeWarehouseId) || 0;
+  const isGlobalUser = authStore.isAdmin || (authStore.isSuperManager && !authStore.user?.warehouseId);
+
+  // For a warehouse manager, destination warehouse is their assigned warehouse
+  const destId = userWhId && !isGlobalUser ? userWhId : (activeWhs.length > 0 ? activeWhs[0].id : 0);
   const otherWh = activeWhs.find((w) => w.id !== destId);
   const sourceId = otherWh ? otherWh.id : (activeWhs.length > 0 ? activeWhs[0].id : 0);
 
@@ -204,6 +207,18 @@ function openApproveModal(t: Transfer) {
   showApproveModal.value = true;
 }
 
+function getApproveQuantity(productId: number): number {
+  const item = approveForm.value.find((f) => Number(f.productId) === Number(productId));
+  return item !== undefined ? item.approvedQuantity : 0;
+}
+
+function setApproveQuantity(productId: number, val: number) {
+  const item = approveForm.value.find((f) => Number(f.productId) === Number(productId));
+  if (item) {
+    item.approvedQuantity = Math.max(0, isNaN(val) ? 0 : Number(val));
+  }
+}
+
 async function handleSaveApprove() {
   if (!approvingTransfer.value) return;
   saving.value = true;
@@ -222,7 +237,7 @@ async function handleSaveApprove() {
 }
 
 async function handleConfirm(t: Transfer) {
-  if (!confirm(`Confirmer la réception physique de ce transfert #${t.id} à votre entrepôt ?`)) {
+  if (!confirm(`Confirmer la réception physique de ce transfert #${t.id} à votre entrepôt (${t.destinationWarehouseName}) ?\n\nLe stock sera automatiquement déduit de l'entrepôt source et ajouté à votre dépôt.`)) {
     return;
   }
   saving.value = true;
@@ -237,7 +252,7 @@ async function handleConfirm(t: Transfer) {
 }
 
 async function handleDecline(t: Transfer) {
-  if (!confirm(`Refuser cette demande de transfert #${t.id} ?`)) {
+  if (!confirm(`Refuser cette demande de transfert #${t.id} de la part de ${t.destinationWarehouseName} ?`)) {
     return;
   }
   saving.value = true;
@@ -278,31 +293,40 @@ function viewDetails(t: Transfer) {
 function canApprove(t: Transfer): boolean {
   if (t.status !== 'REQUESTED') return false;
   if (authStore.isAdmin) return true;
-  return authStore.isManager && authStore.user?.warehouseId === t.sourceWarehouseId;
+  if (authStore.isSuperManager && !authStore.user?.warehouseId) return true;
+  const userWhId = Number(authStore.user?.warehouseId || authStore.activeWarehouseId);
+  return (authStore.isManager || authStore.isSuperManager) && userWhId === Number(t.sourceWarehouseId);
 }
 
 function canDecline(t: Transfer): boolean {
   if (t.status !== 'REQUESTED') return false;
   if (authStore.isAdmin) return true;
-  return authStore.isManager && authStore.user?.warehouseId === t.sourceWarehouseId;
+  if (authStore.isSuperManager && !authStore.user?.warehouseId) return true;
+  const userWhId = Number(authStore.user?.warehouseId || authStore.activeWarehouseId);
+  return (authStore.isManager || authStore.isSuperManager) && userWhId === Number(t.sourceWarehouseId);
 }
 
 function canConfirm(t: Transfer): boolean {
   if (t.status !== 'APPROVED') return false;
   if (authStore.isAdmin) return true;
-  return authStore.isManager && authStore.user?.warehouseId === t.destinationWarehouseId;
+  if (authStore.isSuperManager && !authStore.user?.warehouseId) return true;
+  const userWhId = Number(authStore.user?.warehouseId || authStore.activeWarehouseId);
+  return (authStore.isManager || authStore.isSuperManager) && userWhId === Number(t.destinationWarehouseId);
 }
 
 function canCancel(t: Transfer): boolean {
   if (t.status !== 'REQUESTED' && t.status !== 'APPROVED') return false;
   if (authStore.isAdmin) return true;
-  const isRequester = authStore.user?.id === t.requestedByUserId;
-  const isDestManager = authStore.isManager && authStore.user?.warehouseId === t.destinationWarehouseId;
-  return isRequester || isDestManager;
+  if (authStore.isSuperManager && !authStore.user?.warehouseId) return true;
+  const isRequester = Number(authStore.user?.id) === Number(t.requestedByUserId);
+  const userWhId = Number(authStore.user?.warehouseId || authStore.activeWarehouseId);
+  const isDestManager = (authStore.isManager || authStore.isSuperManager) && userWhId === Number(t.destinationWarehouseId);
+  const isSourceManager = (authStore.isManager || authStore.isSuperManager) && userWhId === Number(t.sourceWarehouseId);
+  return isRequester || isDestManager || isSourceManager;
 }
 
 const canCreateTransfer = computed(() => {
-  return (authStore.isAdmin || authStore.isManager) && !authStore.isReadOnly;
+  return (authStore.isAdmin || authStore.isManager || authStore.isSuperManager) && !authStore.isReadOnly;
 });
 
 function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger' | 'warning' | 'info' {
@@ -421,28 +445,35 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
                 Détails
               </button>
 
-              <!-- Source Warehouse Action: Approve or Decline -->
-              <template v-if="canApprove(t)">
-                <button class="icon-action-btn btn-primary-action" @click="openApproveModal(t)">
-                  Approuver
-                </button>
-                <button class="icon-action-btn btn-danger-action" @click="handleDecline(t)">
-                  Refuser
-                </button>
+              <!-- Status REQUESTED: Source warehouse approves or declines; Destination warehouse / requester can cancel -->
+              <template v-if="t.status === 'REQUESTED'">
+                <template v-if="canApprove(t)">
+                  <button class="icon-action-btn btn-primary-action" title="Valider les quantités et réserver le stock à votre entrepôt" @click="openApproveModal(t)">
+                    Approuver
+                  </button>
+                  <button class="icon-action-btn btn-danger-action" title="Refuser cette demande de transfert" @click="handleDecline(t)">
+                    Refuser
+                  </button>
+                </template>
+                <template v-if="canCancel(t) && !canApprove(t)">
+                  <button class="icon-action-btn btn-danger-action" title="Annuler ma demande de transfert" @click="promptCancel(t)">
+                    Annuler
+                  </button>
+                </template>
               </template>
 
-              <!-- Destination Warehouse Action: Confirm Reception -->
-              <template v-if="canConfirm(t)">
-                <button class="icon-action-btn btn-success-action" @click="handleConfirm(t)">
-                  Confirmer Réception
-                </button>
-              </template>
-
-              <!-- Cancel Transfer -->
-              <template v-if="canCancel(t)">
-                <button class="icon-action-btn btn-danger-action" @click="promptCancel(t)">
-                  Annuler
-                </button>
+              <!-- Status APPROVED: Destination warehouse confirms receipt; or cancel to release reserved stock -->
+              <template v-if="t.status === 'APPROVED'">
+                <template v-if="canConfirm(t)">
+                  <button class="icon-action-btn btn-success-action" title="Confirmer la réception physique des articles" @click="handleConfirm(t)">
+                    Confirmer Réception
+                  </button>
+                </template>
+                <template v-if="canCancel(t)">
+                  <button class="icon-action-btn btn-danger-action" title="Annuler le transfert et libérer le stock réservé" @click="promptCancel(t)">
+                    Annuler
+                  </button>
+                </template>
               </template>
             </div>
           </td>
@@ -473,26 +504,38 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
       <div class="modal-form">
         <div class="form-row">
           <div class="app-input-group">
-            <label class="input-label">Entrepôt Source (Départ)</label>
+            <label class="input-label">Entrepôt Source (Expéditeur)</label>
             <select
               v-model.number="createForm.sourceWarehouseId"
               class="app-select"
               required
               @change="fetchSourceWarehouseStock(createForm.sourceWarehouseId)"
             >
-              <option v-for="w in warehouseStore.activeWarehouses" :key="w.id" :value="w.id">
+              <option
+                v-for="w in warehouseStore.activeWarehouses"
+                :key="w.id"
+                :value="w.id"
+                :disabled="w.id === createForm.destinationWarehouseId"
+              >
                 {{ w.name }} ({{ w.code }})
               </option>
             </select>
+            <span class="text-caption text-muted">L'entrepôt qui fournit et expédie les produits.</span>
           </div>
 
           <div class="app-input-group">
-            <label class="input-label">Entrepôt Destination (Arrivée)</label>
-            <select v-model.number="createForm.destinationWarehouseId" class="app-select" required>
+            <label class="input-label">Entrepôt Destination (Destinataire)</label>
+            <select
+              v-model.number="createForm.destinationWarehouseId"
+              class="app-select"
+              required
+              :disabled="!authStore.isAdmin && !(authStore.isSuperManager && !authStore.user?.warehouseId)"
+            >
               <option v-for="w in warehouseStore.activeWarehouses" :key="w.id" :value="w.id">
                 {{ w.name }} ({{ w.code }})
               </option>
             </select>
+            <span class="text-caption text-muted">L'entrepôt demandeur recevant les produits.</span>
           </div>
         </div>
 
@@ -570,11 +613,12 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
           <div class="item-input">
             <label class="input-label">Qté Approuvée</label>
             <input
-              v-model.number="approveForm.find(f => f.productId === item.productId)!.approvedQuantity"
+              :value="getApproveQuantity(item.productId)"
               type="number"
               min="0"
               :max="item.requestedQuantity"
               class="app-input item-qty-input"
+              @input="setApproveQuantity(item.productId, Number(($event.target as HTMLInputElement).value))"
             />
           </div>
         </div>
@@ -769,14 +813,27 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
 }
 
 .btn-success-action {
-  background-color: var(--color-success-bg);
-  color: var(--color-success);
-  border-color: var(--color-success-border);
+  background-color: var(--color-success-bg, rgba(16, 185, 129, 0.1));
+  color: var(--color-success, #10b981);
+  border-color: var(--color-success-border, rgba(16, 185, 129, 0.3));
+}
+
+.btn-success-action:hover {
+  background-color: var(--color-success, #10b981);
+  color: #ffffff;
+  border-color: var(--color-success, #10b981);
+}
+
+.btn-danger-action {
+  background-color: var(--color-danger-bg, rgba(239, 68, 68, 0.1));
+  color: var(--color-danger, #ef4444);
+  border-color: var(--color-danger-border, rgba(239, 68, 68, 0.3));
 }
 
 .btn-danger-action:hover {
-  background-color: var(--color-danger-bg);
-  color: var(--color-danger);
+  background-color: var(--color-danger, #ef4444);
+  color: #ffffff;
+  border-color: var(--color-danger, #ef4444);
 }
 
 .modal-form {

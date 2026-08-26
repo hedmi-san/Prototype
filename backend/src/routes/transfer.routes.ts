@@ -246,7 +246,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
     return sendError(res, `Impossible de créer un transfert : le dépôt de destination (${destWh ? destWh.name : destinationWarehouseId}) est inactif`, 400);
   }
 
-  if (user?.role !== 'ADMIN' && user?.warehouseId && user.warehouseId !== destinationWarehouseId) {
+  if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_MANAGER' && user?.warehouseId && Number(user.warehouseId) !== Number(destinationWarehouseId)) {
     return sendError(res, 'Access denied: You can only request transfers destined for your assigned warehouse', 403);
   }
 
@@ -485,7 +485,9 @@ router.post('/:id/approve', authenticate, async (req: AuthRequest, res) => {
   if (!transfer) return sendError(res, `Transfer not found with id ${id}`, 404);
 
   if (user?.role !== 'ADMIN') {
-    if (user?.role !== 'MANAGER' || user?.warehouseId !== transfer.source_warehouse_id) {
+    const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
+    const isSourceManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.source_warehouse_id);
+    if (!isGlobalSuper && !isSourceManager) {
       return sendError(res, 'Access denied: Only the source warehouse manager or an administrator can approve this transfer', 403);
     }
   }
@@ -499,7 +501,7 @@ router.post('/:id/approve', authenticate, async (req: AuthRequest, res) => {
       const currentItems = currentItemsRes.rows;
 
       for (const curItem of currentItems) {
-        const matchingApproved = approvedItems.find((i: any) => i.productId === curItem.product_id);
+        const matchingApproved = approvedItems.find((i: any) => Number(i.productId) === Number(curItem.product_id));
         const qtyToApprove = matchingApproved !== undefined ? Number(matchingApproved.approvedQuantity) : Number(curItem.requested_quantity);
         if (qtyToApprove < 0) {
           throw new Error('Approved quantity cannot be negative');
@@ -515,14 +517,24 @@ router.post('/:id/approve', authenticate, async (req: AuthRequest, res) => {
         const available = physQty - resQty;
 
         if (available < qtyToApprove) {
-          throw new Error(`Insufficient available stock at source warehouse to reserve ${qtyToApprove} units. Available: ${available}`);
+          const prodRes = await client.query('SELECT name, reference FROM products WHERE id = $1', [curItem.product_id]);
+          const prod = prodRes.rows[0];
+          const prodLabel = prod ? `${prod.name} (${prod.reference})` : `ID ${curItem.product_id}`;
+          throw new Error(`Stock disponible insuffisant pour ${prodLabel} à l'entrepôt source. Requis: ${qtyToApprove}, Disponible: ${available}`);
         }
 
         if (qtyToApprove > 0) {
-          await client.query(
-            'UPDATE stock SET reserved_quantity = reserved_quantity + $1, updated_at = NOW() WHERE id = $2',
-            [qtyToApprove, stock.id]
-          );
+          if (stock) {
+            await client.query(
+              'UPDATE stock SET reserved_quantity = reserved_quantity + $1, updated_at = NOW() WHERE id = $2',
+              [qtyToApprove, stock.id]
+            );
+          } else {
+            await client.query(
+              'INSERT INTO stock (warehouse_id, product_id, physical_quantity, reserved_quantity) VALUES ($1, $2, 0, $3)',
+              [transfer.source_warehouse_id, curItem.product_id, qtyToApprove]
+            );
+          }
         }
 
         await client.query(
@@ -556,7 +568,9 @@ router.post('/:id/confirm', authenticate, async (req: AuthRequest, res) => {
   if (!transfer) return sendError(res, `Transfer not found with id ${id}`, 404);
 
   if (user?.role !== 'ADMIN') {
-    if (user?.role !== 'MANAGER' || user?.warehouseId !== transfer.destination_warehouse_id) {
+    const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
+    const isDestManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.destination_warehouse_id);
+    if (!isGlobalSuper && !isDestManager) {
       return sendError(res, 'Access denied: Only the destination warehouse manager or an administrator can confirm receipt of this transfer', 403);
     }
   }
@@ -576,15 +590,17 @@ router.post('/:id/confirm', authenticate, async (req: AuthRequest, res) => {
           [transfer.source_warehouse_id, item.product_id]
         );
         const sourceStock = sourceStockRes.rows[0];
-        if (!sourceStock || Number(sourceStock.physical_quantity) < qty || Number(sourceStock.reserved_quantity) < qty) {
-          throw new Error(`Source stock inconsistency for product ID ${item.product_id}: insufficient physical/reserved stock to deduct ${qty} units`);
+        if (!sourceStock || Number(sourceStock.physical_quantity) < qty) {
+          throw new Error(`Incohérence de stock pour le produit ID ${item.product_id} à l'entrepôt source : stock physique insuffisant (${sourceStock ? sourceStock.physical_quantity : 0}) pour déduire ${qty} unités`);
         }
 
         await client.query(`
           UPDATE stock
-          SET physical_quantity = physical_quantity - $1, reserved_quantity = reserved_quantity - $2, updated_at = NOW()
-          WHERE warehouse_id = $3 AND product_id = $4
-        `, [qty, qty, transfer.source_warehouse_id, item.product_id]);
+          SET physical_quantity = physical_quantity - $1,
+              reserved_quantity = GREATEST(0, reserved_quantity - $1),
+              updated_at = NOW()
+          WHERE warehouse_id = $2 AND product_id = $3
+        `, [qty, transfer.source_warehouse_id, item.product_id]);
 
         await client.query(`
           INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
@@ -634,7 +650,9 @@ router.post('/:id/decline', authenticate, async (req: AuthRequest, res) => {
   if (!transfer) return sendError(res, `Transfer not found with id ${id}`, 404);
 
   if (user?.role !== 'ADMIN') {
-    if (user?.role !== 'MANAGER' || user?.warehouseId !== transfer.source_warehouse_id) {
+    const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
+    const isSourceManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.source_warehouse_id);
+    if (!isGlobalSuper && !isSourceManager) {
       return sendError(res, 'Access denied: Only the source warehouse manager or an administrator can decline this transfer', 403);
     }
   }
@@ -658,9 +676,11 @@ router.post('/:id/cancel', authenticate, async (req: AuthRequest, res) => {
   }
 
   if (user?.role !== 'ADMIN') {
-    const isRequester = user?.id === transfer.requested_by_user_id;
-    const isDestManager = user?.role === 'MANAGER' && user?.warehouseId === transfer.destination_warehouse_id;
-    if (!isRequester && !isDestManager) {
+    const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
+    const isRequester = Number(user?.id) === Number(transfer.requested_by_user_id);
+    const isDestManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.destination_warehouse_id);
+    const isSourceManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.source_warehouse_id);
+    if (!isGlobalSuper && !isRequester && !isDestManager && !isSourceManager) {
       return sendError(res, 'Access denied: You do not have permission to cancel this transfer', 403);
     }
   }
@@ -673,7 +693,7 @@ router.post('/:id/cancel', authenticate, async (req: AuthRequest, res) => {
           const qty = Number(item.approved_quantity);
           if (qty > 0) {
             await client.query(`
-              UPDATE stock SET reserved_quantity = reserved_quantity - $1, updated_at = NOW()
+              UPDATE stock SET reserved_quantity = GREATEST(0, reserved_quantity - $1), updated_at = NOW()
               WHERE warehouse_id = $2 AND product_id = $3
             `, [qty, transfer.source_warehouse_id, item.product_id]);
           }
