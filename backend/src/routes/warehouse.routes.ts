@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import { query } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { authenticate, requireRole, AuthRequest, logAudit } from '../middleware/auth.js';
@@ -21,7 +21,7 @@ function mapWarehouseRow(w: any) {
   };
 }
 
-router.get('/', authenticate, async (req: AuthRequest, res) => {
+router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const result = await query('SELECT * FROM warehouses ORDER BY id ASC');
     return sendSuccess(res, result.rows.map(mapWarehouseRow));
@@ -30,7 +30,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/:id', authenticate, async (req: AuthRequest, res) => {
+router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
     const result = await query('SELECT * FROM warehouses WHERE id = $1', [id]);
@@ -44,7 +44,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.post('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res) => {
+router.post('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
   try {
     const { name, code, location, address, contactNumber, contact_number, phone } = req.body;
     const warehouseLocation = location || address || '';
@@ -72,7 +72,7 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, re
   }
 });
 
-router.put('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res) => {
+router.put('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
     const { name, code, location, address, contactNumber, contact_number, phone, active } = req.body;

@@ -24,7 +24,7 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 // Request logger
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
   res.on('finish', () => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${Date.now() - start}ms)`);
@@ -33,7 +33,7 @@ app.use((req, res, next) => {
 });
 
 // Health Checks
-app.get(['/actuator/health', '/api/health', '/health'], (req, res) => {
+app.get(['/actuator/health', '/api/health', '/health'], (req: Request, res: Response) => {
   res.json({ status: 'UP', service: 'distributor-management-node', database: 'PostgreSQL', timestamp: new Date().toISOString() });
 });
 
@@ -78,7 +78,7 @@ app.use('/api/admin/users', userRoutes);
 app.use('/api/users', userRoutes);
 
 // 404 Fallback
-app.use((req, res) => {
+app.use((req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     message: `Endpoint ${req.method} ${req.originalUrl} not found`,

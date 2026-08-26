@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
@@ -6,7 +6,7 @@ import { authenticate, requireRole, AuthRequest, logAudit } from '../middleware/
 
 const router = Router();
 
-router.get('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res) => {
+router.get('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
   try {
     const sql = `
       SELECT u.id, u.username, u.full_name, u.role_id, r.name as role_name,
@@ -37,7 +37,7 @@ router.get('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res
   }
 });
 
-router.post('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res) => {
+router.post('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
   try {
     const { username, password, fullName, roleName, warehouseId } = req.body;
     if (!username || !password || !fullName || !roleName) {
@@ -74,7 +74,7 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req: AuthRequest, re
   }
 });
 
-router.put('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res) => {
+router.put('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
   try {
     const targetId = Number(req.params.id);
     if (isNaN(targetId)) {
@@ -189,7 +189,7 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, 
   }
 });
 
-router.delete('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res) => {
+router.delete('/:id', authenticate, requireRole('ADMIN'), async (req: AuthRequest, res: Response) => {
   try {
     const targetId = Number(req.params.id);
     if (isNaN(targetId)) {
