@@ -89,7 +89,7 @@ async function startServer() {
         app.listen(PORT, () => {
             console.log(`=======================================================`);
             console.log(` Multi-Warehouse Node.js API Server (PostgreSQL) running on port ${PORT}`);
-            console.log(` Health check: http://localhost:${PORT}/actuator/health`);
+            console.log(` Health check: /actuator/health`);
             console.log(`=======================================================`);
         });
     }
