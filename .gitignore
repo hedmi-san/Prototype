@@ -39,3 +39,7 @@ backend/data/*.sqlite-shm
 *.sln
 *.sw?
 .DS_Store
+
+# OpenSpec
+openspec/
+.openspec/

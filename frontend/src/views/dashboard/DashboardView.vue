@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
-import { useAuthStore } from '../../stores/auth.store';
-import { reportService } from '../../services/admin-reports.service';
-import type { DashboardMetrics } from '../../types';
-import type { ComputedPeriodRange } from '../../utils/periodNavigator';
+import { ref, onMounted, computed, watch } from "vue";
+import { useAuthStore } from "../../stores/auth.store";
+import { reportService } from "../../services/admin-reports.service";
+import type { DashboardMetrics } from "../../types";
+import type { ComputedPeriodRange } from "../../utils/periodNavigator";
 import {
   formatCurrency,
   formatDateTime,
   formatNumber,
   formatSaleStatus,
   formatMovementType,
-} from '../../utils/formatters';
-import AppSkeleton from '../../components/common/AppSkeleton.vue';
-import AppBadge from '../../components/common/AppBadge.vue';
-import AppTable from '../../components/common/AppTable.vue';
-import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
+} from "../../utils/formatters";
+import AppSkeleton from "../../components/common/AppSkeleton.vue";
+import AppBadge from "../../components/common/AppBadge.vue";
+import AppTable from "../../components/common/AppTable.vue";
+import AppPeriodNavigator from "../../components/common/AppPeriodNavigator.vue";
 
 const authStore = useAuthStore();
 const metrics = ref<DashboardMetrics | null>(null);
@@ -29,9 +29,12 @@ onMounted(async () => {
 });
 
 // Watch warehouse changes to refresh automatically
-watch(() => authStore.activeWarehouseId, async () => {
-  await fetchMetrics();
-});
+watch(
+  () => authStore.activeWarehouseId,
+  async () => {
+    await fetchMetrics();
+  },
+);
 
 async function onPeriodChange(range: ComputedPeriodRange) {
   activeRange.value = range;
@@ -45,10 +48,10 @@ async function fetchMetrics() {
       authStore.activeWarehouseId || undefined,
       undefined,
       activeRange.value?.startDate,
-      activeRange.value?.endDate
+      activeRange.value?.endDate,
     );
   } catch (err) {
-    console.error('Failed to load dashboard metrics', err);
+    console.error("Failed to load dashboard metrics", err);
   } finally {
     loading.value = false;
   }
@@ -57,7 +60,7 @@ async function fetchMetrics() {
 // Compute max sales trend amount for relative bar heights
 const maxTrendAmount = computed(() => {
   if (!metrics.value?.salesTrend?.length) return 1;
-  const max = Math.max(...metrics.value.salesTrend.map(t => t.totalAmount));
+  const max = Math.max(...metrics.value.salesTrend.map((t) => t.totalAmount));
   return max > 0 ? max : 1;
 });
 </script>
@@ -69,12 +72,27 @@ const maxTrendAmount = computed(() => {
       <div>
         <h1 class="page-title">Tableau de Bord Général</h1>
         <p class="text-muted">
-          {{ authStore.activeWarehouseId ? 'Performance & Suivi des Stocks de l\'Entrepôt' : 'Opérations Consolidées Multi-Entrepôts' }}
+          {{
+            authStore.activeWarehouseId
+              ? "Performance & Suivi des Stocks de l'Entrepôt"
+              : "Opérations Consolidées Multi-Entrepôts"
+          }}
         </p>
       </div>
       <div class="header-actions">
-        <button class="refresh-btn" @click="fetchMetrics" title="Rafraîchir les métriques">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button
+          class="refresh-btn"
+          @click="fetchMetrics"
+          title="Rafraîchir les métriques"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
@@ -84,10 +102,7 @@ const maxTrendAmount = computed(() => {
     </div>
 
     <!-- Reusable ERP Period Navigator Component -->
-    <AppPeriodNavigator
-      initial-granularity="month"
-      @change="onPeriodChange"
-    />
+    <AppPeriodNavigator initial-granularity="month" @change="onPeriodChange" />
 
     <!-- Primary Metric Cards Grid -->
     <div class="metrics-grid">
@@ -95,19 +110,31 @@ const maxTrendAmount = computed(() => {
       <div class="metric-card highlight-card">
         <div class="card-top">
           <span class="metric-label">VENTES DE LA PÉRIODE</span>
-          <div v-if="metrics && metrics.salesGrowthPercentage !== undefined" :class="['growth-badge', metrics.salesGrowthPercentage >= 0 ? 'positive' : 'negative']">
-            <span>{{ metrics.salesGrowthPercentage >= 0 ? '+' : '' }}{{ metrics.salesGrowthPercentage }}%</span>
+          <div
+            v-if="metrics && metrics.salesGrowthPercentage !== undefined"
+            :class="[
+              'growth-badge',
+              metrics.salesGrowthPercentage >= 0 ? 'positive' : 'negative',
+            ]"
+          >
+            <span
+              >{{ metrics.salesGrowthPercentage >= 0 ? "+" : ""
+              }}{{ metrics.salesGrowthPercentage }}%</span
+            >
           </div>
         </div>
         <div v-if="loading">
           <AppSkeleton height="32px" width="160px" />
         </div>
         <div v-else class="metric-value font-mono">
-          {{ formatCurrency(metrics?.periodSales ?? metrics?.totalSalesThisMonth) }}
+          {{
+            formatCurrency(metrics?.periodSales ?? metrics?.totalSalesThisMonth)
+          }}
         </div>
         <div class="card-bottom">
           <span class="metric-sub text-muted">
-            {{ metrics?.periodOrders || 0 }} commande(s) &bull; Panier moy. {{ formatCurrency(metrics?.periodAverageBasket) }}
+            {{ metrics?.periodOrders || 0 }} commande(s) &bull; Panier moy.
+            {{ formatCurrency(metrics?.periodAverageBasket) }}
           </span>
         </div>
       </div>
@@ -116,30 +143,55 @@ const maxTrendAmount = computed(() => {
       <div class="metric-card">
         <div class="card-top">
           <span class="metric-label">BÉNÉFICE NET ESTIMÉ</span>
-          <span class="metric-sub text-caption">{{ activeRange?.label || metrics?.periodLabel }}</span>
+          <span class="metric-sub text-caption">{{
+            activeRange?.label || metrics?.periodLabel
+          }}</span>
         </div>
         <div v-if="loading">
           <AppSkeleton height="32px" width="140px" />
         </div>
-        <div v-else :class="['metric-value', 'font-mono', (metrics?.periodNetProfit ?? metrics?.netProfitThisMonth ?? 0) >= 0 ? 'text-success' : 'text-danger']">
-          {{ formatCurrency(metrics?.periodNetProfit ?? metrics?.netProfitThisMonth) }}
+        <div
+          v-else
+          :class="[
+            'metric-value',
+            'font-mono',
+            (metrics?.periodNetProfit ?? metrics?.netProfitThisMonth ?? 0) >= 0
+              ? 'text-success'
+              : 'text-danger',
+          ]"
+        >
+          {{
+            formatCurrency(
+              metrics?.periodNetProfit ?? metrics?.netProfitThisMonth,
+            )
+          }}
         </div>
-        <span class="metric-sub text-muted">CA &minus; Achats &minus; Dépenses &minus; Salaires</span>
+        <span class="metric-sub text-muted"
+          >CA &minus; Achats &minus; Dépenses &minus; Salaires</span
+        >
       </div>
 
       <!-- 3. Physical Stock Valuation -->
       <div class="metric-card">
         <div class="card-top">
           <span class="metric-label">VALORISATION DU STOCK</span>
-          <span class="text-caption text-muted">{{ formatNumber(metrics?.totalStockItems) }} unités</span>
+          <span class="text-caption text-muted"
+            >{{ formatNumber(metrics?.totalStockItems) }} unités</span
+          >
         </div>
         <div v-if="loading">
           <AppSkeleton height="32px" width="160px" />
         </div>
         <div v-else class="metric-value font-mono">
-          {{ formatCurrency(metrics?.totalStockValue ?? metrics?.totalStockValuation) }}
+          {{
+            formatCurrency(
+              metrics?.totalStockValue ?? metrics?.totalStockValuation,
+            )
+          }}
         </div>
-        <span class="metric-sub text-muted">Actif physique valorisé au prix d'achat</span>
+        <span class="metric-sub text-muted"
+          >Actif physique valorisé au prix d'achat</span
+        >
       </div>
 
       <!-- 4. Stock Health & Alerts -->
@@ -150,15 +202,21 @@ const maxTrendAmount = computed(() => {
         </div>
         <div v-else class="metric-stats">
           <div class="stat-pill">
-            <span class="stat-num text-danger">{{ metrics?.outOfStockCount || 0 }}</span>
+            <span class="stat-num text-danger">{{
+              metrics?.outOfStockCount || 0
+            }}</span>
             <span class="stat-text">Rupture de stock</span>
           </div>
           <div class="stat-pill">
-            <span class="stat-num text-warning">{{ metrics?.lowStockCount || 0 }}</span>
-            <span class="stat-text">Stock faible (&le;10)</span>
+            <span class="stat-num text-warning">{{
+              metrics?.lowStockCount || 0
+            }}</span>
+            <span class="stat-text">Stock faible (&le;5)</span>
           </div>
         </div>
-        <span class="metric-sub text-muted">Alertes actives de réapprovisionnement</span>
+        <span class="metric-sub text-muted"
+          >Alertes actives de réapprovisionnement</span
+        >
       </div>
 
       <!-- 5. Pending Transfers -->
@@ -170,17 +228,24 @@ const maxTrendAmount = computed(() => {
         <div v-else class="metric-value font-mono">
           {{ metrics?.pendingTransfersCount || 0 }}
         </div>
-        <span class="metric-sub text-muted">En attente de validation logistique</span>
+        <span class="metric-sub text-muted"
+          >En attente de validation logistique</span
+        >
       </div>
     </div>
 
     <!-- Sales Evolution Trend Widget (Time Series Breakdown) -->
-    <div v-if="metrics?.salesTrend && metrics.salesTrend.length > 0" class="section-card">
+    <div
+      v-if="metrics?.salesTrend && metrics.salesTrend.length > 0"
+      class="section-card"
+    >
       <div class="section-header">
         <div>
           <h3>Évolution Chronologique des Ventes</h3>
           <span class="text-caption">
-            Historique d'activité sur {{ activeRange?.label || metrics.periodLabel }} &bull; {{ metrics.salesTrend.length }} point(s) d'enregistrement
+            Historique d'activité sur
+            {{ activeRange?.label || metrics.periodLabel }} &bull;
+            {{ metrics.salesTrend.length }} point(s) d'enregistrement
           </span>
         </div>
         <div class="trend-summary-pill font-mono">
@@ -200,22 +265,36 @@ const maxTrendAmount = computed(() => {
             <div class="bar-fill-track">
               <div
                 class="bar-fill-value"
-                :style="{ height: `${Math.max((t.totalAmount / maxTrendAmount) * 100, 6)}%` }"
+                :style="{
+                  height: `${Math.max((t.totalAmount / maxTrendAmount) * 100, 6)}%`,
+                }"
               ></div>
             </div>
             <span class="bar-date-label">{{ t.date.slice(-5) }}</span>
-            <span class="bar-amount-tooltip">{{ formatCurrency(t.totalAmount) }}</span>
+            <span class="bar-amount-tooltip">{{
+              formatCurrency(t.totalAmount)
+            }}</span>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Multi-Warehouse Comparison Table (Admin Consolidated View) -->
-    <div v-if="metrics?.warehouseComparisons && metrics.warehouseComparisons.length > 0" class="section-card">
+    <div
+      v-if="
+        metrics?.warehouseComparisons && metrics.warehouseComparisons.length > 0
+      "
+      class="section-card"
+    >
       <div class="section-header">
         <div>
           <h3>Vue d'Ensemble Multi-Entrepôts</h3>
-          <span class="text-caption">Comparaison opérationnelle des sites sur {{ activeRange?.label || metrics?.periodLabel || 'la période' }}</span>
+          <span class="text-caption"
+            >Comparaison opérationnelle des sites sur
+            {{
+              activeRange?.label || metrics?.periodLabel || "la période"
+            }}</span
+          >
         </div>
       </div>
 
@@ -232,13 +311,21 @@ const maxTrendAmount = computed(() => {
           <tr v-for="w in metrics.warehouseComparisons" :key="w.warehouseId">
             <td>
               <strong>{{ w.warehouseName }}</strong>
-              <span class="text-caption" style="margin-left: 6px;">({{ w.warehouseCode }})</span>
+              <span class="text-caption" style="margin-left: 6px"
+                >({{ w.warehouseCode }})</span
+              >
             </td>
             <td class="font-mono">{{ formatCurrency(w.stockValue) }}</td>
             <td>{{ formatNumber(w.totalProductsCount) }} articles</td>
-            <td class="font-mono font-bold">{{ formatCurrency(w.periodSales ?? w.monthlySales) }}</td>
-            <td class="font-mono text-muted">{{ formatCurrency(w.monthlyExpenses) }}</td>
-            <td class="font-mono text-muted">{{ formatCurrency(w.monthlySalaries) }}</td>
+            <td class="font-mono font-bold">
+              {{ formatCurrency(w.periodSales ?? w.monthlySales) }}
+            </td>
+            <td class="font-mono text-muted">
+              {{ formatCurrency(w.monthlyExpenses) }}
+            </td>
+            <td class="font-mono text-muted">
+              {{ formatCurrency(w.monthlySalaries) }}
+            </td>
           </tr>
         </template>
       </AppTable>
@@ -250,10 +337,17 @@ const maxTrendAmount = computed(() => {
       <div class="section-card">
         <div class="section-header">
           <h3>Factures Récentes de Vente</h3>
-          <router-link to="/sales" class="section-link">Consulter Tout &rarr;</router-link>
+          <router-link to="/sales" class="section-link"
+            >Consulter Tout &rarr;</router-link
+          >
         </div>
 
-        <AppTable :loading="loading" :empty="!metrics?.recentSales?.length" empty-text="Aucune vente enregistrée" :columns-count="4">
+        <AppTable
+          :loading="loading"
+          :empty="!metrics?.recentSales?.length"
+          empty-text="Aucune vente enregistrée"
+          :columns-count="4"
+        >
           <template #header>
             <th>Facture</th>
             <th>Entrepôt</th>
@@ -263,13 +357,20 @@ const maxTrendAmount = computed(() => {
           <template #body>
             <tr v-for="sale in metrics?.recentSales" :key="sale.id">
               <td>
-                <span class="font-mono font-bold">{{ sale.invoiceNumber }}</span>
-                <div class="text-caption">{{ formatDateTime(sale.saleDate || sale.createdAt) }}</div>
+                <span class="font-mono font-bold">{{
+                  sale.invoiceNumber
+                }}</span>
+                <div class="text-caption">
+                  {{ formatDateTime(sale.saleDate || sale.createdAt) }}
+                </div>
               </td>
               <td>{{ sale.warehouseName }}</td>
               <td class="font-mono">{{ formatCurrency(sale.totalAmount) }}</td>
               <td>
-                <AppBadge :variant="sale.status === 'COMPLETED' ? 'success' : 'danger'" size="sm">
+                <AppBadge
+                  :variant="sale.status === 'COMPLETED' ? 'success' : 'danger'"
+                  size="sm"
+                >
                   {{ formatSaleStatus(sale.status) }}
                 </AppBadge>
               </td>
@@ -282,10 +383,17 @@ const maxTrendAmount = computed(() => {
       <div class="section-card">
         <div class="section-header">
           <h3>Mouvements Récents de Stock</h3>
-          <router-link to="/movements" class="section-link">Consulter le Registre &rarr;</router-link>
+          <router-link to="/movements" class="section-link"
+            >Consulter le Registre &rarr;</router-link
+          >
         </div>
 
-        <AppTable :loading="loading" :empty="!metrics?.recentMovements?.length" empty-text="Aucun mouvement récent" :columns-count="4">
+        <AppTable
+          :loading="loading"
+          :empty="!metrics?.recentMovements?.length"
+          empty-text="Aucun mouvement récent"
+          :columns-count="4"
+        >
           <template #header>
             <th>Produit</th>
             <th>Type</th>
@@ -296,15 +404,32 @@ const maxTrendAmount = computed(() => {
             <tr v-for="m in metrics?.recentMovements" :key="m.id">
               <td>
                 <strong>{{ m.productName }}</strong>
-                <div class="text-caption font-mono">{{ m.productReference }}</div>
+                <div class="text-caption font-mono">
+                  {{ m.productReference }}
+                </div>
               </td>
               <td>
-                <AppBadge :variant="(m.quantityChange ?? m.quantity ?? 0) > 0 ? 'info' : 'neutral'" size="sm">
+                <AppBadge
+                  :variant="
+                    (m.quantityChange ?? m.quantity ?? 0) > 0
+                      ? 'info'
+                      : 'neutral'
+                  "
+                  size="sm"
+                >
                   {{ formatMovementType(m.movementType ?? m.type) }}
                 </AppBadge>
               </td>
-              <td :class="['font-mono', (m.quantityChange ?? m.quantity ?? 0) > 0 ? 'text-success' : 'text-danger']">
-                {{ (m.quantityChange ?? m.quantity ?? 0) > 0 ? '+' : '' }}{{ formatNumber(m.quantityChange ?? m.quantity) }}
+              <td
+                :class="[
+                  'font-mono',
+                  (m.quantityChange ?? m.quantity ?? 0) > 0
+                    ? 'text-success'
+                    : 'text-danger',
+                ]"
+              >
+                {{ (m.quantityChange ?? m.quantity ?? 0) > 0 ? "+" : ""
+                }}{{ formatNumber(m.quantityChange ?? m.quantity) }}
               </td>
               <td class="text-caption">{{ formatDateTime(m.createdAt) }}</td>
             </tr>
@@ -530,13 +655,23 @@ const maxTrendAmount = computed(() => {
 
 .bar-fill-value {
   width: 70%;
-  background: linear-gradient(180deg, var(--color-primary) 0%, rgba(37, 99, 235, 0.4) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--color-primary) 0%,
+    rgba(37, 99, 235, 0.4) 100%
+  );
   border-radius: 4px 4px 0 0;
-  transition: height 0.3s ease, background 0.2s ease;
+  transition:
+    height 0.3s ease,
+    background 0.2s ease;
 }
 
 .trend-bar-column:hover .bar-fill-value {
-  background: linear-gradient(180deg, var(--color-primary-hover, #1d4ed8) 0%, var(--color-primary) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--color-primary-hover, #1d4ed8) 0%,
+    var(--color-primary) 100%
+  );
 }
 
 .bar-date-label {

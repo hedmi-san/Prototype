@@ -10,11 +10,17 @@ const port = Number(process.env.PGPORT) || 5432;
 const user = process.env.PGUSER || 'postgres';
 const password = process.env.PGPASSWORD || 'root';
 const database = process.env.PGDATABASE || 'distributor_db';
+const rawConnectionString = process.env.DATABASE_URL || process.env.INTERNAL_DATABASE_URL || process.env.POSTGRES_URL;
+const connectionString = rawConnectionString ? rawConnectionString.trim() : undefined;
+const isLocalConnection = !connectionString
+    ? (host === 'localhost' || host === '127.0.0.1')
+    : (connectionString.includes('localhost') || connectionString.includes('127.0.0.1'));
 /**
  * Ensure target database exists; if not, create it via admin connection
  */
 export async function ensureDatabaseExists() {
-    if (process.env.DATABASE_URL) {
+    if (connectionString) {
+        console.log('Using managed PostgreSQL connection URL (skipping automatic DB creation check).');
         return;
     }
     const adminClient = new pg.Client({
@@ -23,6 +29,7 @@ export async function ensureDatabaseExists() {
         user,
         password,
         database: 'postgres',
+        ssl: isLocalConnection ? false : { rejectUnauthorized: false },
     });
     try {
         await adminClient.connect();
@@ -35,7 +42,7 @@ export async function ensureDatabaseExists() {
         }
     }
     catch (err) {
-        console.warn('Database existence check note:', err.message);
+        console.warn('Database existence check note:', err?.message || err);
     }
     finally {
         try {
@@ -44,17 +51,24 @@ export async function ensureDatabaseExists() {
         catch { }
     }
 }
-export const pool = process.env.DATABASE_URL
-    ? new pg.Pool({ connectionString: process.env.DATABASE_URL })
+export const pool = connectionString
+    ? new pg.Pool({
+        connectionString,
+        ssl: isLocalConnection ? false : { rejectUnauthorized: false },
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+    })
     : new pg.Pool({
         host,
         port,
         user,
         password,
         database,
+        ssl: isLocalConnection ? false : { rejectUnauthorized: false },
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
     });
 pool.on('error', (err) => {
     console.error('Unexpected error on idle PostgreSQL client', err);
