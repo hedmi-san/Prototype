@@ -42,14 +42,7 @@ const productForm = ref({
   purchasePrice: 0,
   salePrice: 0,
   unit: 'PIECE',
-});
-
-// Price Update Modal State
-const showPriceModal = ref(false);
-const priceUpdatingProduct = ref<Product | null>(null);
-const priceForm = ref({
-  purchasePrice: 0,
-  salePrice: 0,
+  boxSize: 0,
 });
 const saving = ref(false);
 const exporting = ref(false);
@@ -67,7 +60,7 @@ onBeforeUnmount(() => {
 });
 
 function handleWindowFocus() {
-  if (document.visibilityState === 'visible' && !showProductModal.value && !showPriceModal.value) {
+  if (document.visibilityState === 'visible' && !showProductModal.value) {
     fetchProducts(false);
     fetchBrands();
   }
@@ -193,6 +186,7 @@ function openCreateModal() {
     purchasePrice: 0,
     salePrice: 0,
     unit: 'PIECE',
+    boxSize: 0,
   };
   showProductModal.value = true;
 }
@@ -206,17 +200,9 @@ function openEditModal(product: Product) {
     purchasePrice: product.purchasePrice,
     salePrice: product.salePrice,
     unit: product.unit,
+    boxSize: product.boxSize || 0,
   };
   showProductModal.value = true;
-}
-
-function openPriceModal(product: Product) {
-  priceUpdatingProduct.value = product;
-  priceForm.value = {
-    purchasePrice: product.purchasePrice,
-    salePrice: product.salePrice,
-  };
-  showPriceModal.value = true;
 }
 
 async function handleSaveProduct() {
@@ -231,20 +217,6 @@ async function handleSaveProduct() {
     await Promise.all([fetchProducts(), fetchBrands()]);
   } catch (err) {
     console.error('Failed to save product', err);
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function handleUpdatePrice() {
-  if (!priceUpdatingProduct.value) return;
-  saving.value = true;
-  try {
-    await productService.updatePrice(priceUpdatingProduct.value.id, priceForm.value);
-    showPriceModal.value = false;
-    await fetchProducts();
-  } catch (err) {
-    console.error('Failed to update price', err);
   } finally {
     saving.value = false;
   }
@@ -413,7 +385,15 @@ async function handleUpdatePrice() {
           <td class="font-mono font-bold">{{ product.reference }}</td>
           <td>
             <strong>{{ product.name }}</strong>
-            <span class="text-caption" style="display: block;">Unité : {{ product.unit }}</span>
+            <span class="text-caption text-muted" style="display: block;">
+              Unité : {{ product.unit }}
+              <template v-if="product.boxSize && product.boxSize > 0">
+                • <strong>Colisage : {{ product.boxSize }} pcs/ctn</strong>
+              </template>
+              <template v-else>
+                • Colisage : —
+              </template>
+            </span>
           </td>
           <td>
             <AppBadge variant="neutral" size="sm">{{ product.brand }}</AppBadge>
@@ -425,17 +405,6 @@ async function handleUpdatePrice() {
           </td>
           <td>
             <div class="action-buttons">
-              <button
-                class="icon-action-btn"
-                title="Mettre à jour le tarif"
-                @click="openPriceModal(product)"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="12" y1="1" x2="12" y2="23" />
-                  <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                </svg>
-                Tarif
-              </button>
               <button
                 v-if="authStore.isAdmin"
                 class="icon-action-btn"
@@ -489,7 +458,7 @@ async function handleUpdatePrice() {
         <AppInput
           v-model="productForm.brand"
           label="Marque / Fabricant"
-          placeholder="ex. WEHAND, KRAFT, BOSCH"
+          placeholder="WEHAND"
           required
         />
         <div class="form-row">
@@ -508,50 +477,26 @@ async function handleUpdatePrice() {
             required
           />
         </div>
-        <AppInput
-          v-model="productForm.unit"
-          label="Unité de Mesure"
-          placeholder="PIECE, JEU, BOITE"
-          required
-        />
+        <div class="form-row">
+          <AppInput
+            v-model="productForm.unit"
+            label="Unité de Mesure"
+            placeholder="PIECE, JEU, BOITE"
+            required
+          />
+          <AppInput
+            v-model="productForm.boxSize"
+            type="number"
+            label="Colisage (Pièces / Carton)"
+            placeholder="0"
+            hint="0 si pièce vendue seule"
+          />
+        </div>
       </form>
       <template #footer>
         <AppButton variant="secondary" @click="showProductModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSaveProduct">
           {{ editingProduct ? 'Enregistrer les modifications' : 'Créer le produit' }}
-        </AppButton>
-      </template>
-    </AppModal>
-
-    <!-- Update Price Modal -->
-    <AppModal
-      v-model="showPriceModal"
-      :title="`Mise à jour tarifaire : ${priceUpdatingProduct?.name || ''}`"
-      max-width="440px"
-    >
-      <div class="price-update-box">
-        <p class="text-caption text-muted mb-3">
-          Référence : <strong class="font-mono">{{ priceUpdatingProduct?.reference }}</strong>
-        </p>
-        <div class="form-row">
-          <AppInput
-            v-model="priceForm.purchasePrice"
-            type="number"
-            label="Prix d'Achat (DA)"
-            hint="Pour la valorisation des stocks"
-          />
-          <AppInput
-            v-model="priceForm.salePrice"
-            type="number"
-            label="Prix de Vente (DA)"
-            hint="Prix de facturation par défaut"
-          />
-        </div>
-      </div>
-      <template #footer>
-        <AppButton variant="secondary" @click="showPriceModal = false">Annuler</AppButton>
-        <AppButton variant="primary" :loading="saving" @click="handleUpdatePrice">
-          Mettre à jour les tarifs
         </AppButton>
       </template>
     </AppModal>
@@ -761,12 +706,6 @@ async function handleUpdatePrice() {
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.price-update-box {
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 </style>

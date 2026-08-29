@@ -339,9 +339,23 @@ async function handleSaveReceipt() {
           <td class="font-mono font-bold">{{ stock.productReference }}</td>
           <td>
             <strong>{{ stock.productName }}</strong>
-            <span class="text-caption text-muted" style="display: block;">Marque : {{ stock.productBrand }}</span>
+            <span class="text-caption text-muted" style="display: block;">
+              Marque : {{ stock.productBrand }}
+              <template v-if="stock.productBoxSize && stock.productBoxSize > 0">
+                • Colisage : {{ stock.productBoxSize }} pcs/ctn
+              </template>
+            </span>
           </td>
-          <td class="font-mono font-bold">{{ formatNumber(stock.physicalQuantity) }}</td>
+          <td>
+            <div class="font-mono font-bold">{{ formatNumber(stock.physicalQuantity) }}</div>
+            <span
+              v-if="stock.productBoxSize && stock.productBoxSize > 0"
+              class="text-caption font-bold text-muted"
+              style="display: block;"
+            >
+              ➔ {{ Math.floor(stock.physicalQuantity / stock.productBoxSize) }} {{ Math.floor(stock.physicalQuantity / stock.productBoxSize) > 1 ? 'Cartons' : 'Carton' }}
+            </span>
+          </td>
           <td class="font-mono text-muted">
             <span v-if="stock.reservedQuantity > 0" class="reserved-pill">
               {{ formatNumber(stock.reservedQuantity) }} réservé(s)

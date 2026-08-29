@@ -1,6 +1,6 @@
 # Multi-Warehouse Tool Distribution Management System
 
-A multi-warehouse industrial tool distribution management system built with **Node.js (Express + TypeScript + SQLite WAL)** and **Vue 3 (TypeScript + Vite + Pinia)** with a monochromatic design system (`#171717`, `#f3f3f3`, `#ffffff`).
+A multi-warehouse industrial tool distribution management system built with **Node.js (Express + TypeScript + POSTGRESQL)** and **Vue 3 (TypeScript + Vite + Pinia)** with a monochromatic design system (`#171717`, `#f3f3f3`, `#ffffff`).
 
 ## Key Features
 

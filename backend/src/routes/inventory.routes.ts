@@ -91,6 +91,7 @@ router.get('/stock', authenticate, async (req: AuthRequest, res) => {
     const selectSql = `
       SELECT s.id, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
              s.product_id, p.name as product_name, p.reference as product_reference, p.brand as product_brand, p.unit as product_unit,
+             p.box_size as product_box_size,
              s.physical_quantity, s.reserved_quantity,
              (s.physical_quantity - s.reserved_quantity) as available_quantity,
              p.purchase_price as product_purchase_price, p.sale_price as product_sale_price,
@@ -116,6 +117,8 @@ router.get('/stock', authenticate, async (req: AuthRequest, res) => {
       productBrand: row.product_brand,
       brand: row.product_brand,
       productUnit: row.product_unit,
+      productBoxSize: Number(row.product_box_size || 0),
+      boxCount: Number(row.product_box_size) > 0 ? Math.floor(Number(row.physical_quantity) / Number(row.product_box_size)) : 0,
       productPurchasePrice: Number(row.product_purchase_price),
       productSalePrice: Number(row.product_sale_price),
       physicalQuantity: Number(row.physical_quantity),
@@ -163,6 +166,7 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
     let sql = `
       SELECT s.id, s.warehouse_id, w.name as warehouse_name,
              s.product_id, p.name as product_name, p.reference as product_reference, p.brand, p.category,
+             p.box_size,
              s.physical_quantity, s.reserved_quantity,
              (s.physical_quantity - s.reserved_quantity) as available_quantity,
              p.purchase_price, p.sale_price,
@@ -216,6 +220,8 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
       { header: 'Désignation', key: 'product_name' },
       { header: 'Marque', key: 'brand' },
       { header: 'Catégorie', key: 'category' },
+      { header: 'Colisage (Pcs/Carton)', key: 'box_size', format: (r) => (r.box_size ? String(r.box_size) : '—') },
+      { header: 'Nombre de Cartons', format: (r) => (r.box_size > 0 ? String(Math.floor(r.physical_quantity / r.box_size)) : '—') },
       { header: 'Quantité Physique', key: 'physical_quantity' },
       { header: 'Quantité Réservée', key: 'reserved_quantity' },
       { header: 'Quantité Disponible', key: 'available_quantity' },

@@ -46,6 +46,7 @@ export interface Product {
   salePrice: number;
   minStockAlert?: number;
   unit: string;
+  boxSize?: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -61,6 +62,8 @@ export interface Stock {
   productName: string;
   productBrand: string;
   productUnit: string;
+  productBoxSize?: number;
+  boxCount?: number;
   productPurchasePrice: number;
   productSalePrice: number;
   physicalQuantity: number;
@@ -103,6 +106,8 @@ export interface SaleItem {
   productName: string;
   productBrand: string;
   productUnit: string;
+  productBoxSize?: number;
+  boxSize?: number;
   quantity: number;
   unitPrice: number;
   subtotal: number;

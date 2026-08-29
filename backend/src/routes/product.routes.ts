@@ -71,6 +71,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
         salePrice: Number(p.sale_price),
         minStockAlert: p.min_stock_alert,
         unit: p.unit,
+        boxSize: Number(p.box_size || 0),
         active: Boolean(p.active),
         createdAt: p.created_at,
         updatedAt: p.updated_at,
@@ -118,6 +119,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       salePrice: Number(p.sale_price),
       minStockAlert: p.min_stock_alert,
       unit: p.unit,
+      boxSize: Number(p.box_size || 0),
       active: Boolean(p.active),
       createdAt: p.created_at,
       updatedAt: p.updated_at,
@@ -186,6 +188,7 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
       { header: 'Prix Vente (DZD)', key: 'sale_price' },
       { header: 'Stock Min Alerte', key: 'min_stock_alert' },
       { header: 'Unité', key: 'unit' },
+      { header: 'Colisage (Pcs/Carton)', key: 'box_size', format: (p) => (p.box_size ? String(p.box_size) : '—') },
       { header: 'Actif', format: (p) => (p.active ? 'Oui' : 'Non') },
       { header: 'Date Création', key: 'created_at' },
     ];
@@ -217,6 +220,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       salePrice: Number(p.sale_price),
       minStockAlert: p.min_stock_alert,
       unit: p.unit,
+      boxSize: Number(p.box_size || 0),
       active: Boolean(p.active),
       createdAt: p.created_at,
       updatedAt: p.updated_at,
@@ -228,7 +232,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 
 router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res) => {
   try {
-    const { reference, name, brand, category, description, purchasePrice, salePrice, minStockAlert, unit } = req.body;
+    const { reference, name, brand, category, description, purchasePrice, salePrice, minStockAlert, unit, boxSize } = req.body;
     if (!reference || !name || !brand || purchasePrice === undefined || salePrice === undefined) {
       return sendError(res, 'Reference, name, brand, purchasePrice, and salePrice are required', 400);
     }
@@ -238,9 +242,11 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
       return sendError(res, `Product with reference ${reference} already exists`, 400);
     }
 
+    const validBoxSize = Math.max(0, Number(boxSize) || 0);
+
     const insertRes = await query(`
-      INSERT INTO products (reference, name, brand, category, description, purchase_price, sale_price, min_stock_alert, unit, active)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
+      INSERT INTO products (reference, name, brand, category, description, purchase_price, sale_price, min_stock_alert, unit, box_size, active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
       RETURNING *
     `, [
       reference,
@@ -252,6 +258,7 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
       Number(salePrice),
       minStockAlert !== undefined ? Number(minStockAlert) : 5,
       unit || 'PIECE',
+      validBoxSize,
     ]);
 
     const p = insertRes.rows[0];
@@ -268,6 +275,7 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
       salePrice: Number(p.sale_price),
       minStockAlert: p.min_stock_alert,
       unit: p.unit,
+      boxSize: Number(p.box_size || 0),
       active: Boolean(p.active),
     }, 'Product created successfully', 201);
   } catch (err: any) {
@@ -320,7 +328,7 @@ router.patch('/:id/price', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUN
 router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: AuthRequest, res) => {
   try {
     const id = Number(req.params.id);
-    const { name, brand, category, description, purchasePrice, salePrice, minStockAlert, unit, active } = req.body;
+    const { name, brand, category, description, purchasePrice, salePrice, minStockAlert, unit, boxSize, active } = req.body;
 
     const currentRes = await query('SELECT * FROM products WHERE id = $1', [id]);
     const current = currentRes.rows[0];
@@ -336,15 +344,16 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
     const updatedSale = salePrice !== undefined ? Number(salePrice) : current.sale_price;
     const updatedAlert = minStockAlert !== undefined ? Number(minStockAlert) : current.min_stock_alert;
     const updatedUnit = unit !== undefined ? unit : current.unit;
+    const updatedBoxSize = boxSize !== undefined ? Math.max(0, Number(boxSize) || 0) : current.box_size;
     const updatedActive = active !== undefined ? Boolean(active) : Boolean(current.active);
 
     const updateRes = await query(`
       UPDATE products
       SET name = $1, brand = $2, category = $3, description = $4, purchase_price = $5, sale_price = $6,
-          min_stock_alert = $7, unit = $8, active = $9, updated_at = NOW()
-      WHERE id = $10
+          min_stock_alert = $7, unit = $8, box_size = $9, active = $10, updated_at = NOW()
+      WHERE id = $11
       RETURNING *
-    `, [updatedName, updatedBrand, updatedCategory, updatedDesc, updatedPurchase, updatedSale, updatedAlert, updatedUnit, updatedActive, id]);
+    `, [updatedName, updatedBrand, updatedCategory, updatedDesc, updatedPurchase, updatedSale, updatedAlert, updatedUnit, updatedBoxSize, updatedActive, id]);
 
     const p = updateRes.rows[0];
     await logAudit(req.user, 'PRODUCT_UPDATED', 'PRODUCT', id, `Updated product ${updatedName} (Purchase: ${updatedPurchase} DZD, Sale: ${updatedSale} DZD)`);
@@ -360,6 +369,7 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
       salePrice: Number(p.sale_price),
       minStockAlert: p.min_stock_alert,
       unit: p.unit,
+      boxSize: Number(p.box_size || 0),
       active: Boolean(p.active),
     }, 'Product updated successfully');
   } catch (err: any) {

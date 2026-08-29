@@ -111,9 +111,14 @@ const printTimestamp = computed(() => {
 
 const computedCartonCount = computed(() => {
   if (props.cartonCount !== undefined) return props.cartonCount;
-  // Default to sum of quantities or distinct product line count
-  const distinctLines = props.sale?.items?.length || 0;
-  return distinctLines > 0 ? distinctLines : 1;
+  if (!props.sale?.items || props.sale.items.length === 0) return 0;
+  return props.sale.items.reduce((total, item) => {
+    const boxSize = (item as any).productBoxSize ?? (item as any).boxSize ?? 0;
+    if (boxSize > 0 && item.quantity > 0) {
+      return total + Math.floor(item.quantity / boxSize);
+    }
+    return total;
+  }, 0);
 });
 </script>
 
@@ -217,6 +222,10 @@ const computedCartonCount = computed(() => {
           <div class="staff-row">
             <span class="label font-bold">Servi Par :</span>
             <span class="value font-bold text-uppercase">{{ sale.employeeName || sale.createdByName || sale.userName || 'SALIM' }}</span>
+          </div>
+          <div class="staff-row">
+            <span class="label font-bold">Nombre de Cartons :</span>
+            <span class="value font-bold">{{ computedCartonCount }}</span>
           </div>
         </div>
       </div>

@@ -41,6 +41,7 @@ export async function initSchema() {
       sale_price NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       min_stock_alert INTEGER NOT NULL DEFAULT 5,
       unit VARCHAR(50) NOT NULL DEFAULT 'PIECE',
+      box_size INTEGER NOT NULL DEFAULT 0,
       active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -169,6 +170,7 @@ export async function initSchema() {
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL;
     ALTER TABLE employees ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE';
     UPDATE employees SET status = CASE WHEN active = FALSE THEN 'TERMINATED' ELSE 'ACTIVE' END WHERE status IS NULL OR status = '';
+    ALTER TABLE products ADD COLUMN IF NOT EXISTS box_size INTEGER NOT NULL DEFAULT 0;
   `);
     // Performance composite indexes
     await query(`

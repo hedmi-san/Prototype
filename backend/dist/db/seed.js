@@ -99,12 +99,12 @@ export async function seedData() {
         await client.query("SELECT setval(pg_get_serial_sequence('users', 'id'), (SELECT COALESCE(MAX(id), 1) FROM users))");
         // 4. Products
         await client.query(`
-      INSERT INTO products (id, reference, name, brand, category, description, purchase_price, sale_price, min_stock_alert, unit, active) VALUES
-      (1, 'BOSCH-GBH-226', 'Rotary Hammer GBH 2-26 DRE Professional', 'Bosch', 'Power Tools', 'Heavy-duty SDS Plus rotary hammer 800W', 21500.0, 28000.0, 5, 'PIECE', TRUE),
-      (2, 'MAKITA-DGA-504', 'Cordless Angle Grinder DGA504Z 18V', 'Makita', 'Cordless Tools', 'Brushless 125mm cordless angle grinder', 18500.0, 24500.0, 4, 'PIECE', TRUE),
-      (3, 'DEWALT-DCD-796', 'Compact Hammer Drill DCD796P2', 'DeWalt', 'Cordless Tools', '18V XR Li-Ion brushless compact combi drill', 29000.0, 36500.0, 6, 'PIECE', TRUE),
-      (4, 'STANLEY-STMT-74311', 'Socket Set 1/2 + 1/4 (120 Pcs)', 'Stanley', 'Hand Tools', 'Professional mechanics chrome vanadium socket set', 14000.0, 18500.0, 8, 'PIECE', TRUE),
-      (5, 'HILTI-TE-50-AVR', 'Combihammer TE 50-AVR SDS Max', 'Hilti', 'Heavy Construction', 'Powerful SDS-max combihammer with AVR', 95000.0, 125000.0, 2, 'PIECE', TRUE)
+      INSERT INTO products (id, reference, name, brand, category, description, purchase_price, sale_price, min_stock_alert, unit, box_size, active) VALUES
+      (1, 'BOSCH-GBH-226', 'Rotary Hammer GBH 2-26 DRE Professional', 'Bosch', 'Power Tools', 'Heavy-duty SDS Plus rotary hammer 800W', 21500.0, 28000.0, 5, 'PIECE', 6, TRUE),
+      (2, 'MAKITA-DGA-504', 'Cordless Angle Grinder DGA504Z 18V', 'Makita', 'Cordless Tools', 'Brushless 125mm cordless angle grinder', 18500.0, 24500.0, 4, 'PIECE', 8, TRUE),
+      (3, 'DEWALT-DCD-796', 'Compact Hammer Drill DCD796P2', 'DeWalt', 'Cordless Tools', '18V XR Li-Ion brushless compact combi drill', 29000.0, 36500.0, 6, 'PIECE', 4, TRUE),
+      (4, 'STANLEY-STMT-74311', 'Socket Set 1/2 + 1/4 (120 Pcs)', 'Stanley', 'Hand Tools', 'Professional mechanics chrome vanadium socket set', 14000.0, 18500.0, 8, 'PIECE', 10, TRUE),
+      (5, 'HILTI-TE-50-AVR', 'Combihammer TE 50-AVR SDS Max', 'Hilti', 'Heavy Construction', 'Powerful SDS-max combihammer with AVR', 95000.0, 125000.0, 2, 'PIECE', 0, TRUE)
       ON CONFLICT (id) DO NOTHING
     `);
         await client.query("SELECT setval(pg_get_serial_sequence('products', 'id'), (SELECT COALESCE(MAX(id), 1) FROM products))");

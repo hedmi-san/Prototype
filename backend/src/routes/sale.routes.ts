@@ -91,6 +91,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
     if (saleIds.length > 0) {
       const itemsRes = await query(`
         SELECT si.id, si.sale_id, si.product_id, p.name as product_name, p.reference as product_reference,
+               p.box_size as product_box_size,
                si.quantity, si.unit_price, si.subtotal
         FROM sale_items si
         JOIN products p ON si.product_id = p.id
@@ -106,6 +107,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
           productId: item.product_id,
           productName: item.product_name,
           productReference: item.product_reference,
+          productBoxSize: Number(item.product_box_size || 0),
           quantity: Number(item.quantity),
           unitPrice: Number(item.unit_price),
           subtotal: Number(item.subtotal),
@@ -290,6 +292,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 
     const itemsRes = await query(`
       SELECT si.id, si.product_id, p.name as product_name, p.reference as product_reference,
+             p.box_size as product_box_size,
              si.quantity, si.unit_price, si.subtotal
       FROM sale_items si
       JOIN products p ON si.product_id = p.id
@@ -301,6 +304,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       productId: i.product_id,
       productName: i.product_name,
       productReference: i.product_reference,
+      productBoxSize: Number(i.product_box_size || 0),
       quantity: Number(i.quantity),
       unitPrice: Number(i.unit_price),
       subtotal: Number(i.subtotal),
@@ -484,6 +488,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
     const s = fullSaleRes.rows[0];
     const itemsRes = await query(`
       SELECT si.id, si.product_id, p.name as product_name, p.reference as product_reference,
+             p.box_size as product_box_size,
              si.quantity, si.unit_price, si.subtotal
       FROM sale_items si
       JOIN products p ON si.product_id = p.id
@@ -495,6 +500,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       productId: i.product_id,
       productName: i.product_name,
       productReference: i.product_reference,
+      productBoxSize: Number(i.product_box_size || 0),
       quantity: Number(i.quantity),
       unitPrice: Number(i.unit_price),
       subtotal: Number(i.subtotal),
