@@ -319,12 +319,13 @@ async function handleSaveReceipt() {
     </div>
 
     <!-- Stock Table -->
-    <AppTable :loading="loading" :empty="!stockList.length" empty-text="Aucun enregistrement de stock trouvé" :columns-count="8">
+    <AppTable :loading="loading" :empty="!stockList.length" empty-text="Aucun enregistrement de stock trouvé" :columns-count="9">
       <template #header>
         <th>Entrepôt</th>
         <th>Référence</th>
         <th>Produit</th>
         <th>Stock Physique</th>
+        <th>Nombre de Cartons</th>
         <th>Réservé</th>
         <th>Disponible</th>
         <th>Valorisation</th>
@@ -348,13 +349,15 @@ async function handleSaveReceipt() {
           </td>
           <td>
             <div class="font-mono font-bold">{{ formatNumber(stock.physicalQuantity) }}</div>
-            <span
-              v-if="stock.productBoxSize && stock.productBoxSize > 0"
-              class="text-caption font-bold text-muted"
-              style="display: block;"
-            >
-              ➔ {{ Math.floor(stock.physicalQuantity / stock.productBoxSize) }} {{ Math.floor(stock.physicalQuantity / stock.productBoxSize) > 1 ? 'Cartons' : 'Carton' }}
-            </span>
+          </td>
+          <td class="font-mono">
+            <template v-if="stock.productBoxSize && stock.productBoxSize > 0">
+              <span class="font-bold">{{ formatNumber(Math.floor(stock.physicalQuantity / stock.productBoxSize)) }}</span>
+              <span class="text-caption text-muted" style="margin-left: 4px;">
+                {{ Math.floor(stock.physicalQuantity / stock.productBoxSize) > 1 ? 'Cartons' : 'Carton' }}
+              </span>
+            </template>
+            <span v-else class="text-muted">—</span>
           </td>
           <td class="font-mono text-muted">
             <span v-if="stock.reservedQuantity > 0" class="reserved-pill">
