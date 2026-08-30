@@ -213,41 +213,40 @@ function clearSelection() {
   selectedProductIds.value = new Set();
 }
 
-// Retrieve dataset for exports & document generation based on selection status
-async function getTargetProductsForAction(): Promise<{ items: Product[]; scopeText: string }> {
-  if (selectedProductIds.value.size > 0) {
-    // If user has selected items, fetch or filter the selected products
-    const allRes = await productService.getAllProducts({
-      search: searchQuery.value.trim() || undefined,
-      brand: selectedBrand.value || undefined,
-      sortBy: sortBy.value,
-      sortOrder: sortOrder.value,
-    });
+// Retrieve dataset for exports & document generation for an explicit scope.
+// 'selection' → only the checked products; 'all' → every product matching the active filters.
+async function getTargetProductsForAction(
+  scope: 'all' | 'selection',
+): Promise<{ items: Product[]; scopeText: string }> {
+  const allRes = await productService.getAllProducts({
+    search: searchQuery.value.trim() || undefined,
+    brand: selectedBrand.value || undefined,
+    sortBy: sortBy.value,
+    sortOrder: sortOrder.value,
+  });
+
+  if (scope === 'selection' && selectedProductIds.value.size > 0) {
     const selectedItems = allRes.filter((p) => selectedProductIds.value.has(p.id));
+    const items = selectedItems.length
+      ? selectedItems
+      : products.value.filter((p) => selectedProductIds.value.has(p.id));
     return {
-      items: selectedItems.length ? selectedItems : products.value.filter((p) => selectedProductIds.value.has(p.id)),
-      scopeText: `Sélection : ${selectedProductIds.value.size} ${selectedProductIds.value.size > 1 ? 'produits' : 'produit'}`,
-    };
-  } else {
-    // No selection: apply to all filtered products across pages
-    const allRes = await productService.getAllProducts({
-      search: searchQuery.value.trim() || undefined,
-      brand: selectedBrand.value || undefined,
-      sortBy: sortBy.value,
-      sortOrder: sortOrder.value,
-    });
-    return {
-      items: allRes,
-      scopeText: `Tous les produits filtrés (${allRes.length})`,
+      items,
+      scopeText: `Sélection : ${items.length} ${items.length > 1 ? 'produits' : 'produit'}`,
     };
   }
+
+  return {
+    items: allRes,
+    scopeText: `Tous les produits filtrés (${allRes.length})`,
+  };
 }
 
-async function handleOpenDocument(type: 'price_list' | 'catalog') {
+async function handleOpenDocument(type: 'price_list' | 'catalog', scope: 'all' | 'selection') {
   preparingDoc.value = true;
   try {
     activeDocType.value = type;
-    const { items, scopeText } = await getTargetProductsForAction();
+    const { items, scopeText } = await getTargetProductsForAction(scope);
     docProducts.value = items;
     docScopeText.value = scopeText;
     showDocModal.value = true;
@@ -258,10 +257,13 @@ async function handleOpenDocument(type: 'price_list' | 'catalog') {
   }
 }
 
-async function handleExportCsv() {
+async function handleExportCsv(scope: 'all' | 'selection') {
   exporting.value = true;
   try {
-    const ids = selectedProductIds.value.size > 0 ? Array.from(selectedProductIds.value) : undefined;
+    const ids =
+      scope === 'selection' && selectedProductIds.value.size > 0
+        ? Array.from(selectedProductIds.value)
+        : undefined;
     await productService.exportProductsCsv({
       search: searchQuery.value.trim() || undefined,
       brand: selectedBrand.value || undefined,
@@ -328,29 +330,44 @@ async function handleSaveProduct() {
         <p class="text-muted">Référentiel des outillages industriels & grille tarifaire</p>
       </div>
       <div class="header-actions">
-        <!-- Export CSV Button -->
-        <AppButton variant="secondary" :loading="exporting" @click="handleExportCsv">
+        <!-- Catalogue-wide exports: always act on ALL filtered products -->
+        <AppButton
+          variant="secondary"
+          :loading="exporting"
+          title="Exporter tout le catalogue filtré au format CSV"
+          @click="handleExportCsv('all')"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
-          {{ selectedCount > 0 ? `Exporter CSV (${selectedCount})` : 'Exporter CSV' }}
+          Exporter CSV
         </AppButton>
 
         <!-- Generate Devis / Price List PDF Button -->
-        <AppButton variant="secondary" :loading="preparingDoc" @click="handleOpenDocument('price_list')">
+        <AppButton
+          variant="secondary"
+          :loading="preparingDoc"
+          title="Générer un devis PDF de tout le catalogue filtré"
+          @click="handleOpenDocument('price_list', 'all')"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
             <line x1="16" y1="13" x2="8" y2="13" />
             <line x1="16" y1="17" x2="8" y2="17" />
           </svg>
-          {{ selectedCount > 0 ? `Devis PDF (${selectedCount})` : 'Devis PDF' }}
+          Devis PDF
         </AppButton>
 
         <!-- Generate Reference Catalog PDF Button -->
-        <AppButton variant="secondary" :loading="preparingDoc" @click="handleOpenDocument('catalog')">
+        <AppButton
+          variant="secondary"
+          :loading="preparingDoc"
+          title="Générer le catalogue PDF de tous les produits filtrés"
+          @click="handleOpenDocument('catalog', 'all')"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="8" y1="6" x2="21" y2="6" />
             <line x1="8" y1="12" x2="21" y2="12" />
@@ -359,7 +376,7 @@ async function handleSaveProduct() {
             <line x1="3" y1="12" x2="3.01" y2="12" />
             <line x1="3" y1="18" x2="3.01" y2="18" />
           </svg>
-          {{ selectedCount > 0 ? `Catalogue PDF (${selectedCount})` : 'Catalogue PDF' }}
+          Catalogue PDF
         </AppButton>
 
         <!-- New Product Button (Admins only) -->
@@ -382,7 +399,12 @@ async function handleSaveProduct() {
         </span>
       </div>
       <div class="selection-actions">
-        <button class="selection-btn" :disabled="exporting" @click="handleExportCsv">
+        <button
+          class="selection-btn"
+          :disabled="exporting"
+          title="Exporter uniquement les produits sélectionnés au format CSV"
+          @click="handleExportCsv('selection')"
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
@@ -390,7 +412,12 @@ async function handleSaveProduct() {
           </svg>
           Exporter CSV ({{ selectedCount }})
         </button>
-        <button class="selection-btn" :disabled="preparingDoc" @click="handleOpenDocument('price_list')">
+        <button
+          class="selection-btn"
+          :disabled="preparingDoc"
+          title="Générer un devis PDF des produits sélectionnés"
+          @click="handleOpenDocument('price_list', 'selection')"
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
@@ -399,7 +426,12 @@ async function handleSaveProduct() {
           </svg>
           Devis PDF ({{ selectedCount }})
         </button>
-        <button class="selection-btn" :disabled="preparingDoc" @click="handleOpenDocument('catalog')">
+        <button
+          class="selection-btn"
+          :disabled="preparingDoc"
+          title="Générer un catalogue PDF des produits sélectionnés"
+          @click="handleOpenDocument('catalog', 'selection')"
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="8" y1="6" x2="21" y2="6" />
             <line x1="8" y1="12" x2="21" y2="12" />
