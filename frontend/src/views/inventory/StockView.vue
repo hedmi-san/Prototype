@@ -340,12 +340,6 @@ async function handleSaveReceipt() {
           <td class="font-mono font-bold">{{ stock.productReference }}</td>
           <td>
             <strong>{{ stock.productName }}</strong>
-            <span class="text-caption text-muted" style="display: block;">
-              Marque : {{ stock.productBrand }}
-              <template v-if="stock.productBoxSize && stock.productBoxSize > 0">
-                • Colisage : {{ stock.productBoxSize }} pcs/ctn
-              </template>
-            </span>
           </td>
           <td>
             <div class="font-mono font-bold">{{ formatNumber(stock.physicalQuantity) }}</div>

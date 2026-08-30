@@ -132,9 +132,20 @@ router.get('/export/csv', authenticate, async (req, res) => {
         const search = req.query.search?.trim();
         const brand = req.query.brand?.trim();
         const category = req.query.category?.trim();
+        const idsParam = req.query.ids?.trim();
         let sql = 'SELECT * FROM products';
         const whereClauses = [];
         const params = [];
+        if (idsParam) {
+            const parsedIds = idsParam
+                .split(',')
+                .map((id) => Number(id.trim()))
+                .filter((id) => !isNaN(id) && id > 0);
+            if (parsedIds.length > 0) {
+                params.push(parsedIds);
+                whereClauses.push(`id = ANY($${params.length}::int[])`);
+            }
+        }
         if (search) {
             const p1 = params.length + 1;
             const p2 = params.length + 2;

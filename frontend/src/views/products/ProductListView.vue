@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { productService } from '../../services/catalog.service';
 import type { Product, ProductSortBy, SortOrder } from '../../types';
@@ -10,6 +10,7 @@ import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
 import AppInput from '../../components/common/AppInput.vue';
 import AppPagination from '../../components/common/AppPagination.vue';
+import ProductDocumentModal from '../../components/products/ProductDocumentModal.vue';
 
 const authStore = useAuthStore();
 const products = ref<Product[]>([]);
@@ -18,6 +19,9 @@ const searchQuery = ref('');
 const selectedBrand = ref('');
 const sortBy = ref<ProductSortBy>('name');
 const sortOrder = ref<SortOrder>('asc');
+
+// Selection state
+const selectedProductIds = ref<Set<number>>(new Set());
 
 // Pagination state
 const page = ref(1);
@@ -46,6 +50,27 @@ const productForm = ref({
 });
 const saving = ref(false);
 const exporting = ref(false);
+
+// Document Preview Modal State
+const showDocModal = ref(false);
+const activeDocType = ref<'price_list' | 'catalog'>('price_list');
+const docProducts = ref<Product[]>([]);
+const docScopeText = ref('');
+const preparingDoc = ref(false);
+
+// Computed selection helpers
+const selectedCount = computed(() => selectedProductIds.value.size);
+
+const isAllCurrentPageSelected = computed(() => {
+  if (!products.value.length) return false;
+  return products.value.every((p) => selectedProductIds.value.has(p.id));
+});
+
+const isSomeCurrentPageSelected = computed(() => {
+  if (!products.value.length) return false;
+  const count = products.value.filter((p) => selectedProductIds.value.has(p.id)).length;
+  return count > 0 && count < products.value.length;
+});
 
 onMounted(async () => {
   window.addEventListener('focus', handleWindowFocus);
@@ -163,12 +188,84 @@ function resetFilters() {
   fetchProducts();
 }
 
+// Selection handlers
+function toggleSelectProduct(id: number) {
+  const next = new Set(selectedProductIds.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  selectedProductIds.value = next;
+}
+
+function toggleSelectAllCurrentPage() {
+  const next = new Set(selectedProductIds.value);
+  if (isAllCurrentPageSelected.value) {
+    products.value.forEach((p) => next.delete(p.id));
+  } else {
+    products.value.forEach((p) => next.add(p.id));
+  }
+  selectedProductIds.value = next;
+}
+
+function clearSelection() {
+  selectedProductIds.value = new Set();
+}
+
+// Retrieve dataset for exports & document generation based on selection status
+async function getTargetProductsForAction(): Promise<{ items: Product[]; scopeText: string }> {
+  if (selectedProductIds.value.size > 0) {
+    // If user has selected items, fetch or filter the selected products
+    const allRes = await productService.getAllProducts({
+      search: searchQuery.value.trim() || undefined,
+      brand: selectedBrand.value || undefined,
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value,
+    });
+    const selectedItems = allRes.filter((p) => selectedProductIds.value.has(p.id));
+    return {
+      items: selectedItems.length ? selectedItems : products.value.filter((p) => selectedProductIds.value.has(p.id)),
+      scopeText: `Sélection : ${selectedProductIds.value.size} ${selectedProductIds.value.size > 1 ? 'produits' : 'produit'}`,
+    };
+  } else {
+    // No selection: apply to all filtered products across pages
+    const allRes = await productService.getAllProducts({
+      search: searchQuery.value.trim() || undefined,
+      brand: selectedBrand.value || undefined,
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value,
+    });
+    return {
+      items: allRes,
+      scopeText: `Tous les produits filtrés (${allRes.length})`,
+    };
+  }
+}
+
+async function handleOpenDocument(type: 'price_list' | 'catalog') {
+  preparingDoc.value = true;
+  try {
+    activeDocType.value = type;
+    const { items, scopeText } = await getTargetProductsForAction();
+    docProducts.value = items;
+    docScopeText.value = scopeText;
+    showDocModal.value = true;
+  } catch (err) {
+    console.error('Failed to prepare document products', err);
+  } finally {
+    preparingDoc.value = false;
+  }
+}
+
 async function handleExportCsv() {
   exporting.value = true;
   try {
+    const ids = selectedProductIds.value.size > 0 ? Array.from(selectedProductIds.value) : undefined;
     await productService.exportProductsCsv({
       search: searchQuery.value.trim() || undefined,
       brand: selectedBrand.value || undefined,
+      ids,
     });
   } catch (err) {
     console.error('Failed to export products CSV', err);
@@ -231,14 +328,41 @@ async function handleSaveProduct() {
         <p class="text-muted">Référentiel des outillages industriels & grille tarifaire</p>
       </div>
       <div class="header-actions">
+        <!-- Export CSV Button -->
         <AppButton variant="secondary" :loading="exporting" @click="handleExportCsv">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
-          Exporter CSV
+          {{ selectedCount > 0 ? `Exporter CSV (${selectedCount})` : 'Exporter CSV' }}
         </AppButton>
+
+        <!-- Generate Devis / Price List PDF Button -->
+        <AppButton variant="secondary" :loading="preparingDoc" @click="handleOpenDocument('price_list')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+          </svg>
+          {{ selectedCount > 0 ? `Devis PDF (${selectedCount})` : 'Devis PDF' }}
+        </AppButton>
+
+        <!-- Generate Reference Catalog PDF Button -->
+        <AppButton variant="secondary" :loading="preparingDoc" @click="handleOpenDocument('catalog')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <line x1="3" y1="6" x2="3.01" y2="6" />
+            <line x1="3" y1="12" x2="3.01" y2="12" />
+            <line x1="3" y1="18" x2="3.01" y2="18" />
+          </svg>
+          {{ selectedCount > 0 ? `Catalogue PDF (${selectedCount})` : 'Catalogue PDF' }}
+        </AppButton>
+
+        <!-- New Product Button (Admins only) -->
         <AppButton v-if="authStore.isAdmin" variant="primary" @click="openCreateModal">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19" />
@@ -246,6 +370,49 @@ async function handleSaveProduct() {
           </svg>
           Nouveau Produit
         </AppButton>
+      </div>
+    </div>
+
+    <!-- Contextual Selection Action Bar -->
+    <div v-if="selectedCount > 0" class="selection-action-bar">
+      <div class="selection-info">
+        <span class="selection-badge">{{ selectedCount }}</span>
+        <span class="selection-text">
+          {{ selectedCount > 1 ? 'produits sélectionnés' : 'produit sélectionné' }}
+        </span>
+      </div>
+      <div class="selection-actions">
+        <button class="selection-btn" :disabled="exporting" @click="handleExportCsv">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Exporter CSV ({{ selectedCount }})
+        </button>
+        <button class="selection-btn" :disabled="preparingDoc" @click="handleOpenDocument('price_list')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+          </svg>
+          Devis PDF ({{ selectedCount }})
+        </button>
+        <button class="selection-btn" :disabled="preparingDoc" @click="handleOpenDocument('catalog')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <line x1="3" y1="6" x2="3.01" y2="6" />
+            <line x1="3" y1="12" x2="3.01" y2="12" />
+            <line x1="3" y1="18" x2="3.01" y2="18" />
+          </svg>
+          Catalogue PDF ({{ selectedCount }})
+        </button>
+        <button class="selection-btn btn-clear" title="Désélectionner tous les produits" @click="clearSelection">
+          ✕ Désélectionner
+        </button>
       </div>
     </div>
 
@@ -320,8 +487,18 @@ async function handleSaveProduct() {
     </div>
 
     <!-- Products Table -->
-    <AppTable :loading="loading" :empty="!products.length" empty-text="Aucun produit trouvé" :columns-count="7">
+    <AppTable :loading="loading" :empty="!products.length" empty-text="Aucun produit trouvé" :columns-count="8">
       <template #header>
+        <th class="col-checkbox">
+          <input
+            type="checkbox"
+            class="custom-checkbox"
+            :checked="isAllCurrentPageSelected"
+            :indeterminate.prop="isSomeCurrentPageSelected"
+            title="Tout sélectionner / désélectionner sur cette page"
+            @change="toggleSelectAllCurrentPage"
+          />
+        </th>
         <th>
           <button class="th-sort-btn" @click="toggleSort('reference')">
             <span>Référence</span>
@@ -381,7 +558,19 @@ async function handleSaveProduct() {
         <th>Actions</th>
       </template>
       <template #body>
-        <tr v-for="product in products" :key="product.id">
+        <tr
+          v-for="product in products"
+          :key="product.id"
+          :class="{ 'row-selected': selectedProductIds.has(product.id) }"
+        >
+          <td class="col-checkbox">
+            <input
+              type="checkbox"
+              class="custom-checkbox"
+              :checked="selectedProductIds.has(product.id)"
+              @change="toggleSelectProduct(product.id)"
+            />
+          </td>
           <td class="font-mono font-bold">{{ product.reference }}</td>
           <td>
             <strong>{{ product.name }}</strong>
@@ -433,6 +622,14 @@ async function handleSaveProduct() {
       @update:page="page = $event"
       @update:limit="limit = $event"
       @change="onPageChange"
+    />
+
+    <!-- Document Print / PDF Preview Modal -->
+    <ProductDocumentModal
+      v-model="showDocModal"
+      v-model:document-type="activeDocType"
+      :products="docProducts"
+      :scope-text="docScopeText"
     />
 
     <!-- Create/Edit Product Modal -->
@@ -515,12 +712,134 @@ async function handleSaveProduct() {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Contextual Selection Action Bar */
+.selection-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  color: #ffffff;
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+  animation: slideDown 0.2s ease;
+  flex-wrap: wrap;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.selection-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.selection-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background-color: var(--color-primary, #3b82f6);
+  color: #ffffff;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+}
+
+.selection-text {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.selection-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.selection-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.selection-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.selection-btn.btn-clear {
+  background-color: transparent;
+  border-color: transparent;
+  color: #94a3b8;
+}
+
+.selection-btn.btn-clear:hover {
+  color: #f87171;
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+/* Checkboxes */
+.col-checkbox {
+  width: 38px;
+  text-align: center;
+  padding-left: 14px !important;
+  padding-right: 6px !important;
+}
+
+.custom-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-primary, #2563eb);
+  vertical-align: middle;
+}
+
+:deep(tbody tr.row-selected) {
+  background-color: #f0f7ff !important;
+}
+
+:deep(tbody tr.row-selected:hover) {
+  background-color: #e0effe !important;
 }
 
 .filter-bar {
@@ -709,4 +1028,3 @@ async function handleSaveProduct() {
   gap: 12px;
 }
 </style>
-

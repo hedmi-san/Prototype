@@ -69,9 +69,13 @@ export const productService = {
     const response = await api.patch<ApiResponse<Product>>(`/products/${id}/price`, data);
     return response.data.data;
   },
-  async exportProductsCsv(params?: { search?: string; brand?: string; category?: string }): Promise<void> {
+  async exportProductsCsv(params?: { search?: string; brand?: string; category?: string; ids?: number[] | string }): Promise<void> {
+    const queryParams: Record<string, any> = { ...params };
+    if (Array.isArray(params?.ids)) {
+      queryParams.ids = params.ids.join(',');
+    }
     const response = await api.get('/products/export/csv', {
-      params,
+      params: queryParams,
       responseType: 'blob',
     });
     downloadCsvResponse(response, `produits_${new Date().toISOString().split('T')[0]}.csv`);
