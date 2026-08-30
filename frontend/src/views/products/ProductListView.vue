@@ -23,6 +23,10 @@ const sortOrder = ref<SortOrder>('asc');
 // Selection state
 const selectedProductIds = ref<Set<number>>(new Set());
 
+// Dropdown menus state
+const showHeaderExportMenu = ref(false);
+const showSelectionActionsMenu = ref(false);
+
 // Pagination state
 const page = ref(1);
 const limit = ref(25);
@@ -75,14 +79,28 @@ const isSomeCurrentPageSelected = computed(() => {
 onMounted(async () => {
   window.addEventListener('focus', handleWindowFocus);
   document.addEventListener('visibilitychange', handleWindowFocus);
+  document.addEventListener('click', onDocumentClick);
   await Promise.all([fetchProducts(), fetchBrands()]);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('focus', handleWindowFocus);
   document.removeEventListener('visibilitychange', handleWindowFocus);
+  document.removeEventListener('click', onDocumentClick);
   clearTimeout(searchTimeout);
 });
+
+function closeDropdowns() {
+  showHeaderExportMenu.value = false;
+  showSelectionActionsMenu.value = false;
+}
+
+function onDocumentClick(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (!target.closest('.dropdown-container')) {
+    closeDropdowns();
+  }
+}
 
 function handleWindowFocus() {
   if (document.visibilityState === 'visible' && !showProductModal.value) {
@@ -211,10 +229,10 @@ function toggleSelectAllCurrentPage() {
 
 function clearSelection() {
   selectedProductIds.value = new Set();
+  closeDropdowns();
 }
 
 // Retrieve dataset for exports & document generation for an explicit scope.
-// 'selection' → only the checked products; 'all' → every product matching the active filters.
 async function getTargetProductsForAction(
   scope: 'all' | 'selection',
 ): Promise<{ items: Product[]; scopeText: string }> {
@@ -276,6 +294,24 @@ async function handleExportCsv(scope: 'all' | 'selection') {
   }
 }
 
+function handleHeaderExport(type: 'csv' | 'price_list' | 'catalog') {
+  closeDropdowns();
+  if (type === 'csv') {
+    handleExportCsv('all');
+  } else {
+    handleOpenDocument(type, 'all');
+  }
+}
+
+function handleSelectionAction(type: 'csv' | 'price_list' | 'catalog') {
+  closeDropdowns();
+  if (type === 'csv') {
+    handleExportCsv('selection');
+  } else {
+    handleOpenDocument(type, 'selection');
+  }
+}
+
 function openCreateModal() {
   editingProduct.value = null;
   productForm.value = {
@@ -324,62 +360,66 @@ async function handleSaveProduct() {
 
 <template>
   <div class="products-view">
+    <!-- Calm, Uncluttered Page Header -->
     <div class="page-header">
       <div>
         <h1 class="page-title">Catalogue Produits</h1>
         <p class="text-muted">Référentiel des outillages industriels & grille tarifaire</p>
       </div>
       <div class="header-actions">
-        <!-- Catalogue-wide exports: always act on ALL filtered products -->
-        <AppButton
-          variant="secondary"
-          :loading="exporting"
-          title="Exporter tout le catalogue filtré au format CSV"
-          @click="handleExportCsv('all')"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          Exporter CSV
-        </AppButton>
+        <!-- Overflow Export Menu for whole catalog (only when no active selection) -->
+        <div v-if="selectedCount === 0" class="dropdown-container">
+          <button
+            type="button"
+            class="header-export-btn"
+            :disabled="exporting || preparingDoc"
+            title="Options d'exportation du catalogue filtré"
+            @click.stop="showHeaderExportMenu = !showHeaderExportMenu"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>Exporter</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
 
-        <!-- Generate Devis / Price List PDF Button -->
-        <AppButton
-          variant="secondary"
-          :loading="preparingDoc"
-          title="Générer un devis PDF de tout le catalogue filtré"
-          @click="handleOpenDocument('price_list', 'all')"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="16" y1="13" x2="8" y2="13" />
-            <line x1="16" y1="17" x2="8" y2="17" />
-          </svg>
-          Devis PDF
-        </AppButton>
+          <div v-if="showHeaderExportMenu" class="dropdown-menu dropdown-right">
+            <button class="dropdown-item" @click="handleHeaderExport('csv')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span>Exporter CSV (Tous filtrés)</span>
+            </button>
+            <button class="dropdown-item" @click="handleHeaderExport('price_list')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <span>Générer Devis PDF (Tous filtrés)</span>
+            </button>
+            <button class="dropdown-item" @click="handleHeaderExport('catalog')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="8" y1="6" x2="21" y2="6" />
+                <line x1="8" y1="12" x2="21" y2="12" />
+                <line x1="8" y1="18" x2="21" y2="18" />
+                <line x1="3" y1="6" x2="3.01" y2="6" />
+                <line x1="3" y1="12" x2="3.01" y2="12" />
+                <line x1="3" y1="18" x2="3.01" y2="18" />
+              </svg>
+              <span>Générer Catalogue PDF (Tous filtrés)</span>
+            </button>
+          </div>
+        </div>
 
-        <!-- Generate Reference Catalog PDF Button -->
-        <AppButton
-          variant="secondary"
-          :loading="preparingDoc"
-          title="Générer le catalogue PDF de tous les produits filtrés"
-          @click="handleOpenDocument('catalog', 'all')"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="8" y1="6" x2="21" y2="6" />
-            <line x1="8" y1="12" x2="21" y2="12" />
-            <line x1="8" y1="18" x2="21" y2="18" />
-            <line x1="3" y1="6" x2="3.01" y2="6" />
-            <line x1="3" y1="12" x2="3.01" y2="12" />
-            <line x1="3" y1="18" x2="3.01" y2="18" />
-          </svg>
-          Catalogue PDF
-        </AppButton>
-
-        <!-- New Product Button (Admins only) -->
+        <!-- Single Primary Action -->
         <AppButton v-if="authStore.isAdmin" variant="primary" @click="openCreateModal">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19" />
@@ -390,60 +430,68 @@ async function handleSaveProduct() {
       </div>
     </div>
 
-    <!-- Contextual Selection Action Bar -->
+    <!-- Calm Contextual Selection Toolbar -->
     <div v-if="selectedCount > 0" class="selection-action-bar">
       <div class="selection-info">
-        <span class="selection-badge">{{ selectedCount }}</span>
+        <span class="selection-check-icon">✓</span>
         <span class="selection-text">
-          {{ selectedCount > 1 ? 'produits sélectionnés' : 'produit sélectionné' }}
+          {{ selectedCount }} {{ selectedCount > 1 ? 'produits sélectionnés' : 'produit sélectionné' }}
         </span>
       </div>
-      <div class="selection-actions">
+
+      <div class="selection-controls">
+        <div class="dropdown-container">
+          <button
+            type="button"
+            class="selection-actions-btn"
+            :disabled="exporting || preparingDoc"
+            @click.stop="showSelectionActionsMenu = !showSelectionActionsMenu"
+          >
+            <span>Actions</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+
+          <div v-if="showSelectionActionsMenu" class="dropdown-menu dropdown-right">
+            <button class="dropdown-item" @click="handleSelectionAction('csv')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span>Exporter en CSV ({{ selectedCount }})</span>
+            </button>
+            <button class="dropdown-item" @click="handleSelectionAction('price_list')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <span>Devis / Prix de Vente ({{ selectedCount }})</span>
+            </button>
+            <button class="dropdown-item" @click="handleSelectionAction('catalog')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="8" y1="6" x2="21" y2="6" />
+                <line x1="8" y1="12" x2="21" y2="12" />
+                <line x1="8" y1="18" x2="21" y2="18" />
+                <line x1="3" y1="6" x2="3.01" y2="6" />
+                <line x1="3" y1="12" x2="3.01" y2="12" />
+                <line x1="3" y1="18" x2="3.01" y2="18" />
+              </svg>
+              <span>Catalogue Références ({{ selectedCount }})</span>
+            </button>
+          </div>
+        </div>
+
         <button
-          class="selection-btn"
-          :disabled="exporting"
-          title="Exporter uniquement les produits sélectionnés au format CSV"
-          @click="handleExportCsv('selection')"
+          type="button"
+          class="selection-close-btn"
+          title="Désélectionner tout"
+          @click="clearSelection"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          Exporter CSV ({{ selectedCount }})
-        </button>
-        <button
-          class="selection-btn"
-          :disabled="preparingDoc"
-          title="Générer un devis PDF des produits sélectionnés"
-          @click="handleOpenDocument('price_list', 'selection')"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="16" y1="13" x2="8" y2="13" />
-            <line x1="16" y1="17" x2="8" y2="17" />
-          </svg>
-          Devis PDF ({{ selectedCount }})
-        </button>
-        <button
-          class="selection-btn"
-          :disabled="preparingDoc"
-          title="Générer un catalogue PDF des produits sélectionnés"
-          @click="handleOpenDocument('catalog', 'selection')"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="8" y1="6" x2="21" y2="6" />
-            <line x1="8" y1="12" x2="21" y2="12" />
-            <line x1="8" y1="18" x2="21" y2="18" />
-            <line x1="3" y1="6" x2="3.01" y2="6" />
-            <line x1="3" y1="12" x2="3.01" y2="12" />
-            <line x1="3" y1="18" x2="3.01" y2="18" />
-          </svg>
-          Catalogue PDF ({{ selectedCount }})
-        </button>
-        <button class="selection-btn btn-clear" title="Désélectionner tous les produits" @click="clearSelection">
-          ✕ Désélectionner
+          ✕
         </button>
       </div>
     </div>
@@ -754,25 +802,119 @@ async function handleSaveProduct() {
   flex-wrap: wrap;
 }
 
-/* Contextual Selection Action Bar */
+/* Header Export Button */
+.header-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #111827);
+  background-color: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.header-export-btn:hover:not(:disabled) {
+  background-color: var(--color-surface-hover, #f3f4f6);
+  border-color: var(--color-border-dark, #9ca3af);
+}
+
+.header-export-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Dropdown Container & Menu */
+.dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  background-color: #ffffff;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12), 0 4px 6px rgba(0, 0, 0, 0.04);
+  padding: 6px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: dropdownFade 0.15s ease-out;
+}
+
+.dropdown-right {
+  right: 0;
+}
+
+@keyframes dropdownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #1f2937;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease;
+}
+
+.dropdown-item:hover {
+  background-color: #f3f4f6;
+  color: var(--color-primary, #2563eb);
+}
+
+.dropdown-item svg {
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.dropdown-item:hover svg {
+  color: var(--color-primary, #2563eb);
+}
+
+/* Calm Contextual Selection Toolbar */
 .selection-action-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, #1e293b, #0f172a);
+  padding: 8px 14px;
+  background-color: #1e293b;
   color: #ffffff;
-  border-radius: var(--radius-md, 8px);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
-  animation: slideDown 0.2s ease;
-  flex-wrap: wrap;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  animation: slideDown 0.18s ease-out;
 }
 
 @keyframes slideDown {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(-6px);
   }
   to {
     opacity: 1;
@@ -783,69 +925,76 @@ async function handleSaveProduct() {
 .selection-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.selection-badge {
+.selection-check-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  background-color: var(--color-primary, #3b82f6);
+  width: 18px;
+  height: 18px;
+  background-color: #3b82f6;
   color: #ffffff;
   border-radius: 9999px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  font-family: var(--font-mono, monospace);
 }
 
 .selection-text {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.2px;
 }
 
-.selection-actions {
+.selection-controls {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
-.selection-btn {
+.selection-actions-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  font-size: 12.5px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
   font-weight: 600;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.12);
   color: #ffffff;
   cursor: pointer;
-  transition: all var(--transition-fast, 0.15s ease);
+  transition: all 0.15s ease;
 }
 
-.selection-btn:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.2);
+.selection-actions-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.22);
   border-color: rgba(255, 255, 255, 0.35);
-  transform: translateY(-1px);
 }
 
-.selection-btn:disabled {
+.selection-actions-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.selection-btn.btn-clear {
-  background-color: transparent;
-  border-color: transparent;
+.selection-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
   color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.12s ease;
 }
 
-.selection-btn.btn-clear:hover {
+.selection-close-btn:hover {
   color: #f87171;
   background-color: rgba(239, 68, 68, 0.15);
 }
