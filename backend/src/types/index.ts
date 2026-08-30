@@ -39,12 +39,12 @@ export interface Product {
   reference: string;
   name: string;
   brand: string;
-  category: string;
   description: string;
   purchase_price: number;
   sale_price: number;
   min_stock_alert: number;
   unit: string;
+  box_size?: number;
   active: number;
   created_at: string;
   updated_at: string;

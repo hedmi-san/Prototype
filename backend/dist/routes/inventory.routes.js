@@ -150,7 +150,7 @@ router.get('/export/csv', authenticate, async (req, res) => {
         }
         let sql = `
       SELECT s.id, s.warehouse_id, w.name as warehouse_name,
-             s.product_id, p.name as product_name, p.reference as product_reference, p.brand, p.category,
+             s.product_id, p.name as product_name, p.reference as product_reference, p.brand,
              p.box_size,
              s.physical_quantity, s.reserved_quantity,
              (s.physical_quantity - s.reserved_quantity) as available_quantity,
@@ -200,7 +200,6 @@ router.get('/export/csv', authenticate, async (req, res) => {
             { header: 'Référence', key: 'product_reference' },
             { header: 'Désignation', key: 'product_name' },
             { header: 'Marque', key: 'brand' },
-            { header: 'Catégorie', key: 'category' },
             { header: 'Colisage (Pcs/Carton)', key: 'box_size', format: (r) => (r.box_size ? String(r.box_size) : '—') },
             { header: 'Nombre de Cartons', format: (r) => (r.box_size > 0 ? String(Math.floor(r.physical_quantity / r.box_size)) : '—') },
             { header: 'Quantité Physique', key: 'physical_quantity' },

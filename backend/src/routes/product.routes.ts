@@ -27,7 +27,6 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 
     const search = (req.query.search as string | undefined)?.trim();
     const brand = (req.query.brand as string | undefined)?.trim();
-    const category = (req.query.category as string | undefined)?.trim();
     const sortBy = (req.query.sortBy as string | undefined)?.trim();
     const sortOrder = (req.query.sortOrder as string | undefined)?.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
 
@@ -38,20 +37,14 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       const p1 = params.length + 1;
       const p2 = params.length + 2;
       const p3 = params.length + 3;
-      const p4 = params.length + 4;
-      whereClauses.push(`(reference ILIKE $${p1} OR name ILIKE $${p2} OR brand ILIKE $${p3} OR category ILIKE $${p4})`);
+      whereClauses.push(`(reference ILIKE $${p1} OR name ILIKE $${p2} OR brand ILIKE $${p3})`);
       const term = `%${search}%`;
-      params.push(term, term, term, term);
+      params.push(term, term, term);
     }
 
     if (brand && brand !== 'all') {
       params.push(brand);
       whereClauses.push(`brand = $${params.length}`);
-    }
-
-    if (category) {
-      params.push(category);
-      whereClauses.push(`category = $${params.length}`);
     }
 
     const whereSql = whereClauses.length > 0 ? ` WHERE ${whereClauses.join(' AND ')}` : '';
@@ -65,7 +58,6 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
         reference: p.reference,
         name: p.name,
         brand: p.brand,
-        category: p.category,
         description: p.description,
         purchasePrice: Number(p.purchase_price),
         salePrice: Number(p.sale_price),
@@ -113,7 +105,6 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       reference: p.reference,
       name: p.name,
       brand: p.brand,
-      category: p.category,
       description: p.description,
       purchasePrice: Number(p.purchase_price),
       salePrice: Number(p.sale_price),
@@ -143,7 +134,6 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
   try {
     const search = (req.query.search as string | undefined)?.trim();
     const brand = (req.query.brand as string | undefined)?.trim();
-    const category = (req.query.category as string | undefined)?.trim();
     const idsParam = (req.query.ids as string | undefined)?.trim();
 
     let sql = 'SELECT * FROM products';
@@ -166,20 +156,14 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
       const p1 = params.length + 1;
       const p2 = params.length + 2;
       const p3 = params.length + 3;
-      const p4 = params.length + 4;
-      whereClauses.push(`(reference ILIKE $${p1} OR name ILIKE $${p2} OR brand ILIKE $${p3} OR category ILIKE $${p4})`);
+      whereClauses.push(`(reference ILIKE $${p1} OR name ILIKE $${p2} OR brand ILIKE $${p3})`);
       const term = `%${search}%`;
-      params.push(term, term, term, term);
+      params.push(term, term, term);
     }
 
     if (brand && brand !== 'all') {
       params.push(brand);
       whereClauses.push(`brand = $${params.length}`);
-    }
-
-    if (category) {
-      params.push(category);
-      whereClauses.push(`category = $${params.length}`);
     }
 
     if (whereClauses.length > 0) {
@@ -196,7 +180,6 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
       { header: 'Référence', key: 'reference' },
       { header: 'Désignation', key: 'name' },
       { header: 'Marque', key: 'brand' },
-      { header: 'Catégorie', key: 'category' },
       { header: 'Prix Achat (DZD)', key: 'purchase_price' },
       { header: 'Prix Vente (DZD)', key: 'sale_price' },
       { header: 'Stock Min Alerte', key: 'min_stock_alert' },
@@ -227,7 +210,6 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       reference: p.reference,
       name: p.name,
       brand: p.brand,
-      category: p.category,
       description: p.description,
       purchasePrice: Number(p.purchase_price),
       salePrice: Number(p.sale_price),
@@ -245,7 +227,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 
 router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res) => {
   try {
-    const { reference, name, brand, category, description, purchasePrice, salePrice, minStockAlert, unit, boxSize } = req.body;
+    const { reference, name, brand, description, purchasePrice, salePrice, minStockAlert, unit, boxSize } = req.body;
     if (!reference || !name || !brand || purchasePrice === undefined || salePrice === undefined) {
       return sendError(res, 'Reference, name, brand, purchasePrice, and salePrice are required', 400);
     }
@@ -258,14 +240,13 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
     const validBoxSize = Math.max(0, Number(boxSize) || 0);
 
     const insertRes = await query(`
-      INSERT INTO products (reference, name, brand, category, description, purchase_price, sale_price, min_stock_alert, unit, box_size, active)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+      INSERT INTO products (reference, name, brand, description, purchase_price, sale_price, min_stock_alert, unit, box_size, active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
       RETURNING *
     `, [
       reference,
       name,
       brand,
-      category || 'Tools',
       description || '',
       Number(purchasePrice),
       Number(salePrice),
@@ -282,7 +263,6 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
       reference: p.reference,
       name: p.name,
       brand: p.brand,
-      category: p.category,
       description: p.description,
       purchasePrice: Number(p.purchase_price),
       salePrice: Number(p.sale_price),
@@ -325,7 +305,6 @@ router.patch('/:id/price', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUN
       reference: p.reference,
       name: p.name,
       brand: p.brand,
-      category: p.category,
       description: p.description,
       purchasePrice: Number(p.purchase_price),
       salePrice: Number(p.sale_price),
@@ -341,7 +320,7 @@ router.patch('/:id/price', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUN
 router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: AuthRequest, res) => {
   try {
     const id = Number(req.params.id);
-    const { name, brand, category, description, purchasePrice, salePrice, minStockAlert, unit, boxSize, active } = req.body;
+    const { name, brand, description, purchasePrice, salePrice, minStockAlert, unit, boxSize, active } = req.body;
 
     const currentRes = await query('SELECT * FROM products WHERE id = $1', [id]);
     const current = currentRes.rows[0];
@@ -351,7 +330,6 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
 
     const updatedName = name !== undefined ? name : current.name;
     const updatedBrand = brand !== undefined ? brand : current.brand;
-    const updatedCategory = category !== undefined ? category : current.category;
     const updatedDesc = description !== undefined ? description : current.description;
     const updatedPurchase = purchasePrice !== undefined ? Number(purchasePrice) : current.purchase_price;
     const updatedSale = salePrice !== undefined ? Number(salePrice) : current.sale_price;
@@ -362,11 +340,11 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
 
     const updateRes = await query(`
       UPDATE products
-      SET name = $1, brand = $2, category = $3, description = $4, purchase_price = $5, sale_price = $6,
-          min_stock_alert = $7, unit = $8, box_size = $9, active = $10, updated_at = NOW()
-      WHERE id = $11
+      SET name = $1, brand = $2, description = $3, purchase_price = $4, sale_price = $5,
+          min_stock_alert = $6, unit = $7, box_size = $8, active = $9, updated_at = NOW()
+      WHERE id = $10
       RETURNING *
-    `, [updatedName, updatedBrand, updatedCategory, updatedDesc, updatedPurchase, updatedSale, updatedAlert, updatedUnit, updatedBoxSize, updatedActive, id]);
+    `, [updatedName, updatedBrand, updatedDesc, updatedPurchase, updatedSale, updatedAlert, updatedUnit, updatedBoxSize, updatedActive, id]);
 
     const p = updateRes.rows[0];
     await logAudit(req.user, 'PRODUCT_UPDATED', 'PRODUCT', id, `Updated product ${updatedName} (Purchase: ${updatedPurchase} DZD, Sale: ${updatedSale} DZD)`);
@@ -376,7 +354,6 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
       reference: p.reference,
       name: p.name,
       brand: p.brand,
-      category: p.category,
       description: p.description,
       purchasePrice: Number(p.purchase_price),
       salePrice: Number(p.sale_price),

@@ -455,7 +455,7 @@ router.get('/stock-valuation', authenticate, async (req, res) => {
         }
         let sql = `
       SELECT s.id, s.warehouse_id, w.name as warehouse_name,
-             s.product_id, p.reference as product_reference, p.name as product_name, p.brand, p.category,
+             s.product_id, p.reference as product_reference, p.name as product_name, p.brand,
              s.physical_quantity, s.reserved_quantity,
              (s.physical_quantity - s.reserved_quantity) as available_quantity,
              p.purchase_price as current_purchase_price,
@@ -483,7 +483,6 @@ router.get('/stock-valuation', authenticate, async (req, res) => {
             productName: r.product_name,
             productBrand: r.brand,
             brand: r.brand,
-            category: r.category,
             physicalQuantity: Number(r.physical_quantity),
             reservedQuantity: Number(r.reserved_quantity),
             availableQuantity: Number(r.available_quantity),

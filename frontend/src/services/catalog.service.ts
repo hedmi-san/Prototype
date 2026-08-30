@@ -69,7 +69,7 @@ export const productService = {
     const response = await api.patch<ApiResponse<Product>>(`/products/${id}/price`, data);
     return response.data.data;
   },
-  async exportProductsCsv(params?: { search?: string; brand?: string; category?: string; ids?: number[] | string }): Promise<void> {
+  async exportProductsCsv(params?: { search?: string; brand?: string; ids?: number[] | string }): Promise<void> {
     const queryParams: Record<string, any> = { ...params };
     if (Array.isArray(params?.ids)) {
       queryParams.ids = params.ids.join(',');

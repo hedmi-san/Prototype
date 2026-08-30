@@ -36,7 +36,6 @@ export async function initSchema(): Promise<void> {
       reference VARCHAR(50) NOT NULL UNIQUE,
       name VARCHAR(255) NOT NULL,
       brand VARCHAR(100) NOT NULL,
-      category VARCHAR(100) DEFAULT 'Tools',
       description TEXT,
       purchase_price NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       sale_price NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
@@ -173,6 +172,7 @@ export async function initSchema(): Promise<void> {
     ALTER TABLE employees ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE';
     UPDATE employees SET status = CASE WHEN active = FALSE THEN 'TERMINATED' ELSE 'ACTIVE' END WHERE status IS NULL OR status = '';
     ALTER TABLE products ADD COLUMN IF NOT EXISTS box_size INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE products DROP COLUMN IF EXISTS category;
   `);
 
   // Performance composite indexes

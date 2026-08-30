@@ -103,14 +103,12 @@ const filteredProducts = computed(() => {
     const refLower = p.reference.toLowerCase();
     const nameLower = p.name.toLowerCase();
     const brandLower = (p.brand || '').toLowerCase();
-    const categoryLower = (p.category || '').toLowerCase();
 
     return tokens.every(
       (token) =>
         refLower.includes(token) ||
         nameLower.includes(token) ||
-        brandLower.includes(token) ||
-        categoryLower.includes(token)
+        brandLower.includes(token)
     );
   });
 

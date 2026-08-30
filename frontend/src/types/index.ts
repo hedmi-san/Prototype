@@ -40,7 +40,6 @@ export interface Product {
   reference: string;
   name: string;
   brand: string;
-  category?: string;
   description?: string;
   purchasePrice: number;
   salePrice: number;
@@ -426,7 +425,6 @@ export interface ProductQueryParams {
   limit?: number;
   search?: string;
   brand?: string;
-  category?: string;
   sortBy?: ProductSortBy;
   sortOrder?: SortOrder;
   all?: boolean;
