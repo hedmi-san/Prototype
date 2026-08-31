@@ -154,6 +154,7 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
     const status = (req.query.status as string | undefined)?.toLowerCase();
     const lowStock = req.query.lowStock === 'true';
     const search = (req.query.search as string | undefined)?.trim();
+    const idsParam = (req.query.ids as string | undefined)?.trim();
 
     if (warehouseId && req.user) {
       try {
@@ -179,6 +180,18 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
 
     const whereClauses: string[] = [];
     const params: any[] = [];
+
+    if (idsParam) {
+      const parsedIds = idsParam
+        .split(',')
+        .map((id) => Number(id.trim()))
+        .filter((id) => !isNaN(id) && id > 0);
+
+      if (parsedIds.length > 0) {
+        params.push(parsedIds);
+        whereClauses.push(`s.id = ANY($${params.length}::int[])`);
+      }
+    }
 
     if (warehouseId) {
       params.push(warehouseId);

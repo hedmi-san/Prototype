@@ -140,6 +140,7 @@ router.get('/export/csv', authenticate, async (req, res) => {
         const status = req.query.status?.toLowerCase();
         const lowStock = req.query.lowStock === 'true';
         const search = req.query.search?.trim();
+        const idsParam = req.query.ids?.trim();
         if (warehouseId && req.user) {
             try {
                 validateWarehouseScope(req.user, warehouseId);
@@ -163,6 +164,16 @@ router.get('/export/csv', authenticate, async (req, res) => {
     `;
         const whereClauses = [];
         const params = [];
+        if (idsParam) {
+            const parsedIds = idsParam
+                .split(',')
+                .map((id) => Number(id.trim()))
+                .filter((id) => !isNaN(id) && id > 0);
+            if (parsedIds.length > 0) {
+                params.push(parsedIds);
+                whereClauses.push(`s.id = ANY($${params.length}::int[])`);
+            }
+        }
         if (warehouseId) {
             params.push(warehouseId);
             whereClauses.push(`s.warehouse_id = $${params.length}`);

@@ -50,9 +50,13 @@ export const inventoryService = {
     const response = await api.post<ApiResponse<Stock>>('/inventory/initial-receipt', data);
     return response.data.data;
   },
-  async exportStockCsv(params?: { warehouseId?: number; status?: string; lowStock?: boolean; search?: string }): Promise<void> {
+  async exportStockCsv(params?: { warehouseId?: number; status?: string; lowStock?: boolean; search?: string; ids?: number[] | string }): Promise<void> {
+    const queryParams: Record<string, any> = { ...params };
+    if (Array.isArray(params?.ids)) {
+      queryParams.ids = params.ids.join(',');
+    }
     const response = await api.get('/inventory/export/csv', {
-      params,
+      params: queryParams,
       responseType: 'blob',
     });
     downloadCsvResponse(response, `stock_inventaire_${new Date().toISOString().split('T')[0]}.csv`);

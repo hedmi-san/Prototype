@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { useProductStore } from '../../stores/product.store';
 import { inventoryService } from '../../services/operations.service';
-import type { Stock, StockStatusCounts } from '../../types';
+import type { Stock, StockStatusCounts, Product } from '../../types';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
@@ -13,6 +13,7 @@ import AppModal from '../../components/common/AppModal.vue';
 import AppInput from '../../components/common/AppInput.vue';
 import AppPagination from '../../components/common/AppPagination.vue';
 import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
+import ProductDocumentModal from '../../components/products/ProductDocumentModal.vue';
 
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
@@ -22,6 +23,13 @@ const stockList = ref<Stock[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
 const statusFilter = ref<'all' | 'normal' | 'low' | 'out'>('all');
+
+// Selection state
+const selectedStockIds = ref<Set<number>>(new Set());
+
+// Dropdown menus state
+const showHeaderExportMenu = ref(false);
+const showSelectionActionsMenu = ref(false);
 
 // Pagination state
 const page = ref(1);
@@ -67,9 +75,48 @@ const saving = ref(false);
 const errorMessage = ref('');
 const exporting = ref(false);
 
+// Document Preview Modal State
+const showDocModal = ref(false);
+const activeDocType = ref<'price_list' | 'catalog'>('price_list');
+const docProducts = ref<Product[]>([]);
+const docScopeText = ref('');
+const preparingDoc = ref(false);
+
+// Computed selection helpers
+const selectedCount = computed(() => selectedStockIds.value.size);
+
+const isAllCurrentPageSelected = computed(() => {
+  if (!stockList.value.length) return false;
+  return stockList.value.every((s) => selectedStockIds.value.has(s.id));
+});
+
+const isSomeCurrentPageSelected = computed(() => {
+  if (!stockList.value.length) return false;
+  const count = stockList.value.filter((s) => selectedStockIds.value.has(s.id)).length;
+  return count > 0 && count < stockList.value.length;
+});
+
 onMounted(async () => {
+  document.addEventListener('click', onDocumentClick);
   await fetchStock();
 });
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick);
+  clearTimeout(searchTimeout);
+});
+
+function closeDropdowns() {
+  showHeaderExportMenu.value = false;
+  showSelectionActionsMenu.value = false;
+}
+
+function onDocumentClick(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (!target.closest('.dropdown-container')) {
+    closeDropdowns();
+  }
+}
 
 // Watch warehouse changes to refresh
 watch(() => authStore.activeWarehouseId, async () => {
@@ -124,18 +171,142 @@ async function fetchStock() {
   }
 }
 
-async function handleExportCsv() {
+// Selection handlers
+function toggleSelectStock(id: number) {
+  const next = new Set(selectedStockIds.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  selectedStockIds.value = next;
+}
+
+function toggleSelectAllCurrentPage() {
+  const next = new Set(selectedStockIds.value);
+  if (isAllCurrentPageSelected.value) {
+    stockList.value.forEach((s) => next.delete(s.id));
+  } else {
+    stockList.value.forEach((s) => next.add(s.id));
+  }
+  selectedStockIds.value = next;
+}
+
+function clearSelection() {
+  selectedStockIds.value = new Set();
+  closeDropdowns();
+}
+
+function mapStockToProduct(s: Stock): Product {
+  return {
+    id: s.productId,
+    reference: s.productReference || '',
+    name: s.productName || '',
+    brand: s.productBrand || '—',
+    purchasePrice: s.productPurchasePrice || 0,
+    salePrice: s.productSalePrice || 0,
+    unit: s.productUnit || 'PIECE',
+    boxSize: s.productBoxSize || 0,
+    minStockAlert: s.minStockAlert,
+    active: true,
+    createdAt: s.updatedAt || new Date().toISOString(),
+    updatedAt: s.updatedAt || new Date().toISOString(),
+  };
+}
+
+// Retrieve dataset for exports & document generation for an explicit scope.
+async function getTargetProductsForAction(
+  scope: 'all' | 'selection',
+): Promise<{ items: Product[]; scopeText: string }> {
+  if (scope === 'selection' && selectedStockIds.value.size > 0) {
+    const selectedRows = stockList.value.filter((s) => selectedStockIds.value.has(s.id));
+    // If selected count matches what is loaded in view
+    if (selectedRows.length === selectedStockIds.value.size) {
+      const items = selectedRows.map(mapStockToProduct);
+      return {
+        items,
+        scopeText: `Sélection : ${items.length} ${items.length > 1 ? 'articles' : 'article'}`,
+      };
+    }
+
+    // If selections span across multiple pages, fetch full filtered stock
+    const allRes = await inventoryService.getStock({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      status: statusFilter.value !== 'all' ? statusFilter.value : undefined,
+      search: searchQuery.value.trim() || undefined,
+      limit: 1000,
+    });
+    const selectedItems = allRes.items.filter((s) => selectedStockIds.value.has(s.id)).map(mapStockToProduct);
+    return {
+      items: selectedItems,
+      scopeText: `Sélection : ${selectedItems.length} ${selectedItems.length > 1 ? 'articles' : 'article'}`,
+    };
+  }
+
+  // All filtered stock items
+  const allRes = await inventoryService.getStock({
+    warehouseId: authStore.activeWarehouseId || undefined,
+    status: statusFilter.value !== 'all' ? statusFilter.value : undefined,
+    search: searchQuery.value.trim() || undefined,
+    limit: 1000,
+  });
+  const items = allRes.items.map(mapStockToProduct);
+  return {
+    items,
+    scopeText: `Tout le stock filtré (${items.length} ${items.length > 1 ? 'articles' : 'article'})`,
+  };
+}
+
+async function handleOpenDocument(type: 'price_list' | 'catalog', scope: 'all' | 'selection') {
+  preparingDoc.value = true;
+  try {
+    activeDocType.value = type;
+    const { items, scopeText } = await getTargetProductsForAction(scope);
+    docProducts.value = items;
+    docScopeText.value = scopeText;
+    showDocModal.value = true;
+  } catch (err) {
+    console.error('Failed to prepare document products from stock', err);
+  } finally {
+    preparingDoc.value = false;
+  }
+}
+
+async function handleExportCsv(scope: 'all' | 'selection') {
   exporting.value = true;
   try {
+    const ids =
+      scope === 'selection' && selectedStockIds.value.size > 0
+        ? Array.from(selectedStockIds.value)
+        : undefined;
     await inventoryService.exportStockCsv({
       warehouseId: authStore.activeWarehouseId || undefined,
       status: statusFilter.value !== 'all' ? statusFilter.value : undefined,
       search: searchQuery.value.trim() || undefined,
+      ids,
     });
   } catch (err) {
     console.error('Failed to export stock CSV', err);
   } finally {
     exporting.value = false;
+  }
+}
+
+function handleHeaderExport(type: 'csv' | 'price_list' | 'catalog') {
+  closeDropdowns();
+  if (type === 'csv') {
+    handleExportCsv('all');
+  } else {
+    handleOpenDocument(type, 'all');
+  }
+}
+
+function handleSelectionAction(type: 'csv' | 'price_list' | 'catalog') {
+  closeDropdowns();
+  if (type === 'csv') {
+    handleExportCsv('selection');
+  } else {
+    handleOpenDocument(type, 'selection');
   }
 }
 
@@ -227,26 +398,138 @@ async function handleSaveReceipt() {
 
 <template>
   <div class="inventory-view">
+    <!-- Calm, Uncluttered Page Header -->
     <div class="page-header">
       <div>
         <h1 class="page-title">Gestion des Stocks & Inventaire</h1>
         <p class="text-muted">Niveaux de stocks physiques, réservés et disponibles en temps réel</p>
       </div>
       <div class="header-actions">
-        <AppButton variant="secondary" :loading="exporting" @click="handleExportCsv">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          Exporter CSV
-        </AppButton>
+        <!-- Overflow Export Menu for whole stock list (only when no active selection) -->
+        <div v-if="selectedCount === 0" class="dropdown-container">
+          <button
+            type="button"
+            class="header-export-btn"
+            :disabled="exporting || preparingDoc"
+            title="Options d'exportation de l'inventaire filtré"
+            @click.stop="showHeaderExportMenu = !showHeaderExportMenu"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>Exporter</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+
+          <div v-if="showHeaderExportMenu" class="dropdown-menu dropdown-right">
+            <button class="dropdown-item" @click="handleHeaderExport('csv')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span>Exporter CSV (Tout filtré)</span>
+            </button>
+            <button class="dropdown-item" @click="handleHeaderExport('price_list')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <span>Générer Devis PDF (Tout filtré)</span>
+            </button>
+            <button class="dropdown-item" @click="handleHeaderExport('catalog')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="8" y1="6" x2="21" y2="6" />
+                <line x1="8" y1="12" x2="21" y2="12" />
+                <line x1="8" y1="18" x2="21" y2="18" />
+                <line x1="3" y1="6" x2="3.01" y2="6" />
+                <line x1="3" y1="12" x2="3.01" y2="12" />
+                <line x1="3" y1="18" x2="3.01" y2="18" />
+              </svg>
+              <span>Générer Catalogue PDF (Tout filtré)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Primary Action -->
         <AppButton variant="primary" @click="openReceiptModal">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="20 6 9 17 4 12" />
           </svg>
           Réception de Stock
         </AppButton>
+      </div>
+    </div>
+
+    <!-- Calm Contextual Selection Toolbar -->
+    <div v-if="selectedCount > 0" class="selection-action-bar">
+      <div class="selection-info">
+        <span class="selection-check-icon">✓</span>
+        <span class="selection-text">
+          {{ selectedCount }} {{ selectedCount > 1 ? 'articles sélectionnés' : 'article sélectionné' }}
+        </span>
+      </div>
+
+      <div class="selection-controls">
+        <div class="dropdown-container">
+          <button
+            type="button"
+            class="selection-actions-btn"
+            :disabled="exporting || preparingDoc"
+            @click.stop="showSelectionActionsMenu = !showSelectionActionsMenu"
+          >
+            <span>Actions</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+
+          <div v-if="showSelectionActionsMenu" class="dropdown-menu dropdown-right">
+            <button class="dropdown-item" @click="handleSelectionAction('csv')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span>Exporter en CSV ({{ selectedCount }})</span>
+            </button>
+            <button class="dropdown-item" @click="handleSelectionAction('price_list')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <span>Devis / Prix de Vente ({{ selectedCount }})</span>
+            </button>
+            <button class="dropdown-item" @click="handleSelectionAction('catalog')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="8" y1="6" x2="21" y2="6" />
+                <line x1="8" y1="12" x2="21" y2="12" />
+                <line x1="8" y1="18" x2="21" y2="18" />
+                <line x1="3" y1="6" x2="3.01" y2="6" />
+                <line x1="3" y1="12" x2="3.01" y2="12" />
+                <line x1="3" y1="18" x2="3.01" y2="18" />
+              </svg>
+              <span>Catalogue Références ({{ selectedCount }})</span>
+            </button>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="selection-close-btn"
+          title="Désélectionner tout"
+          @click="clearSelection"
+        >
+          ✕
+        </button>
       </div>
     </div>
 
@@ -319,8 +602,18 @@ async function handleSaveReceipt() {
     </div>
 
     <!-- Stock Table -->
-    <AppTable :loading="loading" :empty="!stockList.length" empty-text="Aucun enregistrement de stock trouvé" :columns-count="9">
+    <AppTable :loading="loading" :empty="!stockList.length" empty-text="Aucun enregistrement de stock trouvé" :columns-count="10">
       <template #header>
+        <th class="col-checkbox">
+          <input
+            type="checkbox"
+            class="custom-checkbox"
+            :checked="isAllCurrentPageSelected"
+            :indeterminate.prop="isSomeCurrentPageSelected"
+            title="Tout sélectionner / désélectionner sur cette page"
+            @change="toggleSelectAllCurrentPage"
+          />
+        </th>
         <th>Entrepôt</th>
         <th>Référence</th>
         <th>Produit</th>
@@ -332,7 +625,19 @@ async function handleSaveReceipt() {
         <th>Actions</th>
       </template>
       <template #body>
-        <tr v-for="stock in stockList" :key="stock.id">
+        <tr
+          v-for="stock in stockList"
+          :key="stock.id"
+          :class="{ 'row-selected': selectedStockIds.has(stock.id) }"
+        >
+          <td class="col-checkbox">
+            <input
+              type="checkbox"
+              class="custom-checkbox"
+              :checked="selectedStockIds.has(stock.id)"
+              @change="toggleSelectStock(stock.id)"
+            />
+          </td>
           <td>
             <strong>{{ stock.warehouseName }}</strong>
             <span class="text-caption" style="display: block;">{{ stock.warehouseCode }}</span>
@@ -408,122 +713,129 @@ async function handleSaveReceipt() {
       @change="onPageChange"
     />
 
+    <!-- Document Print / PDF Preview Modal -->
+    <ProductDocumentModal
+      v-model="showDocModal"
+      v-model:document-type="activeDocType"
+      :products="docProducts"
+      :scope-text="docScopeText"
+    />
+
     <!-- Stock Adjustment Modal -->
     <AppModal
       v-model="showAdjustModal"
-      :title="`Ajustement Manuel : ${adjustStockTarget?.productName || ''}`"
-      max-width="480px"
-    >
-      <div v-if="errorMessage" class="modal-error mb-3">
-        {{ errorMessage }}
-      </div>
-
-      <div class="adjust-info-box mb-3">
-        <div class="info-item">
-          <span class="info-label">Entrepôt :</span>
-          <strong>{{ adjustStockTarget?.warehouseName }}</strong>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Stock Physique :</span>
-          <strong class="font-mono">{{ formatNumber(adjustStockTarget?.physicalQuantity) }}</strong>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Réservé pour Transferts :</span>
-          <strong class="font-mono">{{ formatNumber(adjustStockTarget?.reservedQuantity) }}</strong>
-        </div>
-        <div class="info-item">
-          <span class="info-label">Actuellement Disponible :</span>
-          <strong class="font-mono text-success">{{ formatNumber(adjustStockTarget?.availableQuantity) }}</strong>
-        </div>
-      </div>
-
-      <form class="modal-form" @submit.prevent="handleSaveAdjustment">
-        <AppInput
-          v-model="adjustForm.quantity"
-          type="number"
-          label="Quantité Delta d'Ajustement (+ ou -)"
-          hint="Nombre positif pour ajouter du stock, négatif pour en déduire"
-          required
-        />
-
-        <div class="app-input-group">
-          <label class="input-label">
-            Motif Obligatoire d'Ajustement
-            <span class="required-star">*</span>
-          </label>
-          <textarea
-            v-model="adjustForm.reason"
-            rows="3"
-            class="app-textarea"
-            placeholder="Justification d'audit obligatoire (ex. Inventaire physique annuel, remplacement d'unité défectueuse)..."
-            required
-          />
-        </div>
-      </form>
-
-      <template #footer>
-        <AppButton variant="secondary" @click="showAdjustModal = false">Annuler</AppButton>
-        <AppButton variant="primary" :loading="saving" @click="handleSaveAdjustment">
-          Appliquer l'Ajustement
-        </AppButton>
-      </template>
-    </AppModal>
-
-    <!-- Initial Receipt Modal -->
-    <AppModal
-      v-model="showReceiptModal"
-      title="Enregistrer une Entrée de Stock Fabricant"
+      title="Ajustement Manuel de Stock"
       max-width="500px"
     >
       <div v-if="errorMessage" class="modal-error mb-3">
         {{ errorMessage }}
       </div>
 
-      <form class="modal-form" @submit.prevent="handleSaveReceipt">
+      <div class="modal-form">
+        <div class="adjust-info-box">
+          <div class="info-item">
+            <span class="info-label">Entrepôt :</span>
+            <strong>{{ adjustStockTarget?.warehouseName }}</strong>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Produit :</span>
+            <strong>{{ adjustStockTarget?.productName }}</strong>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Stock Physique Actuel :</span>
+            <strong class="font-mono">{{ adjustStockTarget?.physicalQuantity }}</strong>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Stock Disponible :</span>
+            <strong class="font-mono">{{ adjustStockTarget?.availableQuantity }}</strong>
+          </div>
+        </div>
+
+        <AppInput
+          v-model="adjustForm.quantity"
+          type="number"
+          label="Quantité d'ajustement (+ pour entrée, - pour sortie)"
+          placeholder="ex. -5 ou +10"
+          required
+        />
+
         <div class="app-input-group">
-          <label class="input-label">Entrepôt de Destination</label>
+          <label class="input-label">Motif de l'ajustement <span class="required-star">*</span></label>
+          <textarea
+            v-model="adjustForm.reason"
+            rows="3"
+            class="app-textarea"
+            placeholder="Justification obligatoire (ex. Inventaire tournant, Casse constatée, Correction écart...)"
+            required
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <AppButton variant="secondary" @click="showAdjustModal = false">Annuler</AppButton>
+        <AppButton variant="primary" :loading="saving" @click="handleSaveAdjustment">
+          Valider l'ajustement
+        </AppButton>
+      </template>
+    </AppModal>
+
+    <!-- Initial Stock Receipt Modal -->
+    <AppModal
+      v-model="showReceiptModal"
+      title="Réception de Stock Initial"
+      max-width="550px"
+    >
+      <div v-if="errorMessage" class="modal-error mb-3">
+        {{ errorMessage }}
+      </div>
+
+      <div class="modal-form">
+        <div class="app-input-group">
+          <label class="input-label">Entrepôt Destinataire <span class="required-star">*</span></label>
           <select v-model="receiptForm.warehouseId" class="app-select" required>
-            <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
-              {{ w.name }} ({{ w.code }})
+            <option v-for="wh in warehouseStore.warehouses" :key="wh.id" :value="wh.id">
+              {{ wh.name }} ({{ wh.code }})
             </option>
           </select>
         </div>
 
-        <div class="app-input-group">
-          <label class="input-label">Produit</label>
-          <AppProductCombobox
-            v-model="receiptForm.productId"
-            placeholder="Rechercher un produit (nom ou référence)..."
-            required
-          />
-        </div>
+        <AppProductCombobox
+          v-model="receiptForm.productId"
+          label="Sélectionner le Produit"
+          placeholder="Rechercher par référence, désignation, marque..."
+          required
+        />
 
         <AppInput
           v-model="receiptForm.quantity"
           type="number"
-          label="Quantité Entrante"
-          placeholder="ex. 50"
+          label="Quantité Réceptionnée"
+          placeholder="ex. 100"
           required
         />
 
         <AppInput
           v-model="receiptForm.reference"
-          label="Référence Expédition / Lot"
-          placeholder="ex. SHIP-ALG-2026-08"
+          label="Référence du Lot / Bon de Réception"
+          placeholder="ex. REC-2026-001"
           required
         />
 
-        <AppInput
-          v-model="receiptForm.notes"
-          label="Notes / Infos Fournisseur"
-          placeholder="ex. Livraison directe usine Conteneur #4"
-        />
-      </form>
+        <div class="app-input-group">
+          <label class="input-label">Notes & Observations (Optionnel)</label>
+          <textarea
+            v-model="receiptForm.notes"
+            rows="2"
+            class="app-textarea"
+            placeholder="Informations complémentaires sur le fournisseur ou le transporteur..."
+          />
+        </div>
+      </div>
 
       <template #footer>
         <AppButton variant="secondary" @click="showReceiptModal = false">Annuler</AppButton>
         <AppButton variant="primary" :loading="saving" @click="handleSaveReceipt">
-          Confirmer la Réception
+          Enregistrer la Réception
         </AppButton>
       </template>
     </AppModal>
@@ -542,109 +854,317 @@ async function handleSaveReceipt() {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-/* Status Tabs Bar */
+/* Header Export Button */
+.header-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #111827);
+  background-color: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.header-export-btn:hover:not(:disabled) {
+  background-color: var(--color-surface-hover, #f3f4f6);
+  border-color: var(--color-border-dark, #9ca3af);
+}
+
+.header-export-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Dropdown Container & Menu */
+.dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  background-color: #ffffff;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12), 0 4px 6px rgba(0, 0, 0, 0.04);
+  padding: 6px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: dropdownFade 0.15s ease-out;
+}
+
+.dropdown-right {
+  right: 0;
+}
+
+@keyframes dropdownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #1f2937;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease;
+}
+
+.dropdown-item:hover {
+  background-color: #f3f4f6;
+  color: var(--color-primary, #2563eb);
+}
+
+.dropdown-item svg {
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.dropdown-item:hover svg {
+  color: var(--color-primary, #2563eb);
+}
+
+/* Calm Contextual Selection Toolbar */
+.selection-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 14px;
+  background-color: #1e293b;
+  color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  animation: slideDown 0.18s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.selection-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selection-check-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background-color: #3b82f6;
+  color: #ffffff;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.selection-text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.selection-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selection-actions-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.selection-actions-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.selection-actions-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.selection-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.selection-close-btn:hover {
+  color: #f87171;
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+/* Checkboxes */
+.col-checkbox {
+  width: 38px;
+  text-align: center;
+  padding-left: 14px !important;
+  padding-right: 6px !important;
+}
+
+.custom-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-primary, #2563eb);
+  vertical-align: middle;
+}
+
+:deep(tbody tr.row-selected) {
+  background-color: #f0f7ff !important;
+}
+
+:deep(tbody tr.row-selected:hover) {
+  background-color: #e0effe !important;
+}
+
+/* Status Tabs */
 .status-tabs-container {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
-  padding: 4px;
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  width: fit-content;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 
 .status-tab-pill {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
+  padding: 8px 14px;
   font-size: 13px;
   font-weight: 500;
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
   color: var(--color-text-secondary);
-  background-color: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
-  user-select: none;
+  white-space: nowrap;
 }
 
 .status-tab-pill:hover {
+  background-color: var(--color-surface-hover);
   color: var(--color-text-primary);
-  background-color: var(--color-bg);
 }
 
 .status-tab-pill.active {
-  color: var(--color-text-primary);
-  background-color: var(--color-bg);
-  border-color: var(--color-border-dark);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  background-color: var(--color-primary);
+  color: #ffffff;
+  border-color: var(--color-primary);
 }
 
 .tab-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1px 7px;
+  display: inline-block;
+  padding: 1px 6px;
   font-size: 11px;
-  font-family: var(--font-mono);
   font-weight: 600;
-  border-radius: 10px;
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-secondary);
+  border-radius: 9999px;
+  background-color: var(--color-border);
+  color: var(--color-text-primary);
 }
 
 .status-tab-pill.active .tab-badge {
-  background-color: var(--color-border-dark);
-  color: var(--color-bg);
+  background-color: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
 }
 
 .badge-normal {
+  background-color: var(--color-success-bg);
   color: var(--color-success);
-}
-.status-tab-pill.active .badge-normal {
-  background-color: var(--color-success);
-  color: #ffffff;
 }
 
 .badge-warning {
+  background-color: var(--color-warning-bg);
   color: var(--color-warning);
-}
-.status-tab-pill.active .badge-warning {
-  background-color: var(--color-warning);
-  color: #ffffff;
 }
 
 .badge-danger {
+  background-color: var(--color-danger-bg);
   color: var(--color-danger);
 }
-.status-tab-pill.active .badge-danger {
-  background-color: var(--color-danger);
-  color: #ffffff;
-}
 
+/* Filter Bar */
 .filter-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .search-box {
   position: relative;
   flex: 1;
-  max-width: 520px;
+  min-width: 240px;
+  max-width: 420px;
 }
 
 .search-icon {
