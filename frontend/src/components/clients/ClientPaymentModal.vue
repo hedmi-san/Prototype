@@ -8,6 +8,7 @@ import { formatCurrency, formatDate } from '../../utils/formatters';
 import AppModal from '../common/AppModal.vue';
 import AppButton from '../common/AppButton.vue';
 import AppInput from '../common/AppInput.vue';
+import AppClientCombobox from '../common/AppClientCombobox.vue';
 
 interface Props {
   modelValue: boolean;
@@ -211,16 +212,11 @@ async function submitPayment() {
             </strong>
           </div>
         </div>
-        <select
+        <AppClientCombobox
           v-else
           v-model="selectedClientId"
-          class="form-select"
-        >
-          <option :value="null" disabled>Sélectionner un client...</option>
-          <option v-for="c in clientsList" :key="c.id" :value="c.id">
-            {{ c.name }} ({{ c.code }}) - Solde: {{ formatCurrency(c.currentBalance) }}
-          </option>
-        </select>
+          placeholder="Rechercher un client (nom, code, téléphone)..."
+        />
       </div>
 
       <!-- Payment Main Details -->

@@ -12,6 +12,7 @@ import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppButton from '../../components/common/AppButton.vue';
 import AppInput from '../../components/common/AppInput.vue';
 import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
+import AppClientCombobox from '../../components/common/AppClientCombobox.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -90,6 +91,16 @@ onMounted(async () => {
     lineItems.value[0].unitPrice = firstProd.salePrice;
   }
 });
+
+function onClientSelect(cl: Client | null) {
+  if (cl) {
+    customerName.value = cl.name;
+    customerPhone.value = cl.phone || '';
+  } else {
+    customerName.value = '';
+    customerPhone.value = '';
+  }
+}
 
 watch(selectedClientId, (newId) => {
   if (newId) {
@@ -392,11 +403,11 @@ async function handleSubmitSale() {
           <!-- Client Selection -->
           <div class="app-input-group">
             <label class="input-label">Compte Client *</label>
-            <select v-model.number="selectedClientId" class="app-select">
-              <option v-for="cl in clientStore.clients" :key="cl.id" :value="cl.id">
-                {{ cl.name }} ({{ cl.code }})
-              </option>
-            </select>
+            <AppClientCombobox
+              v-model="selectedClientId"
+              placeholder="Taper nom, code ou téléphone..."
+              @select="onClientSelect"
+            />
 
             <!-- Client Real-time Balance Badge -->
             <div v-if="selectedClient" class="client-balance-box">
