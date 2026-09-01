@@ -278,7 +278,7 @@ async function handleSubmitSale() {
               <tr>
                 <th class="col-product">Produit</th>
                 <th class="col-avail">Disponible</th>
-                <th class="col-price">Prix Unitaire (DA)</th>
+                <th class="col-price">Prix Unitaire</th>
                 <th class="col-qty">Quantité</th>
                 <th class="col-subtotal">Sous-total</th>
                 <th class="col-action"></th>
@@ -328,10 +328,13 @@ async function handleSubmitSale() {
                     type="button"
                     class="remove-btn"
                     :disabled="lineItems.length <= 1"
-                    title="Supprimer la ligne"
+                    title="Supprimer cette ligne"
                     @click="removeLineItem(idx)"
                   >
-                    &times;
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
                   </button>
                 </td>
               </tr>
@@ -540,7 +543,7 @@ async function handleSubmitSale() {
 
 .pos-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
   align-items: start;
 }
@@ -593,7 +596,7 @@ async function handleSubmitSale() {
 
 .items-table th {
   text-align: left;
-  padding: 10px 10px;
+  padding: 8px 6px;
   color: var(--color-text-secondary);
   font-weight: 600;
   font-size: 12px;
@@ -601,36 +604,38 @@ async function handleSubmitSale() {
 }
 
 .items-table td {
-  padding: 8px 8px;
+  padding: 6px 4px;
   border-bottom: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.04));
   vertical-align: middle;
 }
 
 .col-product {
   width: 44%;
-  min-width: 250px;
+  min-width: 180px;
 }
 
 .col-avail {
-  width: 11%;
-  min-width: 70px;
+  width: 70px;
+  min-width: 65px;
   text-align: center;
+  white-space: nowrap;
 }
 
 .col-price {
-  width: 17%;
-  min-width: 100px;
+  width: 105px;
+  min-width: 90px;
 }
 
 .col-qty {
-  width: 11%;
-  min-width: 65px;
+  width: 65px;
+  min-width: 55px;
 }
 
 .col-subtotal {
-  width: 14%;
+  width: 110px;
   min-width: 95px;
   text-align: right;
+  white-space: nowrap;
 }
 
 .col-action {
@@ -640,28 +645,43 @@ async function handleSubmitSale() {
 
 .price-input {
   width: 100%;
+  height: 38px;
   text-align: right;
-  padding: 8px 10px;
+  padding: 6px 8px;
 }
 
 .qty-input {
   width: 100%;
+  height: 38px;
   text-align: center;
-  padding: 8px 6px;
+  padding: 6px 4px;
 }
 
 .remove-btn {
-  background: none;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.06);
   color: var(--color-danger, #ef4444);
-  font-size: 20px;
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
-  padding: 0 4px;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+
+.remove-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: #ef4444;
 }
 
 .remove-btn:disabled {
   opacity: 0.2;
   cursor: not-allowed;
+  border-color: transparent;
+  background: transparent;
 }
 
 .pos-sidebar {
