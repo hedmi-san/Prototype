@@ -582,7 +582,7 @@ async function handleSubmitSale() {
 }
 
 .items-table-wrapper {
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .items-table {
@@ -593,7 +593,7 @@ async function handleSubmitSale() {
 
 .items-table th {
   text-align: left;
-  padding: 10px 12px;
+  padding: 10px 10px;
   color: var(--color-text-secondary);
   font-weight: 600;
   font-size: 12px;
@@ -601,45 +601,53 @@ async function handleSubmitSale() {
 }
 
 .items-table td {
-  padding: 10px 12px;
+  padding: 8px 8px;
   border-bottom: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.04));
   vertical-align: middle;
 }
 
 .col-product {
-  width: 40%;
-  min-width: 220px;
+  width: 44%;
+  min-width: 250px;
 }
 
 .col-avail {
-  width: 15%;
-  min-width: 90px;
+  width: 11%;
+  min-width: 70px;
+  text-align: center;
 }
 
 .col-price {
-  width: 18%;
-  min-width: 110px;
+  width: 17%;
+  min-width: 100px;
 }
 
 .col-qty {
-  width: 12%;
-  min-width: 80px;
+  width: 11%;
+  min-width: 65px;
 }
 
 .col-subtotal {
-  width: 15%;
-  min-width: 100px;
+  width: 14%;
+  min-width: 95px;
   text-align: right;
 }
 
 .col-action {
-  width: 40px;
+  width: 36px;
   text-align: center;
 }
 
-.price-input,
+.price-input {
+  width: 100%;
+  text-align: right;
+  padding: 8px 10px;
+}
+
 .qty-input {
   width: 100%;
+  text-align: center;
+  padding: 8px 6px;
 }
 
 .remove-btn {

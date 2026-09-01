@@ -188,7 +188,7 @@ async function submitAdjustment() {
     <header class="print-header">
       <div class="print-header-top">
         <div class="print-brand-left">
-          <div class="print-company-name">DISTRI-TOOLS DZ &bull; EURL BOUSFOR HOSNA</div>
+          <div class="print-company-name">&bull; EURL BOUSFOR HOSNA</div>
           <div class="print-doc-title">Extrait de Compte Client (Situation Financière)</div>
           <div class="print-doc-subtitle">Grand Livre des Ventes, Règlements et Dettes</div>
         </div>

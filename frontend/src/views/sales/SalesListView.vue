@@ -481,7 +481,7 @@ async function handleConfirmCancel() {
       </div>
       <template #footer>
         <AppButton variant="secondary" @click="showInvoiceModal = false">Fermer</AppButton>
-        <AppButton variant="primary" onclick="window.print()">Imprimer le Bon / Facture (A4)</AppButton>
+        <AppButton variant="primary" onclick="window.print()">Imprimer le Bon</AppButton>
       </template>
     </AppModal>
 

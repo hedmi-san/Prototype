@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<Props>(), {
   placeholder: 'Rechercher un produit (nom ou référence)...',
   disabled: false,
   required: false,
-  maxResults: 8,
+  maxResults: 10,
 });
 
 const emit = defineEmits<{
@@ -30,11 +30,26 @@ const emit = defineEmits<{
 const productStore = useProductStore();
 
 const comboboxRef = ref<HTMLElement | null>(null);
+const dropdownRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
 const searchQuery = ref('');
 const isOpen = ref(false);
 const highlightedIndex = ref(-1);
 const isFocused = ref(false);
+
+const dropdownStyle = ref<{
+  position: 'fixed';
+  top: string;
+  left: string;
+  width: string;
+  zIndex: number;
+}>({
+  position: 'fixed',
+  top: '0px',
+  left: '0px',
+  width: '380px',
+  zIndex: 99999,
+});
 
 onMounted(async () => {
   if (!productStore.products.length) {
@@ -42,10 +57,14 @@ onMounted(async () => {
   }
   syncSearchQueryFromModel();
   document.addEventListener('click', handleClickOutside);
+  window.addEventListener('resize', handleWindowEvents);
+  window.addEventListener('scroll', handleWindowEvents, true);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside);
+  window.removeEventListener('resize', handleWindowEvents);
+  window.removeEventListener('scroll', handleWindowEvents, true);
 });
 
 function formatProductDisplay(p: Product): string {
@@ -81,6 +100,39 @@ watch(
   },
   { deep: true }
 );
+
+watch(isOpen, (open) => {
+  if (open) {
+    updateDropdownPosition();
+  }
+});
+
+function updateDropdownPosition() {
+  if (!comboboxRef.value) return;
+  const rect = comboboxRef.value.getBoundingClientRect();
+  const dropdownHeight = 320;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const showAbove = spaceBelow < 200 && rect.top > dropdownHeight;
+
+  const top = showAbove ? Math.max(8, rect.top - dropdownHeight - 4) : rect.bottom + 4;
+  const dropdownWidth = Math.max(rect.width, 420);
+  const maxLeft = window.innerWidth - dropdownWidth - 12;
+  const left = Math.max(8, Math.min(rect.left, maxLeft));
+
+  dropdownStyle.value = {
+    position: 'fixed',
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `${dropdownWidth}px`,
+    zIndex: 99999,
+  };
+}
+
+function handleWindowEvents() {
+  if (isOpen.value) {
+    updateDropdownPosition();
+  }
+}
 
 const selectedProduct = computed<Product | undefined>(() => {
   if (!props.modelValue) return undefined;
@@ -125,7 +177,7 @@ function getStockInfo(productId: number) {
     return {
       quantity: 0,
       badgeClass: 'stock-out',
-      label: '0 unité (Rupture)',
+      label: '0 u. (Rupture)',
       icon: '🔴',
     };
   }
@@ -133,14 +185,14 @@ function getStockInfo(productId: number) {
     return {
       quantity: qty,
       badgeClass: 'stock-low',
-      label: `${formatNumber(qty)} unités (Faible)`,
+      label: `${formatNumber(qty)} u. (Faible)`,
       icon: '🟡',
     };
   }
   return {
     quantity: qty,
     badgeClass: 'stock-ok',
-    label: `${formatNumber(qty)} unités`,
+    label: `${formatNumber(qty)} u.`,
     icon: '🟢',
   };
 }
@@ -150,6 +202,7 @@ function handleInputFocus() {
   isFocused.value = true;
   isOpen.value = true;
   highlightedIndex.value = -1;
+  updateDropdownPosition();
   // If product is already selected, select text for quick replacement
   if (inputRef.value && selectedProduct.value) {
     inputRef.value.select();
@@ -159,6 +212,7 @@ function handleInputFocus() {
 function handleInputChange() {
   isOpen.value = true;
   highlightedIndex.value = 0;
+  updateDropdownPosition();
   // If user clears the input completely, reset selection
   if (!searchQuery.value.trim() && props.modelValue) {
     emit('update:modelValue', null);
@@ -194,6 +248,7 @@ function handleKeyDown(event: KeyboardEvent) {
   if (!isOpen.value) {
     if (['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) {
       isOpen.value = true;
+      updateDropdownPosition();
       event.preventDefault();
     }
     return;
@@ -211,10 +266,12 @@ function handleKeyDown(event: KeyboardEvent) {
     case 'ArrowDown':
       event.preventDefault();
       highlightedIndex.value = (highlightedIndex.value + 1) % listLength;
+      scrollToHighlighted();
       break;
     case 'ArrowUp':
       event.preventDefault();
       highlightedIndex.value = (highlightedIndex.value - 1 + listLength) % listLength;
+      scrollToHighlighted();
       break;
     case 'Enter':
       event.preventDefault();
@@ -237,8 +294,22 @@ function handleKeyDown(event: KeyboardEvent) {
   }
 }
 
+function scrollToHighlighted() {
+  nextTick(() => {
+    if (!dropdownRef.value) return;
+    const highlightedEl = dropdownRef.value.querySelector('.is-highlighted') as HTMLElement;
+    if (highlightedEl) {
+      highlightedEl.scrollIntoView({ block: 'nearest' });
+    }
+  });
+}
+
 function handleClickOutside(event: MouseEvent) {
-  if (comboboxRef.value && !comboboxRef.value.contains(event.target as Node)) {
+  const target = event.target as Node;
+  const isInsideCombobox = comboboxRef.value && comboboxRef.value.contains(target);
+  const isInsideDropdown = dropdownRef.value && dropdownRef.value.contains(target);
+
+  if (!isInsideCombobox && !isInsideDropdown) {
     isOpen.value = false;
     isFocused.value = false;
     highlightedIndex.value = -1;
@@ -277,44 +348,51 @@ function handleClickOutside(event: MouseEvent) {
       </button>
     </div>
 
-    <!-- Floating Dropdown Menu -->
-    <div v-if="isOpen && !disabled" class="combobox-dropdown">
-      <div v-if="filteredProducts.length === 0" class="dropdown-empty">
-        Aucun produit trouvé pour "{{ searchQuery }}"
-      </div>
+    <!-- Teleported Floating Dropdown Menu (No clipping, completely free above tables) -->
+    <Teleport to="body">
+      <div
+        v-if="isOpen && !disabled"
+        ref="dropdownRef"
+        class="combobox-floating-dropdown"
+        :style="dropdownStyle"
+      >
+        <div v-if="filteredProducts.length === 0" class="dropdown-empty">
+          Aucun produit trouvé pour "{{ searchQuery }}"
+        </div>
 
-      <ul v-else class="dropdown-list" role="listbox">
-        <li
-          v-for="(product, idx) in filteredProducts"
-          :key="product.id"
-          :class="[
-            'dropdown-item',
-            {
-              'is-highlighted': idx === highlightedIndex,
-              'is-selected': product.id === modelValue,
-            },
-          ]"
-          role="option"
-          :aria-selected="product.id === modelValue"
-          @mousedown.prevent="selectProduct(product)"
-          @mouseenter="highlightedIndex = idx"
-        >
-          <div class="item-primary">
-            <div class="item-title">
-              <span class="product-ref font-mono">[{{ product.reference }}]</span>
-              <span class="product-name">{{ product.name }}</span>
-              <span v-if="product.brand" class="product-brand">({{ product.brand }})</span>
+        <ul v-else class="dropdown-list" role="listbox">
+          <li
+            v-for="(product, idx) in filteredProducts"
+            :key="product.id"
+            :class="[
+              'dropdown-item',
+              {
+                'is-highlighted': idx === highlightedIndex,
+                'is-selected': product.id === modelValue,
+              },
+            ]"
+            role="option"
+            :aria-selected="product.id === modelValue"
+            @mousedown.prevent="selectProduct(product)"
+            @mouseenter="highlightedIndex = idx"
+          >
+            <div class="item-primary">
+              <div class="item-title">
+                <span class="product-ref font-mono">[{{ product.reference }}]</span>
+                <span class="product-name">{{ product.name }}</span>
+                <span v-if="product.brand" class="product-brand">({{ product.brand }})</span>
+              </div>
+              <div class="item-meta">
+                <span class="item-price font-mono">{{ formatCurrency(product.salePrice) }}</span>
+                <span v-if="warehouseStock.length" :class="['item-stock', getStockInfo(product.id).badgeClass]">
+                  {{ getStockInfo(product.id).icon }} {{ getStockInfo(product.id).label }}
+                </span>
+              </div>
             </div>
-            <div class="item-meta">
-              <span class="item-price font-mono">{{ formatCurrency(product.salePrice) }}</span>
-              <span v-if="warehouseStock.length" :class="['item-stock', getStockInfo(product.id).badgeClass]">
-                {{ getStockInfo(product.id).icon }} {{ getStockInfo(product.id).label }}
-              </span>
-            </div>
-          </div>
-        </li>
-      </ul>
-    </div>
+          </li>
+        </ul>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -330,7 +408,7 @@ function handleClickOutside(event: MouseEvent) {
   display: flex;
   align-items: center;
   width: 100%;
-  height: 36px;
+  height: 38px;
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -380,8 +458,8 @@ function handleClickOutside(event: MouseEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   font-size: 16px;
   line-height: 1;
@@ -397,98 +475,116 @@ function handleClickOutside(event: MouseEvent) {
   background-color: var(--color-surface-hover);
   color: var(--color-danger);
 }
+</style>
 
-.combobox-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 360px;
-  width: 100%;
-  max-width: 540px;
-  z-index: 9999;
-  max-height: 290px;
+<style>
+/* Global floating dropdown styles to work when teleported to body */
+.combobox-floating-dropdown {
+  box-sizing: border-box;
+  max-height: 320px;
   overflow-y: auto;
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.22), 0 4px 12px rgba(0, 0, 0, 0.12);
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-family: inherit;
+  animation: combobox-fade 0.15s ease-out;
 }
 
-.dropdown-empty {
-  padding: 14px 16px;
+@keyframes combobox-fade {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.combobox-floating-dropdown .dropdown-empty {
+  padding: 16px 20px;
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: #64748b;
   text-align: center;
 }
 
-.dropdown-list {
+.combobox-floating-dropdown .dropdown-list {
   list-style: none;
   margin: 0;
-  padding: 4px;
+  padding: 6px;
 }
 
-.dropdown-item {
+.combobox-floating-dropdown .dropdown-item {
   display: flex;
   flex-direction: column;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background-color var(--transition-fast);
+  transition: background-color 0.1s ease;
+  border-bottom: 1px solid #f1f5f9;
 }
 
-.dropdown-item:hover,
-.dropdown-item.is-highlighted {
-  background-color: var(--color-surface-hover);
+.combobox-floating-dropdown .dropdown-item:last-child {
+  border-bottom: none;
 }
 
-.dropdown-item.is-selected {
+.combobox-floating-dropdown .dropdown-item:hover,
+.combobox-floating-dropdown .dropdown-item.is-highlighted {
+  background-color: #f1f5f9;
+}
+
+.combobox-floating-dropdown .dropdown-item.is-selected {
   background-color: rgba(59, 130, 246, 0.08);
+  border-left: 3px solid #3b82f6;
 }
 
-.item-primary {
+.combobox-floating-dropdown .item-primary {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.item-title {
+.combobox-floating-dropdown .item-title {
   display: flex;
   align-items: baseline;
   gap: 6px;
   font-size: 13px;
-  line-height: 1.3;
+  line-height: 1.35;
+  flex-wrap: wrap;
 }
 
-.product-ref {
+.combobox-floating-dropdown .product-ref {
   font-size: 11px;
   font-weight: 700;
-  color: var(--color-primary);
+  color: #2563eb;
 }
 
-.product-name {
+.combobox-floating-dropdown .product-name {
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: #0f172a;
 }
 
-.product-brand {
+.combobox-floating-dropdown .product-brand {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: #64748b;
 }
 
-.item-meta {
+.combobox-floating-dropdown .item-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   font-size: 12px;
+  margin-top: 2px;
 }
 
-.item-price {
-  font-weight: 600;
-  color: var(--color-text-primary);
+.combobox-floating-dropdown .item-price {
+  font-weight: 700;
+  color: #0f172a;
 }
 
-.item-stock {
+.combobox-floating-dropdown .item-stock {
   font-size: 11px;
   font-weight: 500;
   display: inline-flex;
@@ -496,16 +592,16 @@ function handleClickOutside(event: MouseEvent) {
   gap: 4px;
 }
 
-.stock-ok {
-  color: var(--color-success);
+.combobox-floating-dropdown .stock-ok {
+  color: #10b981;
 }
 
-.stock-low {
-  color: var(--color-warning);
+.combobox-floating-dropdown .stock-low {
+  color: #f59e0b;
 }
 
-.stock-out {
-  color: var(--color-danger);
+.combobox-floating-dropdown .stock-out {
+  color: #ef4444;
   font-weight: 600;
 }
 </style>
