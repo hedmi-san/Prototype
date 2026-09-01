@@ -64,7 +64,7 @@ export const inventoryService = {
 };
 
 export const saleService = {
-  async getSales(params?: PaginationParams | number): Promise<PaginatedData<Sale>> {
+  async getSales(params?: PaginationParams & { paymentStatus?: string }): Promise<PaginatedData<Sale>> {
     const queryParams = normalizeParams(params);
     const response = await api.get<ApiResponse<any>>('/sales', { params: queryParams });
     return normalizePaginatedResponse<Sale>(response.data.data);
@@ -76,9 +76,13 @@ export const saleService = {
   async createSale(data: {
     warehouseId: number;
     employeeId?: number | null;
+    clientId?: number | null;
     customerName?: string;
     customerPhone?: string;
     saleDate?: string;
+    paymentCondition?: 'FULL_CASH' | 'CREDIT' | 'PARTIAL_DOWNPAYMENT';
+    downpaymentAmount?: number;
+    paymentMethod?: string;
     items: { productId: number; quantity: number; unitPrice?: number }[];
   }): Promise<Sale> {
     const response = await api.post<ApiResponse<Sale>>('/sales', data);
@@ -101,7 +105,7 @@ export const saleService = {
     const response = await api.post<ApiResponse<Sale>>(`/sales/${id}/cancel`);
     return response.data.data;
   },
-  async exportSalesCsv(params?: { warehouseId?: number; startDate?: string; endDate?: string; search?: string }): Promise<void> {
+  async exportSalesCsv(params?: { warehouseId?: number; startDate?: string; endDate?: string; paymentStatus?: string; search?: string }): Promise<void> {
     const response = await api.get('/sales/export/csv', {
       params,
       responseType: 'blob',

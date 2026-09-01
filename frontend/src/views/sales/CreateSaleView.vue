@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { useProductStore } from '../../stores/product.store';
+import { useClientStore } from '../../stores/client.store';
 import { saleService, inventoryService } from '../../services/operations.service';
 import { employeeService } from '../../services/admin-reports.service';
-import type { Product, Stock, Employee } from '../../types';
+import type { Product, Stock, Employee, Client } from '../../types';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppButton from '../../components/common/AppButton.vue';
 import AppInput from '../../components/common/AppInput.vue';
@@ -16,6 +17,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
 const productStore = useProductStore();
+const clientStore = useClientStore();
 
 const warehouseStock = ref<Stock[]>([]);
 const employees = ref<Employee[]>([]);
@@ -27,8 +29,16 @@ const errorMessage = ref('');
 const selectedWarehouseId = ref<number>(
   authStore.activeWarehouseId || warehouseStore.warehouses[0]?.id || 1
 );
+
+// Client Selection
+const selectedClientId = ref<number | null>(null);
 const customerName = ref('');
 const customerPhone = ref('');
+
+// Payment Conditions
+const paymentCondition = ref<'FULL_CASH' | 'CREDIT' | 'PARTIAL_DOWNPAYMENT'>('FULL_CASH');
+const downpaymentAmount = ref<number>(0);
+const paymentMethod = ref<string>('CASH');
 
 const getLocalDefaultDateTime = () => {
   const now = new Date();
@@ -53,16 +63,41 @@ const lineItems = ref<LineItem[]>([
   { productId: 0, quantity: 1, unitPrice: 0 },
 ]);
 
+const selectedClient = computed(() => {
+  if (!selectedClientId.value) return null;
+  return clientStore.clients.find((c) => c.id === selectedClientId.value) || null;
+});
+
 onMounted(async () => {
   await Promise.all([
     productStore.fetchProducts(),
+    clientStore.fetchClients({ limit: 500, activeOnly: true }),
     fetchStockForWarehouse(),
     fetchEmployeesForWarehouse(),
   ]);
+
+  // Set default client if available
+  if (clientStore.clients.length > 0) {
+    const defaultCl = clientStore.clients.find((c) => c.isDefault) || clientStore.clients[0];
+    selectedClientId.value = defaultCl.id;
+    customerName.value = defaultCl.name;
+    customerPhone.value = defaultCl.phone || '';
+  }
+
   if (lineItems.value[0].productId === 0 && productStore.products.length > 0) {
     const firstProd = productStore.products[0];
     lineItems.value[0].productId = firstProd.id;
     lineItems.value[0].unitPrice = firstProd.salePrice;
+  }
+});
+
+watch(selectedClientId, (newId) => {
+  if (newId) {
+    const cl = clientStore.clients.find((c) => c.id === newId);
+    if (cl) {
+      customerName.value = cl.name;
+      customerPhone.value = cl.phone || '';
+    }
   }
 });
 
@@ -135,6 +170,20 @@ const totalAmount = computed(() => {
   }, 0);
 });
 
+const calculatedPaidAmount = computed(() => {
+  if (paymentCondition.value === 'FULL_CASH') {
+    return totalAmount.value;
+  }
+  if (paymentCondition.value === 'CREDIT') {
+    return 0;
+  }
+  return Math.min(totalAmount.value, Number(downpaymentAmount.value) || 0);
+});
+
+const calculatedRemainingDebt = computed(() => {
+  return Math.max(0, totalAmount.value - calculatedPaidAmount.value);
+});
+
 async function handleSubmitSale() {
   errorMessage.value = '';
 
@@ -156,14 +205,26 @@ async function handleSubmitSale() {
     }
   }
 
+  if (paymentCondition.value === 'PARTIAL_DOWNPAYMENT') {
+    const dp = Number(downpaymentAmount.value);
+    if (isNaN(dp) || dp < 0 || dp > totalAmount.value) {
+      errorMessage.value = `Le montant de l'acompte doit être compris entre 0 et ${formatCurrency(totalAmount.value)}.`;
+      return;
+    }
+  }
+
   submitting.value = true;
   try {
     await saleService.createSale({
       warehouseId: selectedWarehouseId.value,
       employeeId: selectedEmployeeId.value || undefined,
+      clientId: selectedClientId.value || undefined,
       customerName: customerName.value.trim() || undefined,
       customerPhone: customerPhone.value.trim() || undefined,
       saleDate: saleDate.value ? saleDate.value.replace('T', ' ') : undefined,
+      paymentCondition: paymentCondition.value,
+      downpaymentAmount: paymentCondition.value === 'PARTIAL_DOWNPAYMENT' ? Number(downpaymentAmount.value) : undefined,
+      paymentMethod: paymentMethod.value,
       items: lineItems.value.map((i) => ({
         productId: i.productId,
         quantity: i.quantity,
@@ -185,7 +246,7 @@ async function handleSubmitSale() {
     <div class="page-header">
       <div>
         <h1 class="page-title">Point de Vente & Facturation</h1>
-        <p class="text-muted">Émission de nouvelles factures clients avec déduction atomique des stocks</p>
+        <p class="text-muted">Émission de nouvelles factures clients avec déduction atomique des stocks et gestion des créances</p>
       </div>
       <div class="header-actions">
         <router-link to="/sales">
@@ -279,13 +340,14 @@ async function handleSubmitSale() {
         </div>
       </div>
 
-      <!-- Right Column: Summary & Confirmation -->
+      <!-- Right Column: Summary & Payment -->
       <div class="pos-sidebar card">
-        <h3>Détails de la Facture</h3>
+        <h3>Détails & Règlement</h3>
 
         <div class="sidebar-form">
+          <!-- Warehouse -->
           <div class="app-input-group">
-            <label class="input-label">Entrepôt</label>
+            <label class="input-label">Entrepôt d'expédition</label>
             <select
               v-model.number="selectedWarehouseId"
               class="app-select"
@@ -298,21 +360,23 @@ async function handleSubmitSale() {
             </select>
           </div>
 
+          <!-- Employee -->
           <div class="app-input-group">
-            <label class="input-label">Agent de suivi</label>
+            <label class="input-label">Agent Commercial / Vendeur</label>
             <select
               v-model.number="selectedEmployeeId"
               class="app-select"
             >
-              <option :value="null">-- Aucun --</option>
+              <option :value="null">-- Non spécifié --</option>
               <option v-for="emp in employees" :key="emp.id" :value="emp.id">
                 {{ emp.fullName }} ({{ emp.position }})
               </option>
             </select>
           </div>
 
+          <!-- Date -->
           <div class="app-input-group">
-            <label class="input-label">Date de Vente</label>
+            <label class="input-label">Date de la Vente</label>
             <input
               v-model="saleDate"
               type="datetime-local"
@@ -322,17 +386,96 @@ async function handleSubmitSale() {
             />
           </div>
 
+          <!-- Client Selection -->
+          <div class="app-input-group">
+            <label class="input-label">Compte Client *</label>
+            <select v-model.number="selectedClientId" class="app-select">
+              <option v-for="cl in clientStore.clients" :key="cl.id" :value="cl.id">
+                {{ cl.name }} ({{ cl.code }})
+              </option>
+            </select>
+
+            <!-- Client Real-time Balance Badge -->
+            <div v-if="selectedClient" class="client-balance-box">
+              <span class="balance-title">Solde Actuel :</span>
+              <strong :class="['balance-amount', selectedClient.currentBalance > 0 ? 'debt' : (selectedClient.currentBalance < 0 ? 'credit' : 'settled')]">
+                {{ formatCurrency(selectedClient.currentBalance) }}
+              </strong>
+              <span v-if="selectedClient.currentBalance < 0" class="advance-notice">
+                💡 Avance disponible de {{ formatCurrency(Math.abs(selectedClient.currentBalance)) }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Customer details text -->
           <AppInput
             v-model="customerName"
-            label="Nom du Client"
+            label="Nom sur Facture"
             placeholder="Nom du Client"
           />
 
           <AppInput
             v-model="customerPhone"
-            label="Téléphone du Client"
+            label="Téléphone"
             placeholder="+213 550 00 00 00"
           />
+
+          <!-- Payment Condition Section -->
+          <div class="payment-condition-box">
+            <label class="input-label font-bold">Conditions de Règlement *</label>
+
+            <div class="condition-radios">
+              <label class="condition-radio">
+                <input v-model="paymentCondition" type="radio" value="FULL_CASH" />
+                <div class="radio-content">
+                  <strong>Comptant (Payé à 100%)</strong>
+                  <span>Règlement immédiat</span>
+                </div>
+              </label>
+
+              <label class="condition-radio">
+                <input v-model="paymentCondition" type="radio" value="CREDIT" />
+                <div class="radio-content">
+                  <strong>À Crédit (Non payé)</strong>
+                  <span>Ajoute la dette au compte client</span>
+                </div>
+              </label>
+
+              <label class="condition-radio">
+                <input v-model="paymentCondition" type="radio" value="PARTIAL_DOWNPAYMENT" />
+                <div class="radio-content">
+                  <strong>Acompte (Versement partiel)</strong>
+                  <span>Paiement partiel à la caisse</span>
+                </div>
+              </label>
+            </div>
+
+            <!-- Downpayment amount input -->
+            <div v-if="paymentCondition === 'PARTIAL_DOWNPAYMENT'" class="downpayment-input-group">
+              <label class="input-label">Montant de l'Acompte (DZD) *</label>
+              <input
+                v-model.number="downpaymentAmount"
+                type="number"
+                min="1"
+                :max="totalAmount"
+                step="any"
+                placeholder="0.00"
+                class="app-input"
+                required
+              />
+            </div>
+
+            <!-- Payment Method (if paid > 0) -->
+            <div v-if="paymentCondition !== 'CREDIT'" class="payment-method-group">
+              <label class="input-label">Mode d'Encaissement</label>
+              <select v-model="paymentMethod" class="app-select">
+                <option value="CASH">Espèces</option>
+                <option value="CHECK">Chèque Bancaire</option>
+                <option value="BANK_TRANSFER">Virement Bancaire</option>
+                <option value="CARD">Carte Bancaire (CIB/Edahabia)</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div class="summary-divider" />
@@ -343,8 +486,19 @@ async function handleSubmitSale() {
             <strong>{{ lineItems.length }} {{ lineItems.length > 1 ? 'lignes' : 'ligne' }}</strong>
           </div>
           <div class="summary-row total-highlight">
-            <span>Total à Payer :</span>
+            <span>Total Facture :</span>
             <span class="font-mono text-h2 font-bold">{{ formatCurrency(totalAmount) }}</span>
+          </div>
+
+          <div v-if="paymentCondition !== 'FULL_CASH'" class="debt-breakdown">
+            <div class="summary-row">
+              <span>Montant Payé Immédiat :</span>
+              <strong class="text-success">{{ formatCurrency(calculatedPaidAmount) }}</strong>
+            </div>
+            <div class="summary-row">
+              <span>Créance Restante (Dette) :</span>
+              <strong class="text-danger font-bold">{{ formatCurrency(calculatedRemainingDebt) }}</strong>
+            </div>
           </div>
         </div>
 
@@ -355,7 +509,7 @@ async function handleSubmitSale() {
           :disabled="authStore.isReadOnly"
           :loading="submitting"
         >
-          Confirmer la Facture
+          Confirmer la Facture ({{ formatCurrency(totalAmount) }})
         </AppButton>
       </div>
     </form>
@@ -376,9 +530,9 @@ async function handleSubmitSale() {
 }
 
 .error-alert {
-  background-color: var(--color-danger-bg);
-  color: var(--color-danger);
-  border: 1px solid var(--color-danger-border);
+  background-color: var(--color-danger-bg, rgba(239, 68, 68, 0.1));
+  color: var(--color-danger, #ef4444);
+  border: 1px solid var(--color-danger-border, rgba(239, 68, 68, 0.3));
   padding: 12px 16px;
   border-radius: var(--radius-sm);
   font-size: 13px;
@@ -386,7 +540,7 @@ async function handleSubmitSale() {
 
 .pos-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 340px;
   gap: 16px;
   align-items: start;
 }
@@ -404,26 +558,31 @@ async function handleSubmitSale() {
   margin-bottom: 16px;
 }
 
-.add-row-btn {
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
+.card-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--color-text-primary);
+}
+
+.add-row-btn {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .add-row-btn:hover {
-  background-color: var(--color-surface-hover);
+  background-color: var(--color-primary-subtle, rgba(59, 130, 246, 0.1));
 }
 
 .items-table-wrapper {
-  overflow: visible;
-  position: relative;
-  width: 100%;
+  overflow-x: auto;
 }
 
 .items-table {
@@ -433,135 +592,81 @@ async function handleSubmitSale() {
 }
 
 .items-table th {
-  padding: 8px 6px;
-  background-color: var(--color-surface);
   text-align: left;
-  font-size: 11px;
-  text-transform: uppercase;
+  padding: 10px 12px;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 12px;
   border-bottom: 1px solid var(--color-border);
 }
 
 .items-table td {
-  padding: 6px 6px;
-  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.04));
   vertical-align: middle;
-  position: relative;
 }
 
 .col-product {
-  min-width: 180px;
+  width: 40%;
+  min-width: 220px;
 }
 
 .col-avail {
-  width: 75px;
-  text-align: center;
-  white-space: nowrap;
-  font-size: 11px;
+  width: 15%;
+  min-width: 90px;
 }
 
 .col-price {
-  width: 120px;
-  text-align: right;
-  white-space: nowrap;
-  font-size: 12px;
+  width: 18%;
+  min-width: 110px;
 }
 
 .col-qty {
-  width: 58px;
-  text-align: center;
+  width: 12%;
+  min-width: 80px;
 }
 
 .col-subtotal {
-  width: 95px;
+  width: 15%;
+  min-width: 100px;
   text-align: right;
-  white-space: nowrap;
-  font-size: 12px;
 }
 
 .col-action {
-  width: 30px;
+  width: 40px;
   text-align: center;
 }
 
-.app-select {
-  width: 100%;
-  height: 36px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background-color: var(--color-bg);
-  font-size: 13px;
-  outline: none;
-}
-
-.app-select:focus {
-  border-color: var(--color-primary);
-}
-
+.price-input,
 .qty-input {
-  width: 50px;
-  height: 36px;
-  text-align: center;
-  padding: 4px 2px;
-}
-
-.price-input {
   width: 100%;
-  height: 36px;
-  text-align: right;
-  padding: 4px 8px;
-}
-
-.issuer-input {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-secondary);
-  cursor: not-allowed;
 }
 
 .remove-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: transparent;
+  background: none;
   border: none;
-  font-size: 16px;
-  color: var(--color-text-secondary);
+  color: var(--color-danger, #ef4444);
+  font-size: 20px;
   cursor: pointer;
-  padding: 0;
-  border-radius: 4px;
-  line-height: 1;
-  transition: all var(--transition-fast);
-}
-
-.remove-btn:hover:not(:disabled) {
-  background-color: var(--color-danger-bg);
-  color: var(--color-danger);
+  padding: 0 4px;
 }
 
 .remove-btn:disabled {
-  opacity: 0.25;
+  opacity: 0.2;
   cursor: not-allowed;
 }
 
-.font-bold {
-  font-weight: 600;
-}
-
-.text-danger {
-  color: var(--color-danger);
-}
-
-.text-success {
-  color: var(--color-success);
-}
-
-/* Sidebar */
 .pos-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+}
+
+.pos-sidebar h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
 .sidebar-form {
@@ -570,56 +675,171 @@ async function handleSubmitSale() {
   gap: 12px;
 }
 
-.summary-divider {
-  height: 1px;
-  background-color: var(--color-border);
-}
-
-.summary-totals {
+.app-input-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
 }
 
-.summary-row {
+.input-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.app-input,
+.app-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.client-balance-box {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  background: var(--color-bg-subtle, rgba(0, 0, 0, 0.02));
+  border: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.05));
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-top: 4px;
+  font-size: 12px;
 }
 
-.total-highlight {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--color-border);
+.balance-title {
+  color: var(--color-text-secondary);
+  font-size: 11px;
 }
 
-.app-input-group {
+.balance-amount {
+  font-size: 14px;
+  margin: 2px 0;
+}
+
+.balance-amount.debt {
+  color: #ef4444;
+}
+
+.balance-amount.credit {
+  color: #10b981;
+}
+
+.balance-amount.settled {
+  color: #64748b;
+}
+
+.advance-notice {
+  font-size: 11px;
+  color: #10b981;
+  font-weight: 500;
+}
+
+.payment-condition-box {
+  background: var(--color-bg-subtle, rgba(0, 0, 0, 0.02));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.condition-radios {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.input-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-text-primary);
-  text-transform: uppercase;
-}
-
-@media (max-width: 1180px) {
-  .pos-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Invoice Modal Preview */
-.invoice-preview-wrapper {
-  background: #1e293b;
-  padding: 20px;
-  border-radius: var(--radius-md);
-  overflow-x: auto;
-  max-height: 75vh;
+.condition-radio {
   display: flex;
-  justify-content: center;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.condition-radio input {
+  margin-top: 3px;
+}
+
+.radio-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.radio-content strong {
+  color: var(--color-text-primary);
+}
+
+.radio-content span {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.downpayment-input-group,
+.payment-method-group {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 0;
+}
+
+.summary-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.total-highlight {
+  padding: 8px 0;
+  border-top: 1px dashed var(--color-border);
+  border-bottom: 1px dashed var(--color-border);
+}
+
+.debt-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  padding: 6px 8px;
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.font-mono {
+  font-family: monospace;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+.text-danger {
+  color: #ef4444;
+}
+
+.text-success {
+  color: #10b981;
+}
+
+.text-h2 {
+  font-size: 18px;
 }
 </style>

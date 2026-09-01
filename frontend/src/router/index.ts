@@ -64,6 +64,18 @@ const router = createRouter({
           meta: { title: 'Nouvelle Vente (Caisse)' },
         },
         {
+          path: 'clients',
+          name: 'clients',
+          component: () => import('../views/clients/ClientsListView.vue'),
+          meta: { title: 'Gestion des Clients' },
+        },
+        {
+          path: 'clients/:id',
+          name: 'client-profile',
+          component: () => import('../views/clients/ClientProfileView.vue'),
+          meta: { title: 'Fiche Client & Grand Livre' },
+        },
+        {
           path: 'transfers',
           name: 'transfers',
           component: () => import('../views/transfers/TransferListView.vue'),

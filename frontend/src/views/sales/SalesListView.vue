@@ -23,6 +23,7 @@ const products = ref<Product[]>([]);
 const employees = ref<Employee[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
+const paymentStatusFilter = ref<'all' | 'PAID' | 'PARTIALLY_PAID' | 'UNPAID'>('all');
 
 // Period & Pagination state
 const activeRange = ref<ComputedPeriodRange | null>(null);
@@ -64,6 +65,11 @@ watch(() => authStore.activeWarehouseId, async (newWhId) => {
   await Promise.all([fetchSales(), fetchEmployees(newWhId || undefined)]);
 });
 
+watch(paymentStatusFilter, () => {
+  page.value = 1;
+  fetchSales();
+});
+
 let searchTimeout: any = null;
 function onSearchInput() {
   clearTimeout(searchTimeout);
@@ -92,6 +98,7 @@ async function fetchSales() {
       warehouseId: authStore.activeWarehouseId || undefined,
       startDate: activeRange.value?.startDate,
       endDate: activeRange.value?.endDate,
+      paymentStatus: paymentStatusFilter.value !== 'all' ? paymentStatusFilter.value : undefined,
       search: searchQuery.value.trim() || undefined,
       page: page.value,
       limit: limit.value,
@@ -114,6 +121,7 @@ async function handleExportCsv() {
       warehouseId: authStore.activeWarehouseId || undefined,
       startDate: activeRange.value?.startDate,
       endDate: activeRange.value?.endDate,
+      paymentStatus: paymentStatusFilter.value !== 'all' ? paymentStatusFilter.value : undefined,
       search: searchQuery.value.trim() || undefined,
     });
   } catch (err) {
@@ -317,19 +325,48 @@ async function handleConfirmCancel() {
           @input="onSearchInput"
         />
       </div>
+
+      <div class="payment-filter-pills">
+        <button
+          :class="['status-pill', { active: paymentStatusFilter === 'all' }]"
+          @click="paymentStatusFilter = 'all'"
+        >
+          Tous les règlements
+        </button>
+        <button
+          :class="['status-pill', { active: paymentStatusFilter === 'PAID' }]"
+          @click="paymentStatusFilter = 'PAID'"
+        >
+          Payées
+        </button>
+        <button
+          :class="['status-pill', { active: paymentStatusFilter === 'PARTIALLY_PAID' }]"
+          @click="paymentStatusFilter = 'PARTIALLY_PAID'"
+        >
+          Partielles
+        </button>
+        <button
+          :class="['status-pill', { active: paymentStatusFilter === 'UNPAID' }]"
+          @click="paymentStatusFilter = 'UNPAID'"
+        >
+          Non payées
+        </button>
+      </div>
+
       <div class="count-badge text-muted font-mono">
-        {{ total }} {{ total > 1 ? 'factures trouvées' : 'facture trouvée' }}
+        {{ total }} {{ total > 1 ? 'factures' : 'facture' }}
       </div>
     </div>
 
     <!-- Table -->
-    <AppTable :loading="loading" :empty="!sales.length" empty-text="Aucune vente enregistrée pour cette période" :columns-count="7">
+    <AppTable :loading="loading" :empty="!sales.length" empty-text="Aucune vente enregistrée pour cette période" :columns-count="8">
       <template #header>
         <th>N° Facture</th>
         <th>Entrepôt</th>
         <th>Client</th>
         <th>Agent de suivi</th>
         <th>Montant Total</th>
+        <th>Règlement</th>
         <th>Date de Vente</th>
         <th>Actions</th>
       </template>
@@ -338,7 +375,17 @@ async function handleConfirmCancel() {
           <td class="font-mono font-bold">{{ sale.invoiceNumber }}</td>
           <td>{{ sale.warehouseName }}</td>
           <td>
-            <strong>{{ sale.customerName || 'Client Comptoir' }}</strong>
+            <router-link
+              v-if="sale.clientId && sale.clientId > 1"
+              :to="`/clients/${sale.clientId}`"
+              class="client-link"
+            >
+              <strong>{{ sale.clientName || sale.customerName }}</strong>
+              <span v-if="sale.clientCode" class="client-code-tag">{{ sale.clientCode }}</span>
+            </router-link>
+            <div v-else>
+              <strong>{{ sale.customerName || 'Client Comptoir' }}</strong>
+            </div>
             <span v-if="sale.customerPhone" class="text-caption text-muted" style="display: block;">
               {{ sale.customerPhone }}
             </span>
@@ -348,6 +395,33 @@ async function handleConfirmCancel() {
             <span v-else class="text-caption text-muted">Non spécifié</span>
           </td>
           <td class="font-mono font-bold">{{ formatCurrency(sale.totalAmount) }}</td>
+          <td>
+            <span
+              v-if="sale.status === 'CANCELLED'"
+              class="badge-payment cancelled"
+            >
+              Annulée
+            </span>
+            <span
+              v-else-if="sale.paymentStatus === 'PAID'"
+              class="badge-payment paid"
+            >
+              Payée
+            </span>
+            <span
+              v-else-if="sale.paymentStatus === 'PARTIALLY_PAID'"
+              class="badge-payment partial"
+              :title="`Payé: ${formatCurrency(sale.paidAmount || 0)} / Reste: ${formatCurrency(sale.remainingAmount || 0)}`"
+            >
+              Partielle ({{ formatCurrency(sale.paidAmount || 0) }})
+            </span>
+            <span
+              v-else
+              class="badge-payment unpaid"
+            >
+              Non payée
+            </span>
+          </td>
           <td class="font-mono text-caption">{{ formatDateTime(sale.saleDate || sale.createdAt) }}</td>
           <td>
             <div class="action-buttons">
@@ -723,6 +797,86 @@ async function handleConfirmCancel() {
   border: 1px solid var(--color-border);
   background-color: var(--color-bg);
   font-size: 13px;
+}
+
+.payment-filter-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  padding: 5px 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full, 9999px);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.status-pill:hover {
+  background: var(--color-bg-subtle);
+  color: var(--color-text-primary);
+}
+
+.status-pill.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.client-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: var(--color-primary);
+  transition: color var(--transition-fast);
+}
+
+.client-link:hover {
+  text-decoration: underline;
+}
+
+.client-code-tag {
+  font-size: 10px;
+  font-family: monospace;
+  background: var(--color-bg-subtle);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+}
+
+.badge-payment {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-payment.paid {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.badge-payment.partial {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.badge-payment.unpaid {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.badge-payment.cancelled {
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
 }
 
 .modal-error {

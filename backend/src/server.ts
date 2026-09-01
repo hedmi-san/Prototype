@@ -9,6 +9,8 @@ import warehouseRoutes from './routes/warehouse.routes.js';
 import productRoutes from './routes/product.routes.js';
 import inventoryRoutes from './routes/inventory.routes.js';
 import saleRoutes from './routes/sale.routes.js';
+import clientRoutes from './routes/client.routes.js';
+import clientPaymentRoutes from './routes/client-payment.routes.js';
 import transferRoutes from './routes/transfer.routes.js';
 import expenseRoutes from './routes/expense.routes.js';
 import employeeRoutes from './routes/employee.routes.js';
@@ -46,6 +48,12 @@ app.use('/warehouses', warehouseRoutes);
 
 app.use('/api/products', productRoutes);
 app.use('/products', productRoutes);
+
+app.use('/api/clients', clientRoutes);
+app.use('/clients', clientRoutes);
+
+app.use('/api/client-payments', clientPaymentRoutes);
+app.use('/client-payments', clientPaymentRoutes);
 
 app.use('/api/inventory', inventoryRoutes);
 app.use('/inventory', inventoryRoutes);

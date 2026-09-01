@@ -97,6 +97,7 @@ export interface StockMovement {
 }
 
 export type SaleStatus = 'COMPLETED' | 'CANCELLED';
+export type PaymentStatus = 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'CANCELLED';
 
 export interface SaleItem {
   id: number;
@@ -120,9 +121,16 @@ export interface Sale {
   warehousePhone?: string;
   warehouseAddress?: string;
   invoiceNumber: string;
+  clientId?: number | null;
+  clientName?: string | null;
+  clientCode?: string | null;
+  clientAddress?: string | null;
   customerName: string | null;
   customerPhone: string | null;
   totalAmount: number;
+  paidAmount?: number;
+  remainingAmount?: number;
+  paymentStatus?: PaymentStatus;
   saleDate: string;
   status: SaleStatus;
   createdById: number | null;
@@ -134,6 +142,113 @@ export interface Sale {
   items: SaleItem[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Client {
+  id: number;
+  code: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  openingBalance: number;
+  currentBalance: number;
+  isDefault: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClientStats {
+  salesCount: number;
+  totalInvoiced: number;
+  totalPaid: number;
+  openInvoicesCount: number;
+}
+
+export interface ClientDetail extends Client {
+  stats?: ClientStats;
+}
+
+export interface ClientKPIs {
+  totalClients: number;
+  totalDebtors: number;
+  totalDebt: number;
+  totalAdvance: number;
+}
+
+export type TransactionType = 'INVOICE' | 'PAYMENT' | 'CREDIT_NOTE' | 'ADJUSTMENT' | 'OPENING_BALANCE';
+
+export interface ClientTransaction {
+  id: number;
+  clientId: number;
+  warehouseId: number;
+  warehouseName?: string;
+  warehouseCode?: string;
+  type: TransactionType;
+  referenceType?: string | null;
+  referenceId?: number | null;
+  debit: number;
+  credit: number;
+  runningBalance: number;
+  storedRunningBalance?: number;
+  description: string;
+  transactionDate: string;
+  createdById?: number | null;
+  createdByName?: string | null;
+  createdAt: string;
+}
+
+export interface PaymentAllocation {
+  id?: number;
+  paymentId?: number;
+  saleId: number;
+  invoiceNumber?: string;
+  allocatedAmount: number;
+  saleTotal?: number;
+  saleDate?: string;
+}
+
+export type PaymentMethod = 'CASH' | 'CHECK' | 'BANK_TRANSFER' | 'CARD';
+
+export interface ClientPayment {
+  id: number;
+  paymentNumber: string;
+  clientId: number;
+  clientName?: string;
+  clientCode?: string;
+  clientPhone?: string;
+  clientAddress?: string;
+  warehouseId: number;
+  warehouseName?: string;
+  warehouseCode?: string;
+  warehousePhone?: string;
+  warehouseLocation?: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  referenceNumber?: string;
+  paymentDate: string;
+  notes?: string;
+  transactionId?: number;
+  createdById?: number;
+  createdByName?: string;
+  createdAt: string;
+  allocations?: PaymentAllocation[];
+}
+
+export interface StatementOfAccount {
+  client: Client;
+  filter: {
+    warehouseId: number | null;
+    startDate: string | null;
+    endDate: string | null;
+  };
+  periodOpeningBalance: number;
+  totalDebit: number;
+  totalCredit: number;
+  closingBalance: number;
+  currentTotalBalance: number;
+  transactions: ClientTransaction[];
 }
 
 export type TransferStatus = 'REQUESTED' | 'APPROVED' | 'CONFIRMED' | 'DECLINED' | 'CANCELLED';

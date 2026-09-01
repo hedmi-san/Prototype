@@ -144,7 +144,15 @@ const computedCartonCount = computed(() => {
         </div>
         <div class="client-row">
           <span class="label">Client :</span>
-          <span class="value font-bold">{{ sale.customerName || 'DIVERS' }}</span>
+          <span class="value font-bold">{{ sale.clientName || sale.customerName || 'DIVERS' }} <span v-if="sale.clientCode">({{ sale.clientCode }})</span></span>
+        </div>
+        <div v-if="sale.customerPhone" class="client-phone-row text-caption">
+          <span class="label">Tél :</span>
+          <span class="value">{{ sale.customerPhone }}</span>
+        </div>
+        <div v-if="sale.clientAddress" class="client-addr-row text-caption">
+          <span class="label">Adresse :</span>
+          <span class="value">{{ sale.clientAddress }}</span>
         </div>
       </div>
 
@@ -210,8 +218,10 @@ const computedCartonCount = computed(() => {
       <!-- Left Column: Balance, Serving Staff, Cartons -->
       <div class="footer-left">
         <div class="solde-row">
-          <span class="label font-bold">Solde :</span>
-          <span class="value font-bold">{{ solde }}</span>
+          <span class="label font-bold">Statut Règlement :</span>
+          <span class="value font-bold text-uppercase">
+            {{ sale.status === 'CANCELLED' ? 'ANNULÉE' : (sale.paymentStatus === 'PAID' ? 'PAYÉE COMPTANT' : (sale.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIELLEMENT RÉGLÉE' : 'À CRÉDIT (NON PAYÉE)')) }}
+          </span>
         </div>
 
         <div class="staff-and-cartons">
@@ -230,11 +240,21 @@ const computedCartonCount = computed(() => {
         </div>
       </div>
 
-      <!-- Right Column: Total Amount -->
+      <!-- Right Column: Total Amount & Payment Breakdown -->
       <div class="footer-right">
         <div class="total-payable-box">
-          <span class="total-label font-bold">Total :</span>
+          <span class="total-label font-bold">Total Facture :</span>
           <span class="total-val font-bold">{{ formatInvoiceAmount(sale.totalAmount) }}</span>
+        </div>
+        <div v-if="sale.paidAmount !== undefined && sale.paidAmount !== null && sale.paymentStatus !== 'PAID'" class="payment-breakdown-box">
+          <div class="sub-total-row">
+            <span>Versé (Payé) :</span>
+            <strong class="font-bold">{{ formatInvoiceAmount(sale.paidAmount) }}</strong>
+          </div>
+          <div class="sub-total-row">
+            <span>Reste Dû :</span>
+            <strong class="font-bold text-danger">{{ formatInvoiceAmount(sale.remainingAmount ?? (sale.totalAmount - sale.paidAmount)) }}</strong>
+          </div>
         </div>
       </div>
     </footer>
@@ -513,6 +533,31 @@ const computedCartonCount = computed(() => {
   font-size: 14.5px;
   font-weight: 800;
   letter-spacing: 0.5px;
+}
+
+.payment-breakdown-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 12px;
+  width: 100%;
+}
+
+.sub-total-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.client-phone-row,
+.client-addr-row {
+  font-size: 11px;
+  color: #333;
+}
+
+.text-danger {
+  color: #d00;
 }
 
 .font-bold {
