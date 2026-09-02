@@ -87,10 +87,39 @@ export async function seedData(): Promise<void> {
     }
   };
 
+  const seedClientsIfEmpty = async (client: any) => {
+    // Ensure default client exists and is marked as default
+    await client.query(`
+      INSERT INTO clients (code, name, phone, email, address, is_default, opening_balance, current_balance, active)
+      VALUES ('CLT-COMPTOIR', 'Client Passager / Comptoir', 'N/A', '', 'Comptoir Vente Directe', TRUE, 0.0, 0.0, TRUE)
+      ON CONFLICT (code) DO UPDATE SET is_default = TRUE;
+    `);
+
+    const clientsRes = await client.query('SELECT COUNT(*) as count FROM clients WHERE is_default = FALSE');
+    const clientsCount = Number(clientsRes.rows[0].count);
+    if (clientsCount > 0) return;
+
+    const demoClients = [
+      { code: 'CLT-0001', name: 'SARL Bâtiment Pro Alger', phone: '0550 12 34 56', email: 'contact@batiment-pro.dz', address: 'Alger', openingBalance: 0.0, currentBalance: 56000.0 },
+      { code: 'CLT-0002', name: 'Entreprise Travaux Constantine', phone: '0553 99 88 77', email: 'direction@travaux-cst.dz', address: 'Zone Industrielle Didouche, Constantine', openingBalance: 100000.0, currentBalance: 86500.0 },
+      { code: 'CLT-0003', name: 'Quincaillerie Centrale El Harrach', phone: '0551 23 45 67', email: 'quinc.harrach@gmail.com', address: 'El Harrach', openingBalance: 0.0, currentBalance: 0.0 },
+      { code: 'CLT-0004', name: 'Chantier Ouest Oran', phone: '0552 34 56 78', email: 'appro@chantier-ouest.dz', address: 'Zone Industrielle Es Sénia, Oran', openingBalance: 50000.0, currentBalance: 175000.0 },
+    ];
+
+    for (const cl of demoClients) {
+      await client.query(`
+        INSERT INTO clients (code, name, phone, email, address, is_default, opening_balance, current_balance, active)
+        VALUES ($1, $2, $3, $4, $5, FALSE, $6, $7, TRUE)
+        ON CONFLICT (code) DO NOTHING
+      `, [cl.code, cl.name, cl.phone, cl.email, cl.address, cl.openingBalance, cl.currentBalance]);
+    }
+  };
+
   const roleRes = await query('SELECT COUNT(*) as count FROM roles');
   const roleCount = Number(roleRes.rows[0].count);
   if (roleCount > 0) {
     await runTransaction(async (client) => {
+      await seedClientsIfEmpty(client);
       await seedSalesIfEmpty(client);
     });
     return;
@@ -209,11 +238,11 @@ export async function seedData(): Promise<void> {
 
     // 10. Demo Clients and Initial Financial Ledgers
     const clientsToSeed = [
-      { id: 1, code: 'CLT-COMPTOIR', name: 'Client Passager / Comptoir', phone: 'N/A', email: '', address: 'Comptoir Vente Directe', isDefault: true, openingBalance: 0.0, currentBalance: 0.0 },
-      { id: 2, code: 'CLT-0001', name: 'SARL Bâtiment Pro Alger', phone: '+213 550 12 34 56', email: 'contact@batiment-pro.dz', address: '12 Rue Didouche Mourad, Alger', isDefault: false, openingBalance: 0.0, currentBalance: 56000.0 },
-      { id: 3, code: 'CLT-0002', name: 'Entreprise Travaux Constantine', phone: '+213 553 99 88 77', email: 'direction@travaux-cst.dz', address: 'Zone Industrielle Didouche, Constantine', isDefault: false, openingBalance: 100000.0, currentBalance: 86500.0 },
-      { id: 4, code: 'CLT-0003', name: 'Quincaillerie Centrale El Harrach', phone: '+213 551 23 45 67', email: 'quinc.harrach@gmail.com', address: 'Boulevard Hassan Badi, El Harrach', isDefault: false, openingBalance: 0.0, currentBalance: 0.0 },
-      { id: 5, code: 'CLT-0004', name: 'Chantier Ouest Oran', phone: '+213 552 34 56 78', email: 'appro@chantier-ouest.dz', address: 'Zone Industrielle Es Sénia, Oran', isDefault: false, openingBalance: 50000.0, currentBalance: 175000.0 },
+      { id: 1, code: 'CLT-COMPTOIR', name: 'Client Passager', phone: 'N/A', email: '', address: 'Comptoir Vente Directe', isDefault: true, openingBalance: 0.0, currentBalance: 0.0 },
+      { id: 2, code: 'CLT-0001', name: 'SARL Bâtiment Pro Alger', phone: '0550 12 34 56', email: 'contact@batiment-pro.dz', address: 'Alger', isDefault: false, openingBalance: 0.0, currentBalance: 56000.0 },
+      { id: 3, code: 'CLT-0002', name: 'Entreprise Travaux Constantine', phone: '0553 99 88 77', email: 'direction@travaux-cst.dz', address: 'Zone Industrielle Didouche, Constantine', isDefault: false, openingBalance: 100000.0, currentBalance: 86500.0 },
+      { id: 4, code: 'CLT-0003', name: 'Quincaillerie Centrale El Harrach', phone: '0551 23 45 67', email: 'quinc.harrach@gmail.com', address: 'El Harrach', isDefault: false, openingBalance: 0.0, currentBalance: 0.0 },
+      { id: 5, code: 'CLT-0004', name: 'Chantier Ouest Oran', phone: '0552 34 56 78', email: 'appro@chantier-ouest.dz', address: 'Zone Industrielle Es Sénia, Oran', isDefault: false, openingBalance: 50000.0, currentBalance: 175000.0 },
     ];
 
     for (const cl of clientsToSeed) {

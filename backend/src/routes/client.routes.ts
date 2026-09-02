@@ -599,10 +599,13 @@ router.post('/:id/adjustment', authenticate, requireRole('ADMIN', 'SUPER_MANAGER
     const targetWhId = warehouseId || req.user?.warehouseId || 1;
 
     const result = await runTransaction(async (client) => {
-      const lockRes = await client.query('SELECT id, name, code, current_balance FROM clients WHERE id = $1 FOR UPDATE', [id]);
+      const lockRes = await client.query('SELECT id, name, code, current_balance, is_default FROM clients WHERE id = $1 FOR UPDATE', [id]);
       const current = lockRes.rows[0];
       if (!current) {
         throw new Error(`Client introuvable avec l'id ${id}`);
+      }
+      if (current.is_default) {
+        throw new Error(`Impossible d'ajuster le solde pour le Client Passager / Comptoir.`);
       }
 
       const prevBal = Number(current.current_balance || 0);

@@ -226,7 +226,7 @@ async function submitAdjustment() {
 
       <div class="profile-actions">
         <AppButton
-          v-if="authStore.isAdmin || authStore.isSuperManager"
+          v-if="!client?.isDefault && (authStore.isAdmin || authStore.isSuperManager)"
           variant="ghost"
           size="sm"
           @click="showAdjustmentModal = true"
@@ -237,10 +237,10 @@ async function submitAdjustment() {
           </svg>
           Ajustement Solde
         </AppButton>
-        <AppButton variant="secondary" size="sm" @click="showEditModal = true">
+        <AppButton v-if="!client?.isDefault" variant="secondary" size="sm" @click="showEditModal = true">
           Modifier Infos
         </AppButton>
-        <AppButton variant="primary" size="sm" @click="showPaymentModal = true">
+        <AppButton v-if="!client?.isDefault" variant="primary" size="sm" @click="showPaymentModal = true">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="1" x2="12" y2="23" />
             <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />

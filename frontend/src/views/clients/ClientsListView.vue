@@ -299,6 +299,7 @@ function onPaymentSaved() {
                   </svg>
                 </button>
                 <button
+                  v-if="!c.isDefault"
                   class="action-btn payment"
                   title="Encaisser un Versement"
                   @click="openPaymentModal(c)"

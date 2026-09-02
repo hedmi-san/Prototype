@@ -12,6 +12,7 @@ interface Props {
   required?: boolean;
   maxResults?: number;
   autoSelectDefault?: boolean;
+  excludeDefault?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -21,6 +22,7 @@ const props = withDefaults(defineProps<Props>(), {
   required: false,
   maxResults: 10,
   autoSelectDefault: false,
+  excludeDefault: false,
 });
 
 const emit = defineEmits<{
@@ -62,7 +64,9 @@ onMounted(async () => {
   }
 
   if (props.autoSelectDefault && !props.modelValue && clientStore.clients.length) {
-    const defaultCl = clientStore.clients.find((c) => c.isDefault) || clientStore.clients[0];
+    const defaultCl = props.excludeDefault
+      ? clientStore.clients.find((c) => !c.isDefault)
+      : clientStore.clients.find((c) => c.isDefault) || clientStore.clients[0];
     if (defaultCl) {
       emit('update:modelValue', defaultCl.id);
       emit('select', defaultCl);
@@ -159,10 +163,15 @@ const selectedClient = computed<Client | undefined>(() => {
 // Local + remote filtered clients
 const displayedClients = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
-  const allKnown = [...clientStore.clients];
+  let allKnown = [...clientStore.clients];
+
+  if (props.excludeDefault) {
+    allKnown = allKnown.filter((c) => !c.isDefault);
+  }
 
   // Merge any remote search results not yet in store
   for (const r of searchResults.value) {
+    if (props.excludeDefault && r.isDefault) continue;
     if (!allKnown.some((c) => c.id === r.id)) {
       allKnown.push(r);
     }

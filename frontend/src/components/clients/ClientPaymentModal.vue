@@ -215,6 +215,7 @@ async function submitPayment() {
         <AppClientCombobox
           v-else
           v-model="selectedClientId"
+          :exclude-default="true"
           placeholder="Rechercher un client (nom, code, téléphone)..."
         />
       </div>

@@ -108,6 +108,9 @@ watch(selectedClientId, (newId) => {
     if (cl) {
       customerName.value = cl.name;
       customerPhone.value = cl.phone || '';
+      if (cl.isDefault && paymentCondition.value !== 'FULL_CASH') {
+        paymentCondition.value = 'FULL_CASH';
+      }
     }
   }
 });
@@ -438,6 +441,11 @@ async function handleSubmitSale() {
           <div class="payment-condition-box">
             <label class="input-label font-bold">Conditions de Règlement *</label>
 
+            <!-- Walk-in Cash Only Notice -->
+            <div v-if="selectedClient?.isDefault" class="walkin-cash-notice">
+              <span>💡 Le <strong>Client Passager</strong> règle obligatoirement au <strong>comptant (100%)</strong>. Les options de crédit/acompte sont réservées aux comptes clients réguliers.</span>
+            </div>
+
             <div class="condition-radios">
               <label class="condition-radio">
                 <input v-model="paymentCondition" type="radio" value="FULL_CASH" />
@@ -447,16 +455,26 @@ async function handleSubmitSale() {
                 </div>
               </label>
 
-              <label class="condition-radio">
-                <input v-model="paymentCondition" type="radio" value="CREDIT" />
+              <label :class="['condition-radio', { 'is-disabled': selectedClient?.isDefault }]">
+                <input
+                  v-model="paymentCondition"
+                  type="radio"
+                  value="CREDIT"
+                  :disabled="selectedClient?.isDefault"
+                />
                 <div class="radio-content">
                   <strong>À Crédit (Non payé)</strong>
                   <span>Ajoute la dette au compte client</span>
                 </div>
               </label>
 
-              <label class="condition-radio">
-                <input v-model="paymentCondition" type="radio" value="PARTIAL_DOWNPAYMENT" />
+              <label :class="['condition-radio', { 'is-disabled': selectedClient?.isDefault }]">
+                <input
+                  v-model="paymentCondition"
+                  type="radio"
+                  value="PARTIAL_DOWNPAYMENT"
+                  :disabled="selectedClient?.isDefault"
+                />
                 <div class="radio-content">
                   <strong>Acompte (Versement partiel)</strong>
                   <span>Paiement partiel à la caisse</span>
@@ -787,6 +805,19 @@ async function handleSubmitSale() {
   gap: 8px;
 }
 
+.walkin-cash-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 11px;
+  color: #1e40af;
+  line-height: 1.35;
+}
+
 .condition-radios {
   display: flex;
   flex-direction: column;
@@ -799,6 +830,15 @@ async function handleSubmitSale() {
   gap: 8px;
   cursor: pointer;
   font-size: 12px;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+}
+
+.condition-radio.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background-color: transparent;
 }
 
 .condition-radio input {

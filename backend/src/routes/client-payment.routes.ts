@@ -246,10 +246,13 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 
     const paymentResult = await runTransaction(async (dbClient) => {
       // 1. Lock client row
-      const clientRes = await dbClient.query('SELECT id, name, code, current_balance, active FROM clients WHERE id = $1 FOR UPDATE', [numClientId]);
+      const clientRes = await dbClient.query('SELECT id, name, code, current_balance, is_default, active FROM clients WHERE id = $1 FOR UPDATE', [numClientId]);
       const client = clientRes.rows[0];
       if (!client) {
         throw new Error(`Client introuvable avec l'id ${numClientId}`);
+      }
+      if (client.is_default) {
+        throw new Error(`Impossible d'enregistrer un versement pour le Client Passager / Comptoir. Les versements sont réservés aux comptes clients enregistrés.`);
       }
       if (!client.active) {
         throw new Error(`Le client ${client.name} est inactif`);

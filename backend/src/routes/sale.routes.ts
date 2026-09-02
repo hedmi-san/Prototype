@@ -523,6 +523,10 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       }
 
       // 3. Determine Payment Amount and Status
+      if (clientRecord?.is_default && paymentCondition && paymentCondition !== 'FULL_CASH') {
+        throw new Error('Les ventes au Client Passager / Comptoir doivent être obligatoirement réglées au comptant (100%). Pour accorder un crédit ou un acompte, veuillez sélectionner ou enregistrer un compte client nominatif.');
+      }
+
       let paidAmount = totalAmount; // Default full cash
       if (paymentCondition === 'CREDIT') {
         paidAmount = 0;
