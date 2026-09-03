@@ -24,23 +24,68 @@ const app = express();
 const PORT = Number(process.env.PORT) || 10000;
 
 app.set('trust proxy', 1);
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-}));
 
-const rawCorsOrigins = process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000';
-const allowedOrigins = rawCorsOrigins.split(',').map((o) => o.trim()).filter(Boolean);
+// CORS configuration supporting production Render deployments, custom env domains, and local dev
+const rawCorsOrigins = process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || '';
+const customAllowedOrigins = rawCorsOrigins.split(',').map((o) => o.trim()).filter(Boolean);
 
-app.use(cors({
+const defaultAllowedOrigins = [
+  'https://distributor-frontend.onrender.com',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4173',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:4173',
+];
+
+const allAllowedOrigins = Array.from(new Set([...customAllowedOrigins, ...defaultAllowedOrigins]));
+
+const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    // Allow non-browser requests (no origin) or whitelisted origins
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow non-browser requests (e.g. mobile apps, curl, server-to-server)
+    if (!origin) {
       return callback(null, true);
     }
-    return callback(new Error(`Origin ${origin} blocked by CORS policy`));
+
+    // Direct match against known/configured origins
+    if (allAllowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Dynamic pattern matching for all Render app subdomains (e.g. *.onrender.com)
+    if (/^https:\/\/[a-zA-Z0-9-]+\.onrender\.com$/.test(origin)) {
+      return callback(null, true);
+    }
+
+    // Dynamic pattern matching for local development on any port
+    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+
+    // Dynamic pattern matching for Vercel or Netlify preview deployments
+    if (/^https:\/\/[a-zA-Z0-9-]+\.(vercel\.app|netlify\.app)$/.test(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn(`[CORS] Blocked request from origin: ${origin}`);
+    return callback(null, false);
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Disposition'],
+};
+
+// Mount CORS before other middlewares to handle preflight OPTIONS immediately
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: false,
 }));
+
 app.use(express.json());
 
 // Request logger
