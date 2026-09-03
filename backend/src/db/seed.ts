@@ -91,7 +91,7 @@ export async function seedData(): Promise<void> {
     // Ensure default client exists and is marked as default
     await client.query(`
       INSERT INTO clients (code, name, phone, email, address, is_default, opening_balance, current_balance, active)
-      VALUES ('CLT-COMPTOIR', 'Client Passager / Comptoir', 'N/A', '', 'Comptoir Vente Directe', TRUE, 0.0, 0.0, TRUE)
+      VALUES ('CLT-COMPTOIR', 'Client Passager', 'N/A', '', 'Comptoir Vente Directe', TRUE, 0.0, 0.0, TRUE)
       ON CONFLICT (code) DO UPDATE SET is_default = TRUE;
     `);
 

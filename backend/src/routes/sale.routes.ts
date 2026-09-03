@@ -2,13 +2,14 @@ import { Router } from 'express';
 import { query, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { generateCsv, sendCsv, CsvColumn } from '../common/csv.js';
-import { authenticate, AuthRequest, logAudit, validateWarehouseScope } from '../middleware/auth.js';
+import { authenticate, requireRole, AuthRequest, logAudit, validateWarehouseScope, enforceWarehouseScope } from '../middleware/auth.js';
 
 const router = Router();
 
 router.get('/', authenticate, async (req: AuthRequest, res) => {
   try {
-    const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const warehouseId = enforceWarehouseScope(req.user, requestedWarehouseId);
     const clientId = req.query.clientId ? Number(req.query.clientId) : undefined;
     const paymentStatus = req.query.paymentStatus as string | undefined;
     const startDate = req.query.startDate as string | undefined;
@@ -30,9 +31,6 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 
     if (warehouseId) {
       params.push(warehouseId);
-      whereClauses.push(`s.warehouse_id = $${params.length}`);
-    } else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
-      params.push(req.user.warehouseId);
       whereClauses.push(`s.warehouse_id = $${params.length}`);
     }
 
@@ -161,25 +159,25 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       items: itemsBySaleId[s.id] || [],
     }));
 
-    const totalPages = Math.ceil(total / limit) || 1;
-
     return sendSuccess(res, {
       items,
       pagination: {
         page,
         limit,
         total,
-        totalPages,
+        totalPages: Math.ceil(total / limit) || 1,
       },
     });
   } catch (err: any) {
-    return sendError(res, err.message, 500);
+    const isAccessDenied = err.message?.includes('Access denied');
+    return sendError(res, err.message, isAccessDenied ? 403 : 500);
   }
 });
 
 router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
   try {
-    const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const warehouseId = enforceWarehouseScope(req.user, requestedWarehouseId);
     const clientId = req.query.clientId ? Number(req.query.clientId) : undefined;
     const paymentStatus = req.query.paymentStatus as string | undefined;
     const startDate = req.query.startDate as string | undefined;
@@ -197,17 +195,7 @@ router.get('/export/csv', authenticate, async (req: AuthRequest, res) => {
     const params: any[] = [];
 
     if (warehouseId) {
-      if (req.user) {
-        try {
-          validateWarehouseScope(req.user, warehouseId);
-        } catch (err: any) {
-          return sendError(res, err.message, 403);
-        }
-      }
       params.push(warehouseId);
-      whereClauses.push(`s.warehouse_id = $${params.length}`);
-    } else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
-      params.push(req.user.warehouseId);
       whereClauses.push(`s.warehouse_id = $${params.length}`);
     }
 
@@ -335,6 +323,14 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     const s = saleRes.rows[0];
     if (!s) {
       return sendError(res, `Sale not found with id ${id}`, 404);
+    }
+
+    if (req.user) {
+      try {
+        validateWarehouseScope(req.user, s.warehouse_id);
+      } catch (err: any) {
+        return sendError(res, err.message, 403);
+      }
     }
 
     const itemsRes = await query(`
@@ -764,6 +760,13 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
   if (!currentSale) {
     return sendError(res, `Sale not found with id ${id}`, 404);
   }
+  if (req.user) {
+    try {
+      validateWarehouseScope(req.user, currentSale.warehouse_id);
+    } catch (err: any) {
+      return sendError(res, err.message, 403);
+    }
+  }
   if (currentSale.status === 'CANCELLED') {
     return sendError(res, 'Cannot edit a cancelled sale', 400);
   }
@@ -876,12 +879,19 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.post('/:id/cancel', authenticate, async (req: AuthRequest, res) => {
+router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER'), async (req: AuthRequest, res) => {
   const id = Number(req.params.id);
   const currentRes = await query('SELECT * FROM sales WHERE id = $1', [id]);
   const currentSale = currentRes.rows[0];
   if (!currentSale) {
     return sendError(res, `Sale not found with id ${id}`, 404);
+  }
+  if (req.user) {
+    try {
+      validateWarehouseScope(req.user, currentSale.warehouse_id);
+    } catch (err: any) {
+      return sendError(res, err.message, 403);
+    }
   }
   if (currentSale.status === 'CANCELLED') {
     return sendError(res, 'Sale is already cancelled', 400);

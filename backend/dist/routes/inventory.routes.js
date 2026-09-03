@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { query, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { generateCsv, sendCsv } from '../common/csv.js';
-import { authenticate, requireRole, logAudit, validateWarehouseScope } from '../middleware/auth.js';
+import { authenticate, requireRole, logAudit, validateWarehouseScope, enforceWarehouseScope } from '../middleware/auth.js';
 const router = Router();
 router.get('/stock', authenticate, async (req, res) => {
     try {
@@ -240,7 +240,8 @@ router.get('/export/csv', authenticate, async (req, res) => {
 });
 router.get('/movements', authenticate, async (req, res) => {
     try {
-        const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+        const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+        const warehouseId = enforceWarehouseScope(req.user, requestedWarehouseId);
         const startDate = req.query.startDate;
         const endDate = req.query.endDate;
         const type = req.query.type;
@@ -257,10 +258,6 @@ router.get('/movements', authenticate, async (req, res) => {
         const params = [];
         if (warehouseId) {
             params.push(warehouseId);
-            whereClauses.push(`m.warehouse_id = $${params.length}`);
-        }
-        else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
-            params.push(req.user.warehouseId);
             whereClauses.push(`m.warehouse_id = $${params.length}`);
         }
         if (type) {
@@ -334,7 +331,8 @@ router.get('/movements', authenticate, async (req, res) => {
         });
     }
     catch (err) {
-        return sendError(res, err.message, 500);
+        const isAccessDenied = err.message?.includes('Access denied');
+        return sendError(res, err.message, isAccessDenied ? 403 : 500);
     }
 });
 router.post('/initial-receipt', authenticate, requireRole('ADMIN', 'MANAGER'), async (req, res) => {

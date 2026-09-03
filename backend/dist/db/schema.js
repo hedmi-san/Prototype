@@ -163,20 +163,96 @@ export async function initSchema() {
       ip_address VARCHAR(50),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS clients (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) NOT NULL UNIQUE,
+      name VARCHAR(255) NOT NULL,
+      phone VARCHAR(50),
+      email VARCHAR(100),
+      address TEXT,
+      opening_balance NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      current_balance NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS client_transactions (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
+      type VARCHAR(50) NOT NULL,
+      reference_type VARCHAR(50),
+      reference_id INTEGER,
+      debit NUMERIC(14, 2) NOT NULL DEFAULT 0.0 CHECK(debit >= 0),
+      credit NUMERIC(14, 2) NOT NULL DEFAULT 0.0 CHECK(credit >= 0),
+      running_balance NUMERIC(14, 2) NOT NULL,
+      description TEXT NOT NULL,
+      transaction_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS client_payments (
+      id SERIAL PRIMARY KEY,
+      payment_number VARCHAR(50) NOT NULL UNIQUE,
+      client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
+      amount NUMERIC(14, 2) NOT NULL CHECK(amount > 0),
+      payment_method VARCHAR(50) NOT NULL DEFAULT 'CASH',
+      reference_number VARCHAR(100),
+      payment_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      notes TEXT,
+      transaction_id INTEGER REFERENCES client_transactions(id) ON DELETE RESTRICT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_allocations (
+      id SERIAL PRIMARY KEY,
+      payment_id INTEGER NOT NULL REFERENCES client_payments(id) ON DELETE CASCADE,
+      sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+      allocated_amount NUMERIC(14, 2) NOT NULL CHECK(allocated_amount > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
     // Migrations for existing databases
     await query(`
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL;
+    ALTER TABLE sales ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL;
+    ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) NOT NULL DEFAULT 'PAID';
+    ALTER TABLE sales ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14, 2) NOT NULL DEFAULT 0.0;
+    UPDATE sales SET paid_amount = total_amount WHERE paid_amount = 0 AND status = 'COMPLETED';
     ALTER TABLE employees ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE';
     UPDATE employees SET status = CASE WHEN active = FALSE THEN 'TERMINATED' ELSE 'ACTIVE' END WHERE status IS NULL OR status = '';
     ALTER TABLE products ADD COLUMN IF NOT EXISTS box_size INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE products DROP COLUMN IF EXISTS category;
+  `);
+    // Ensure default walk-in client exists
+    await query(`
+    INSERT INTO clients (code, name, phone, email, address, opening_balance, current_balance, is_default, active)
+    VALUES ('CLT-COMPTOIR', 'Client Passager / Comptoir', 'N/A', '', 'Comptoir Vente Directe', 0.0, 0.0, TRUE, TRUE)
+    ON CONFLICT (code) DO NOTHING;
   `);
     // Performance composite indexes
     await query(`
     CREATE INDEX IF NOT EXISTS idx_sales_sale_date_wh ON sales(sale_date, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sales_created_at_wh ON sales(created_at, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sales_employee_id ON sales(employee_id);
+    CREATE INDEX IF NOT EXISTS idx_sales_client_id ON sales(client_id);
+    CREATE INDEX IF NOT EXISTS idx_sales_payment_status ON sales(payment_status);
+    CREATE INDEX IF NOT EXISTS idx_clients_code ON clients(code);
+    CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name);
+    CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(active);
+    CREATE INDEX IF NOT EXISTS idx_client_transactions_client_date ON client_transactions(client_id, transaction_date);
+    CREATE INDEX IF NOT EXISTS idx_client_transactions_wh ON client_transactions(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_client_transactions_ref ON client_transactions(reference_type, reference_id);
+    CREATE INDEX IF NOT EXISTS idx_client_payments_client_date ON client_payments(client_id, payment_date);
+    CREATE INDEX IF NOT EXISTS idx_client_payments_wh ON client_payments(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_payment_allocations_payment_id ON payment_allocations(payment_id);
+    CREATE INDEX IF NOT EXISTS idx_payment_allocations_sale_id ON payment_allocations(sale_id);
     CREATE INDEX IF NOT EXISTS idx_employees_status_wh ON employees(status, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id);
     CREATE INDEX IF NOT EXISTS idx_stock_movements_created_wh ON stock_movements(created_at, warehouse_id);

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import { query } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { generateToken, authenticate, AuthRequest, logAudit } from '../middleware/auth.js';
@@ -7,7 +8,19 @@ import { UserContext, RoleName } from '../types/index.js';
 
 const router = Router();
 
-router.post('/login', async (req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Trop de tentatives de connexion. Veuillez réessayer dans 15 minutes.',
+    timestamp: new Date().toISOString(),
+  },
+});
+
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -30,7 +43,7 @@ router.post('/login', async (req, res) => {
       return sendError(res, 'Invalid username or password', 401);
     }
 
-    const isPasswordValid = bcrypt.compareSync(password, user.password_hash);
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
     if (!isPasswordValid) {
       return sendError(res, 'Invalid username or password', 401);
     }

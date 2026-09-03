@@ -4,7 +4,18 @@ import { UserContext, RoleName } from '../types/index.js';
 import { sendError } from '../common/response.js';
 import { query } from '../db/database.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'distributor-super-secret-jwt-key-for-auth-2026';
+function resolveJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('FATAL: JWT_SECRET environment variable is missing in production');
+    }
+    return 'distributor-local-dev-fallback-secret-2026-key';
+  }
+  return secret;
+}
+
+const JWT_SECRET = resolveJwtSecret();
 
 export interface AuthRequest extends Request {
   user?: UserContext;
@@ -60,9 +71,28 @@ export function requireRole(...allowedRoles: RoleName[]) {
 export function validateWarehouseScope(user: UserContext, requestedWarehouseId?: number): void {
   if (!requestedWarehouseId) return;
   if (user.role === 'ADMIN' || user.role === 'SUPER_MANAGER') return;
-  if (user.warehouseId !== requestedWarehouseId) {
+  if (Number(user.warehouseId) !== Number(requestedWarehouseId)) {
     throw new Error(`Access denied: User belongs to warehouse ID ${user.warehouseId}, not ${requestedWarehouseId}`);
   }
+}
+
+/**
+ * Resolves and validates the effective warehouse scope for list queries.
+ * - ADMIN / SUPER_MANAGER: returns requestedWarehouseId or undefined (all).
+ * - Scoped roles (MANAGER, ACCOUNTANT, etc.): verifies that requestedWarehouseId matches user's warehouse,
+ *   or defaults to user's assigned warehouse.
+ */
+export function enforceWarehouseScope(user: UserContext | undefined, requestedWarehouseId?: number): number | undefined {
+  if (!user) {
+    return requestedWarehouseId;
+  }
+  if (user.role === 'ADMIN' || user.role === 'SUPER_MANAGER') {
+    return requestedWarehouseId ? Number(requestedWarehouseId) : undefined;
+  }
+  if (requestedWarehouseId && Number(requestedWarehouseId) !== Number(user.warehouseId)) {
+    throw new Error(`Access denied: User belongs to warehouse ID ${user.warehouseId}, not ${requestedWarehouseId}`);
+  }
+  return user.warehouseId !== null && user.warehouseId !== undefined ? Number(user.warehouseId) : undefined;
 }
 
 export async function logAudit(

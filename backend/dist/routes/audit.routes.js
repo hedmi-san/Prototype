@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { query } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import { authenticate, requireRole, enforceWarehouseScope } from '../middleware/auth.js';
 const router = Router();
 router.get('/', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER'), async (req, res) => {
     try {
-        const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+        const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+        const warehouseId = enforceWarehouseScope(req.user, requestedWarehouseId);
         const startDate = req.query.startDate;
         const endDate = req.query.endDate;
         const action = req.query.action;
@@ -22,10 +23,6 @@ router.get('/', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER'), 
         const whereClauses = [];
         if (warehouseId) {
             params.push(warehouseId);
-            whereClauses.push(`a.warehouse_id = $${params.length}`);
-        }
-        else if (req.user?.role === 'MANAGER') {
-            params.push(req.user.warehouseId);
             whereClauses.push(`a.warehouse_id = $${params.length}`);
         }
         if (action) {
@@ -101,7 +98,8 @@ router.get('/', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER'), 
         });
     }
     catch (err) {
-        return sendError(res, err.message, 500);
+        const isAccessDenied = err.message?.includes('Access denied');
+        return sendError(res, err.message, isAccessDenied ? 403 : 500);
     }
 });
 export default router;

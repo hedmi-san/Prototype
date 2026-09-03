@@ -22,7 +22,12 @@ export function formatCsvValue(val: any): string {
     return val.toISOString().split('T')[0];
   }
 
-  const str = String(val);
+  let str = String(val);
+  // Neutralize spreadsheet formula injection (CWE-1236)
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+
   // If string contains comma, quote, semicolon, or newline, escape and quote it
   if (str.includes(',') || str.includes('"') || str.includes(';') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`;

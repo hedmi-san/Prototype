@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { query } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
-import { authenticate, requireRole, logAudit, validateWarehouseScope } from '../middleware/auth.js';
+import { authenticate, requireRole, logAudit, validateWarehouseScope, enforceWarehouseScope } from '../middleware/auth.js';
 const router = Router();
 // GET / - List salaries with period filtering, search, and pagination
 router.get('/', authenticate, async (req, res) => {
     try {
-        const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+        const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+        const warehouseId = enforceWarehouseScope(req.user, requestedWarehouseId);
         const period = req.query.period;
         const startDate = req.query.startDate;
         const endDate = req.query.endDate;
@@ -23,10 +24,6 @@ router.get('/', authenticate, async (req, res) => {
         const conditions = [];
         if (warehouseId) {
             params.push(warehouseId);
-            conditions.push(`s.warehouse_id = $${params.length}`);
-        }
-        else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
-            params.push(req.user.warehouseId);
             conditions.push(`s.warehouse_id = $${params.length}`);
         }
         if (period) {
@@ -104,7 +101,8 @@ router.get('/', authenticate, async (req, res) => {
         });
     }
     catch (err) {
-        return sendError(res, err.message, 500);
+        const isAccessDenied = err.message?.includes('Access denied');
+        return sendError(res, err.message, isAccessDenied ? 403 : 500);
     }
 });
 // POST / - Create salary disbursement (ADMIN, SUPER_MANAGER, MANAGER, ACCOUNTANT)

@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { ensureDatabaseExists } from './db/database.js';
 import { initSchema } from './db/schema.js';
 import { seedData } from './db/seed.js';
@@ -8,6 +9,8 @@ import warehouseRoutes from './routes/warehouse.routes.js';
 import productRoutes from './routes/product.routes.js';
 import inventoryRoutes from './routes/inventory.routes.js';
 import saleRoutes from './routes/sale.routes.js';
+import clientRoutes from './routes/client.routes.js';
+import clientPaymentRoutes from './routes/client-payment.routes.js';
 import transferRoutes from './routes/transfer.routes.js';
 import expenseRoutes from './routes/expense.routes.js';
 import employeeRoutes from './routes/employee.routes.js';
@@ -17,7 +20,22 @@ import auditRoutes from './routes/audit.routes.js';
 import userRoutes from './routes/user.routes.js';
 const app = express();
 const PORT = Number(process.env.PORT) || 10000;
-app.use(cors({ origin: true, credentials: true }));
+app.set('trust proxy', 1);
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+const rawCorsOrigins = process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000';
+const allowedOrigins = rawCorsOrigins.split(',').map((o) => o.trim()).filter(Boolean);
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow non-browser requests (no origin) or whitelisted origins
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error(`Origin ${origin} blocked by CORS policy`));
+    },
+    credentials: true,
+}));
 app.use(express.json());
 // Request logger
 app.use((req, res, next) => {
@@ -38,6 +56,10 @@ app.use('/api/warehouses', warehouseRoutes);
 app.use('/warehouses', warehouseRoutes);
 app.use('/api/products', productRoutes);
 app.use('/products', productRoutes);
+app.use('/api/clients', clientRoutes);
+app.use('/clients', clientRoutes);
+app.use('/api/client-payments', clientPaymentRoutes);
+app.use('/client-payments', clientPaymentRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/inventory', inventoryRoutes);
 app.use('/api/operations', inventoryRoutes);
@@ -75,15 +97,23 @@ app.use((req, res) => {
 // Global Error Handler
 app.use((err, req, res, next) => {
     console.error('Unhandled server error:', err);
-    res.status(500).json({
+    const isProduction = process.env.NODE_ENV === 'production';
+    const statusCode = Number(err.status) || 500;
+    res.status(statusCode).json({
         success: false,
-        message: err.message || 'Internal server error',
-        error: err.message,
+        message: isProduction ? (statusCode === 500 ? 'Internal server error' : err.message) : (err.message || 'Internal server error'),
+        error: isProduction ? undefined : err.message,
         timestamp: new Date().toISOString(),
     });
 });
 async function startServer() {
     try {
+        // Validate JWT Secret configuration
+        const jwtSecret = process.env.JWT_SECRET;
+        if (!jwtSecret && process.env.NODE_ENV === 'production') {
+            console.error('FATAL ERROR: JWT_SECRET environment variable is required in production.');
+            process.exit(1);
+        }
         const hasDbUrl = Boolean(process.env.DATABASE_URL || process.env.INTERNAL_DATABASE_URL || process.env.POSTGRES_URL);
         if (hasDbUrl) {
             console.log('Connecting to PostgreSQL using connection URL (DATABASE_URL)...');

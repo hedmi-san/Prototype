@@ -2,14 +2,15 @@ import { Router, Response } from 'express';
 import { query, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { generateCsv, sendCsv, CsvColumn } from '../common/csv.js';
-import { authenticate, AuthRequest, logAudit, validateWarehouseScope } from '../middleware/auth.js';
+import { authenticate, requireRole, AuthRequest, logAudit, validateWarehouseScope, enforceWarehouseScope } from '../middleware/auth.js';
 
 const router = Router();
 
 // GET /api/client-payments - List all payments with pagination & filters
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const warehouseId = enforceWarehouseScope(req.user, requestedWarehouseId);
     const clientId = req.query.clientId ? Number(req.query.clientId) : undefined;
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
@@ -29,9 +30,6 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 
     if (warehouseId) {
       params.push(warehouseId);
-      whereClauses.push(`cp.warehouse_id = $${params.length}`);
-    } else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
-      params.push(req.user.warehouseId);
       whereClauses.push(`cp.warehouse_id = $${params.length}`);
     }
 
@@ -151,7 +149,8 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
       },
     });
   } catch (err: any) {
-    return sendError(res, err.message, 500);
+    const isAccessDenied = err.message?.includes('Access denied');
+    return sendError(res, err.message, isAccessDenied ? 403 : 500);
   }
 });
 
@@ -173,6 +172,14 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
     const p = paymentRes.rows[0];
     if (!p) {
       return sendError(res, `Payment not found with id ${id}`, 404);
+    }
+
+    if (req.user) {
+      try {
+        validateWarehouseScope(req.user, p.warehouse_id);
+      } catch (err: any) {
+        return sendError(res, err.message, 403);
+      }
     }
 
     const allocRes = await query(`
@@ -221,7 +228,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
 });
 
 // POST /api/client-payments - Record new payment (Versement) with ACID ledger transaction
-router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER', 'ACCOUNTANT'), async (req: AuthRequest, res: Response) => {
   try {
     const { clientId, warehouseId, amount, paymentMethod, referenceNumber, paymentDate, notes, allocations } = req.body;
 

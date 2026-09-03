@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
-import { authenticate, requireRole, logAudit, validateWarehouseScope } from '../middleware/auth.js';
+import { authenticate, requireRole, logAudit, validateWarehouseScope, enforceWarehouseScope } from '../middleware/auth.js';
 const router = Router();
 function formatDateStr(d) {
     const year = d.getFullYear();
@@ -12,7 +12,8 @@ function formatDateStr(d) {
 // 1. GET /employees - List employees with optional warehouse and status filters
 router.get('/', authenticate, async (req, res) => {
     try {
-        const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+        const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+        const warehouseId = enforceWarehouseScope(req.user, requestedWarehouseId);
         const status = req.query.status;
         let sql = `
       SELECT e.id, e.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
@@ -26,10 +27,6 @@ router.get('/', authenticate, async (req, res) => {
         const conditions = [];
         if (warehouseId) {
             params.push(warehouseId);
-            conditions.push(`e.warehouse_id = $${params.length}`);
-        }
-        else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
-            params.push(req.user.warehouseId);
             conditions.push(`e.warehouse_id = $${params.length}`);
         }
         if (status && status !== 'ALL') {
@@ -59,7 +56,8 @@ router.get('/', authenticate, async (req, res) => {
         return sendSuccess(res, employees);
     }
     catch (err) {
-        return sendError(res, err.message, 500);
+        const isAccessDenied = err.message?.includes('Access denied');
+        return sendError(res, err.message, isAccessDenied ? 403 : 500);
     }
 });
 // 2. GET /employees/:id - Get single employee details
@@ -347,6 +345,18 @@ router.get('/:id/performance', authenticate, async (req, res) => {
 router.get('/:id/sales', authenticate, async (req, res) => {
     try {
         const id = Number(req.params.id);
+        const empCheck = await query('SELECT id, warehouse_id FROM employees WHERE id = $1', [id]);
+        const emp = empCheck.rows[0];
+        if (!emp)
+            return sendError(res, `Employee not found with id ${id}`, 404);
+        if (req.user) {
+            try {
+                validateWarehouseScope(req.user, emp.warehouse_id);
+            }
+            catch (err) {
+                return sendError(res, err.message, 403);
+            }
+        }
         const startDate = req.query.startDate;
         const endDate = req.query.endDate;
         const search = req.query.search?.trim();
@@ -450,9 +460,21 @@ router.get('/:id/sales', authenticate, async (req, res) => {
     }
 });
 // 5. GET /employees/:id/salaries - Salary records snapshot history for this employee
-router.get('/:id/salaries', authenticate, async (req, res) => {
+router.get('/:id/salaries', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER', 'ACCOUNTANT'), async (req, res) => {
     try {
         const id = Number(req.params.id);
+        const empCheck = await query('SELECT id, warehouse_id FROM employees WHERE id = $1', [id]);
+        const emp = empCheck.rows[0];
+        if (!emp)
+            return sendError(res, `Employee not found with id ${id}`, 404);
+        if (req.user) {
+            try {
+                validateWarehouseScope(req.user, emp.warehouse_id);
+            }
+            catch (err) {
+                return sendError(res, err.message, 403);
+            }
+        }
         const sql = `
       SELECT s.id, s.employee_id, e.full_name as employee_name, e.position as employee_position,
              s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
