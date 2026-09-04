@@ -6,7 +6,12 @@ function normalizeParams(params?: PaginationParams | number): Record<string, any
   if (typeof params === 'number') {
     return { warehouseId: params };
   }
-  return params || {};
+  if (!params) return {};
+  const copy: Record<string, any> = { ...params };
+  if (Array.isArray(copy.ids)) {
+    copy.ids = copy.ids.join(',');
+  }
+  return copy;
 }
 
 function normalizePaginatedResponse<T>(data: any): PaginatedData<T> {

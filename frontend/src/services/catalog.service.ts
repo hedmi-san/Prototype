@@ -37,13 +37,24 @@ export const warehouseService = {
   }
 };
 
+function formatQueryParams(params?: ProductQueryParams): Record<string, any> | undefined {
+  if (!params) return undefined;
+  const copy: Record<string, any> = { ...params };
+  if (Array.isArray(copy.ids)) {
+    copy.ids = copy.ids.join(',');
+  }
+  return copy;
+}
+
 export const productService = {
   async getProducts(params?: ProductQueryParams): Promise<PaginatedData<Product>> {
-    const response = await api.get<ApiResponse<any>>('/products', { params });
+    const formattedParams = formatQueryParams(params);
+    const response = await api.get<ApiResponse<any>>('/products', { params: formattedParams });
     return normalizePaginatedResponse<Product>(response.data.data);
   },
   async getAllProducts(params?: Omit<ProductQueryParams, 'all'>): Promise<Product[]> {
-    const response = await api.get<ApiResponse<any>>('/products', { params: { ...params, all: true } });
+    const formattedParams = formatQueryParams({ ...params, all: true });
+    const response = await api.get<ApiResponse<any>>('/products', { params: formattedParams });
     if (Array.isArray(response.data.data)) {
       return response.data.data;
     }

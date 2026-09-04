@@ -53,29 +53,49 @@ router.get('/stock', authenticate, async (req, res) => {
         // Filtered Query (combining warehouse scope + status filter + search filter)
         const filteredWhereClauses = [...baseWhereClauses];
         const filteredParams = [...baseParams];
-        if (status === 'normal') {
-            filteredWhereClauses.push('(s.physical_quantity - s.reserved_quantity) > p.min_stock_alert');
+        const idsParam = req.query.ids?.trim();
+        let hasExplicitIds = false;
+        let parsedIds = [];
+        if (idsParam) {
+            parsedIds = idsParam
+                .split(',')
+                .map((id) => Number(id.trim()))
+                .filter((id) => !isNaN(id) && id > 0);
+            if (parsedIds.length > 0) {
+                hasExplicitIds = true;
+                filteredParams.push(parsedIds);
+                filteredWhereClauses.push(`s.id = ANY($${filteredParams.length}::int[])`);
+            }
         }
-        else if (status === 'low') {
-            filteredWhereClauses.push('(s.physical_quantity - s.reserved_quantity) > 0 AND (s.physical_quantity - s.reserved_quantity) <= p.min_stock_alert');
-        }
-        else if (status === 'out') {
-            filteredWhereClauses.push('(s.physical_quantity - s.reserved_quantity) <= 0');
-        }
-        if (search) {
-            const p1 = filteredParams.length + 1;
-            const p2 = filteredParams.length + 2;
-            const p3 = filteredParams.length + 3;
-            const p4 = filteredParams.length + 4;
-            filteredWhereClauses.push(`(p.name ILIKE $${p1} OR p.reference ILIKE $${p2} OR p.brand ILIKE $${p3} OR w.name ILIKE $${p4})`);
-            const term = `%${search}%`;
-            filteredParams.push(term, term, term, term);
+        if (!hasExplicitIds) {
+            if (status === 'normal') {
+                filteredWhereClauses.push('(s.physical_quantity - s.reserved_quantity) > p.min_stock_alert');
+            }
+            else if (status === 'low') {
+                filteredWhereClauses.push('(s.physical_quantity - s.reserved_quantity) > 0 AND (s.physical_quantity - s.reserved_quantity) <= p.min_stock_alert');
+            }
+            else if (status === 'out') {
+                filteredWhereClauses.push('(s.physical_quantity - s.reserved_quantity) <= 0');
+            }
+            if (search) {
+                const p1 = filteredParams.length + 1;
+                const p2 = filteredParams.length + 2;
+                const p3 = filteredParams.length + 3;
+                const p4 = filteredParams.length + 4;
+                filteredWhereClauses.push(`(p.name ILIKE $${p1} OR p.reference ILIKE $${p2} OR p.brand ILIKE $${p3} OR w.name ILIKE $${p4})`);
+                const term = `%${search}%`;
+                filteredParams.push(term, term, term, term);
+            }
         }
         const filteredWhereSql = filteredWhereClauses.length > 0 ? ` WHERE ${filteredWhereClauses.join(' AND ')}` : '';
         const countQuery = `SELECT COUNT(*) as count ${baseWhere} ${filteredWhereSql}`;
         const countRes = await query(countQuery, filteredParams);
         const total = Number(countRes.rows[0]?.count || 0);
-        const selectParams = [...filteredParams, limit, offset];
+        const effectiveLimit = hasExplicitIds && !req.query.limit
+            ? Math.max(limit, parsedIds.length)
+            : limit;
+        const effectiveOffset = (page - 1) * effectiveLimit;
+        const selectParams = [...filteredParams, effectiveLimit, effectiveOffset];
         const limitParamIdx = selectParams.length - 1;
         const offsetParamIdx = selectParams.length;
         const selectSql = `
@@ -164,12 +184,14 @@ router.get('/export/csv', authenticate, async (req, res) => {
     `;
         const whereClauses = [];
         const params = [];
+        let hasExplicitIds = false;
         if (idsParam) {
             const parsedIds = idsParam
                 .split(',')
                 .map((id) => Number(id.trim()))
                 .filter((id) => !isNaN(id) && id > 0);
             if (parsedIds.length > 0) {
+                hasExplicitIds = true;
                 params.push(parsedIds);
                 whereClauses.push(`s.id = ANY($${params.length}::int[])`);
             }
@@ -182,23 +204,25 @@ router.get('/export/csv', authenticate, async (req, res) => {
             params.push(req.user.warehouseId);
             whereClauses.push(`s.warehouse_id = $${params.length}`);
         }
-        if (status === 'normal') {
-            whereClauses.push('(s.physical_quantity - s.reserved_quantity) > p.min_stock_alert');
-        }
-        else if (status === 'low' || lowStock) {
-            whereClauses.push('(s.physical_quantity - s.reserved_quantity) > 0 AND (s.physical_quantity - s.reserved_quantity) <= p.min_stock_alert');
-        }
-        else if (status === 'out') {
-            whereClauses.push('(s.physical_quantity - s.reserved_quantity) <= 0');
-        }
-        if (search) {
-            const p1 = params.length + 1;
-            const p2 = params.length + 2;
-            const p3 = params.length + 3;
-            const p4 = params.length + 4;
-            whereClauses.push(`(p.name ILIKE $${p1} OR p.reference ILIKE $${p2} OR p.brand ILIKE $${p3} OR w.name ILIKE $${p4})`);
-            const term = `%${search}%`;
-            params.push(term, term, term, term);
+        if (!hasExplicitIds) {
+            if (status === 'normal') {
+                whereClauses.push('(s.physical_quantity - s.reserved_quantity) > p.min_stock_alert');
+            }
+            else if (status === 'low' || lowStock) {
+                whereClauses.push('(s.physical_quantity - s.reserved_quantity) > 0 AND (s.physical_quantity - s.reserved_quantity) <= p.min_stock_alert');
+            }
+            else if (status === 'out') {
+                whereClauses.push('(s.physical_quantity - s.reserved_quantity) <= 0');
+            }
+            if (search) {
+                const p1 = params.length + 1;
+                const p2 = params.length + 2;
+                const p3 = params.length + 3;
+                const p4 = params.length + 4;
+                whereClauses.push(`(p.name ILIKE $${p1} OR p.reference ILIKE $${p2} OR p.brand ILIKE $${p3} OR w.name ILIKE $${p4})`);
+                const term = `%${search}%`;
+                params.push(term, term, term, term);
+            }
         }
         if (whereClauses.length > 0) {
             sql += ' WHERE ' + whereClauses.join(' AND ');

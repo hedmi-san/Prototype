@@ -219,27 +219,16 @@ async function getTargetProductsForAction(
   scope: 'all' | 'selection',
 ): Promise<{ items: Product[]; scopeText: string }> {
   if (scope === 'selection' && selectedStockIds.value.size > 0) {
-    const selectedRows = stockList.value.filter((s) => selectedStockIds.value.has(s.id));
-    // If selected count matches what is loaded in view
-    if (selectedRows.length === selectedStockIds.value.size) {
-      const items = selectedRows.map(mapStockToProduct);
-      return {
-        items,
-        scopeText: `Sélection : ${items.length} ${items.length > 1 ? 'articles' : 'article'}`,
-      };
-    }
-
-    // If selections span across multiple pages, fetch full filtered stock
-    const allRes = await inventoryService.getStock({
+    const selectedIds = Array.from(selectedStockIds.value);
+    const res = await inventoryService.getStock({
       warehouseId: authStore.activeWarehouseId || undefined,
-      status: statusFilter.value !== 'all' ? statusFilter.value : undefined,
-      search: searchQuery.value.trim() || undefined,
-      limit: 1000,
+      ids: selectedIds,
+      limit: selectedIds.length,
     });
-    const selectedItems = allRes.items.filter((s) => selectedStockIds.value.has(s.id)).map(mapStockToProduct);
+    const items = res.items.map(mapStockToProduct);
     return {
-      items: selectedItems,
-      scopeText: `Sélection : ${selectedItems.length} ${selectedItems.length > 1 ? 'articles' : 'article'}`,
+      items,
+      scopeText: `Sélection : ${items.length} ${items.length > 1 ? 'articles' : 'article'}`,
     };
   }
 
@@ -275,16 +264,18 @@ async function handleOpenDocument(type: 'price_list' | 'catalog', scope: 'all' |
 async function handleExportCsv(scope: 'all' | 'selection') {
   exporting.value = true;
   try {
-    const ids =
-      scope === 'selection' && selectedStockIds.value.size > 0
-        ? Array.from(selectedStockIds.value)
-        : undefined;
-    await inventoryService.exportStockCsv({
-      warehouseId: authStore.activeWarehouseId || undefined,
-      status: statusFilter.value !== 'all' ? statusFilter.value : undefined,
-      search: searchQuery.value.trim() || undefined,
-      ids,
-    });
+    if (scope === 'selection' && selectedStockIds.value.size > 0) {
+      await inventoryService.exportStockCsv({
+        warehouseId: authStore.activeWarehouseId || undefined,
+        ids: Array.from(selectedStockIds.value),
+      });
+    } else {
+      await inventoryService.exportStockCsv({
+        warehouseId: authStore.activeWarehouseId || undefined,
+        status: statusFilter.value !== 'all' ? statusFilter.value : undefined,
+        search: searchQuery.value.trim() || undefined,
+      });
+    }
   } catch (err) {
     console.error('Failed to export stock CSV', err);
   } finally {

@@ -236,23 +236,25 @@ function clearSelection() {
 async function getTargetProductsForAction(
   scope: 'all' | 'selection',
 ): Promise<{ items: Product[]; scopeText: string }> {
+  if (scope === 'selection' && selectedProductIds.value.size > 0) {
+    const selectedIds = Array.from(selectedProductIds.value);
+    const items = await productService.getAllProducts({
+      ids: selectedIds,
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value,
+    });
+    return {
+      items,
+      scopeText: `Sélection : ${items.length} ${items.length > 1 ? 'produits' : 'produit'}`,
+    };
+  }
+
   const allRes = await productService.getAllProducts({
     search: searchQuery.value.trim() || undefined,
     brand: selectedBrand.value || undefined,
     sortBy: sortBy.value,
     sortOrder: sortOrder.value,
   });
-
-  if (scope === 'selection' && selectedProductIds.value.size > 0) {
-    const selectedItems = allRes.filter((p) => selectedProductIds.value.has(p.id));
-    const items = selectedItems.length
-      ? selectedItems
-      : products.value.filter((p) => selectedProductIds.value.has(p.id));
-    return {
-      items,
-      scopeText: `Sélection : ${items.length} ${items.length > 1 ? 'produits' : 'produit'}`,
-    };
-  }
 
   return {
     items: allRes,
@@ -278,15 +280,16 @@ async function handleOpenDocument(type: 'price_list' | 'catalog', scope: 'all' |
 async function handleExportCsv(scope: 'all' | 'selection') {
   exporting.value = true;
   try {
-    const ids =
-      scope === 'selection' && selectedProductIds.value.size > 0
-        ? Array.from(selectedProductIds.value)
-        : undefined;
-    await productService.exportProductsCsv({
-      search: searchQuery.value.trim() || undefined,
-      brand: selectedBrand.value || undefined,
-      ids,
-    });
+    if (scope === 'selection' && selectedProductIds.value.size > 0) {
+      await productService.exportProductsCsv({
+        ids: Array.from(selectedProductIds.value),
+      });
+    } else {
+      await productService.exportProductsCsv({
+        search: searchQuery.value.trim() || undefined,
+        brand: selectedBrand.value || undefined,
+      });
+    }
   } catch (err) {
     console.error('Failed to export products CSV', err);
   } finally {

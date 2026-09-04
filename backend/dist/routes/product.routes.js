@@ -22,21 +22,37 @@ router.get('/', authenticate, async (req, res) => {
         const offset = (page - 1) * limit;
         const search = req.query.search?.trim();
         const brand = req.query.brand?.trim();
+        const idsParam = req.query.ids?.trim();
         const sortBy = req.query.sortBy?.trim();
         const sortOrder = req.query.sortOrder?.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
         const whereClauses = [];
         const params = [];
-        if (search) {
-            const p1 = params.length + 1;
-            const p2 = params.length + 2;
-            const p3 = params.length + 3;
-            whereClauses.push(`(reference ILIKE $${p1} OR name ILIKE $${p2} OR brand ILIKE $${p3})`);
-            const term = `%${search}%`;
-            params.push(term, term, term);
+        let hasExplicitIds = false;
+        let parsedIds = [];
+        if (idsParam) {
+            parsedIds = idsParam
+                .split(',')
+                .map((id) => Number(id.trim()))
+                .filter((id) => !isNaN(id) && id > 0);
+            if (parsedIds.length > 0) {
+                hasExplicitIds = true;
+                params.push(parsedIds);
+                whereClauses.push(`id = ANY($${params.length}::int[])`);
+            }
         }
-        if (brand && brand !== 'all') {
-            params.push(brand);
-            whereClauses.push(`brand = $${params.length}`);
+        if (!hasExplicitIds) {
+            if (search) {
+                const p1 = params.length + 1;
+                const p2 = params.length + 2;
+                const p3 = params.length + 3;
+                whereClauses.push(`(reference ILIKE $${p1} OR name ILIKE $${p2} OR brand ILIKE $${p3})`);
+                const term = `%${search}%`;
+                params.push(term, term, term);
+            }
+            if (brand && brand !== 'all') {
+                params.push(brand);
+                whereClauses.push(`brand = $${params.length}`);
+            }
         }
         const whereSql = whereClauses.length > 0 ? ` WHERE ${whereClauses.join(' AND ')}` : '';
         // If 'all' is explicitly requested (e.g. for internal combobox lookups)
@@ -64,7 +80,11 @@ router.get('/', authenticate, async (req, res) => {
         const countSql = `SELECT COUNT(*) as count FROM products ${whereSql}`;
         const countRes = await query(countSql, params);
         const total = Number(countRes.rows[0]?.count || 0);
-        const totalPages = Math.ceil(total / limit) || 1;
+        const effectiveLimit = hasExplicitIds && !req.query.limit
+            ? Math.max(limit, parsedIds.length)
+            : limit;
+        const effectiveOffset = (page - 1) * effectiveLimit;
+        const totalPages = Math.ceil(total / effectiveLimit) || 1;
         // Sorting column mapping
         let orderColumn = 'id';
         if (sortBy === 'name')
@@ -80,7 +100,7 @@ router.get('/', authenticate, async (req, res) => {
         else if (sortBy === 'createdAt')
             orderColumn = 'created_at';
         const orderSql = `ORDER BY ${orderColumn} ${sortOrder}, id ASC`;
-        const selectParams = [...params, limit, offset];
+        const selectParams = [...params, effectiveLimit, effectiveOffset];
         const limitParamIdx = selectParams.length - 1;
         const offsetParamIdx = selectParams.length;
         const selectSql = `
@@ -127,27 +147,31 @@ router.get('/export/csv', authenticate, async (req, res) => {
         let sql = 'SELECT * FROM products';
         const whereClauses = [];
         const params = [];
+        let hasExplicitIds = false;
         if (idsParam) {
             const parsedIds = idsParam
                 .split(',')
                 .map((id) => Number(id.trim()))
                 .filter((id) => !isNaN(id) && id > 0);
             if (parsedIds.length > 0) {
+                hasExplicitIds = true;
                 params.push(parsedIds);
                 whereClauses.push(`id = ANY($${params.length}::int[])`);
             }
         }
-        if (search) {
-            const p1 = params.length + 1;
-            const p2 = params.length + 2;
-            const p3 = params.length + 3;
-            whereClauses.push(`(reference ILIKE $${p1} OR name ILIKE $${p2} OR brand ILIKE $${p3})`);
-            const term = `%${search}%`;
-            params.push(term, term, term);
-        }
-        if (brand && brand !== 'all') {
-            params.push(brand);
-            whereClauses.push(`brand = $${params.length}`);
+        if (!hasExplicitIds) {
+            if (search) {
+                const p1 = params.length + 1;
+                const p2 = params.length + 2;
+                const p3 = params.length + 3;
+                whereClauses.push(`(reference ILIKE $${p1} OR name ILIKE $${p2} OR brand ILIKE $${p3})`);
+                const term = `%${search}%`;
+                params.push(term, term, term);
+            }
+            if (brand && brand !== 'all') {
+                params.push(brand);
+                whereClauses.push(`brand = $${params.length}`);
+            }
         }
         if (whereClauses.length > 0) {
             sql += ' WHERE ' + whereClauses.join(' AND ');

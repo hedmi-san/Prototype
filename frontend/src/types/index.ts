@@ -530,6 +530,7 @@ export interface PaginationParams {
   status?: string;
   type?: string;
   action?: string;
+  ids?: number[] | string;
 }
 
 export type ProductSortBy = 'name' | 'salePrice' | 'purchasePrice' | 'reference' | 'brand' | 'createdAt' | 'id';
@@ -543,6 +544,7 @@ export interface ProductQueryParams {
   sortBy?: ProductSortBy;
   sortOrder?: SortOrder;
   all?: boolean;
+  ids?: number[] | string;
 }
 
 export interface ApiResponse<T> {
