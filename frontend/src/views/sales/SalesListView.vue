@@ -39,12 +39,31 @@ const selectedSale = ref<Sale | null>(null);
 // Edit Sale Modal
 const showEditModal = ref(false);
 const editingSale = ref<Sale | null>(null);
+
+interface EditSaleLineItem {
+  _uid: string;
+  productId: number;
+  quantity: number;
+  unitPrice: number;
+}
+
+let editUidCounter = 0;
+function createEditLineItem(initial?: Partial<EditSaleLineItem>): EditSaleLineItem {
+  return {
+    _uid: `edit_line_${++editUidCounter}_${Date.now()}`,
+    productId: 0,
+    quantity: 1,
+    unitPrice: 0,
+    ...initial,
+  };
+}
+
 const editForm = ref({
   employeeId: null as number | null,
   customerName: '',
   customerPhone: '',
   saleDate: '',
-  items: [] as { productId: number; quantity: number; unitPrice: number }[],
+  items: [] as EditSaleLineItem[],
 });
 const saving = ref(false);
 const editError = ref('');
@@ -189,17 +208,20 @@ async function openEditModal(sale: Sale) {
     customerName: sale.customerName || '',
     customerPhone: sale.customerPhone || '',
     saleDate: formatToDatetimeLocal(sale.saleDate || sale.createdAt),
-    items: sale.items.map((i) => ({
-      productId: i.productId,
-      quantity: i.quantity,
-      unitPrice: i.unitPrice,
-    })),
+    items: sale.items.map((i) =>
+      createEditLineItem({
+        _uid: `existing_sale_item_${i.id || ++editUidCounter}`,
+        productId: i.productId,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+      })
+    ),
   };
   editError.value = '';
   showEditModal.value = true;
 }
 
-function onEditProductSelect(item: { productId: number; quantity: number; unitPrice: number }) {
+function onEditProductSelect(item: EditSaleLineItem) {
   const prod = products.value.find((p) => p.id === item.productId);
   if (prod) {
     item.unitPrice = prod.salePrice;
@@ -209,11 +231,13 @@ function onEditProductSelect(item: { productId: number; quantity: number; unitPr
 function addEditItem() {
   if (products.value.length > 0) {
     const defaultProd = products.value[0];
-    editForm.value.items.push({
-      productId: defaultProd.id,
-      quantity: 1,
-      unitPrice: defaultProd.salePrice,
-    });
+    editForm.value.items.push(
+      createEditLineItem({
+        productId: defaultProd.id,
+        quantity: 1,
+        unitPrice: defaultProd.salePrice,
+      })
+    );
   }
 }
 
@@ -538,7 +562,7 @@ async function handleConfirmCancel() {
             </button>
           </div>
 
-          <div v-for="(item, idx) in editForm.items" :key="idx" class="item-row">
+          <div v-for="(item, idx) in editForm.items" :key="item._uid" class="item-row">
             <select
               v-model="item.productId"
               class="app-select item-product-select"

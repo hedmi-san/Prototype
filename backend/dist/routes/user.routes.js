@@ -49,8 +49,8 @@ router.post('/', authenticate, requireRole('ADMIN'), async (req, res) => {
         if (!role) {
             return sendError(res, `Invalid role: ${roleName}`, 400);
         }
-        const salt = bcrypt.genSaltSync(10);
-        const passwordHash = bcrypt.hashSync(password, salt);
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(password, salt);
         const assignedWarehouseId = roleName === 'ADMIN' ? null : (warehouseId || null);
         const insertRes = await query(`
       INSERT INTO users (username, password_hash, full_name, role_id, warehouse_id, active)
@@ -111,8 +111,8 @@ router.put('/:id', authenticate, requireRole('ADMIN'), async (req, res) => {
             if (password.trim().length < 4) {
                 return sendError(res, 'Le mot de passe doit comporter au moins 4 caractères', 400);
             }
-            const salt = bcrypt.genSaltSync(10);
-            const passwordHash = bcrypt.hashSync(password.trim(), salt);
+            const salt = await bcrypt.genSalt(10);
+            const passwordHash = await bcrypt.hash(password.trim(), salt);
             params.push(passwordHash);
             passwordClause = `, password_hash = $${params.length}`;
         }

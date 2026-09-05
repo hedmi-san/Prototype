@@ -202,28 +202,28 @@ router.get('/:id', authenticate, async (req, res) => {
     }
 });
 router.post('/', authenticate, async (req, res) => {
-    const user = req.user;
-    const { sourceWarehouseId, destinationWarehouseId, notes, items } = req.body;
-    if (!sourceWarehouseId || !destinationWarehouseId || !items || !Array.isArray(items) || items.length === 0) {
-        return sendError(res, 'sourceWarehouseId, destinationWarehouseId, and non-empty items are required', 400);
-    }
-    if (sourceWarehouseId === destinationWarehouseId) {
-        return sendError(res, 'Source and destination warehouses must be different', 400);
-    }
-    // Validate that source and destination warehouses are active
-    const whCheck = await query('SELECT id, name, active FROM warehouses WHERE id IN ($1, $2)', [sourceWarehouseId, destinationWarehouseId]);
-    const sourceWh = whCheck.rows.find(w => w.id === sourceWarehouseId);
-    const destWh = whCheck.rows.find(w => w.id === destinationWarehouseId);
-    if (!sourceWh || !sourceWh.active) {
-        return sendError(res, `Impossible de créer un transfert : le dépôt source (${sourceWh ? sourceWh.name : sourceWarehouseId}) est inactif`, 400);
-    }
-    if (!destWh || !destWh.active) {
-        return sendError(res, `Impossible de créer un transfert : le dépôt de destination (${destWh ? destWh.name : destinationWarehouseId}) est inactif`, 400);
-    }
-    if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_MANAGER' && user?.warehouseId && Number(user.warehouseId) !== Number(destinationWarehouseId)) {
-        return sendError(res, 'Access denied: You can only request transfers destined for your assigned warehouse', 403);
-    }
     try {
+        const user = req.user;
+        const { sourceWarehouseId, destinationWarehouseId, notes, items } = req.body;
+        if (!sourceWarehouseId || !destinationWarehouseId || !items || !Array.isArray(items) || items.length === 0) {
+            return sendError(res, 'sourceWarehouseId, destinationWarehouseId, and non-empty items are required', 400);
+        }
+        if (sourceWarehouseId === destinationWarehouseId) {
+            return sendError(res, 'Source and destination warehouses must be different', 400);
+        }
+        // Validate that source and destination warehouses are active
+        const whCheck = await query('SELECT id, name, active FROM warehouses WHERE id IN ($1, $2)', [sourceWarehouseId, destinationWarehouseId]);
+        const sourceWh = whCheck.rows.find(w => w.id === sourceWarehouseId);
+        const destWh = whCheck.rows.find(w => w.id === destinationWarehouseId);
+        if (!sourceWh || !sourceWh.active) {
+            return sendError(res, `Impossible de créer un transfert : le dépôt source (${sourceWh ? sourceWh.name : sourceWarehouseId}) est inactif`, 400);
+        }
+        if (!destWh || !destWh.active) {
+            return sendError(res, `Impossible de créer un transfert : le dépôt de destination (${destWh ? destWh.name : destinationWarehouseId}) est inactif`, 400);
+        }
+        if (user?.role !== 'ADMIN' && user?.role !== 'SUPER_MANAGER' && user?.warehouseId && Number(user.warehouseId) !== Number(destinationWarehouseId)) {
+            return sendError(res, 'Access denied: You can only request transfers destined for your assigned warehouse', 403);
+        }
         const result = await runTransaction(async (client) => {
             const transferNumber = `TRF-${Date.now().toString().slice(-8)}`;
             const insertRes = await client.query(`
@@ -248,32 +248,32 @@ router.post('/', authenticate, async (req, res) => {
     }
 });
 router.post('/bulk-relocation', authenticate, requireRole('ADMIN', 'SUPER_MANAGER'), async (req, res) => {
-    const { sourceWarehouseId, distributions, immediateExecution, notes } = req.body;
-    if (!sourceWarehouseId || !distributions || !Array.isArray(distributions) || distributions.length === 0) {
-        return sendError(res, 'sourceWarehouseId and non-empty distributions array are required', 400);
-    }
-    // Validate source warehouse exists
-    const sourceWhRes = await query('SELECT id, name, code, active FROM warehouses WHERE id = $1', [sourceWarehouseId]);
-    const sourceWh = sourceWhRes.rows[0];
-    if (!sourceWh) {
-        return sendError(res, `Dépôt source introuvable avec l'ID ${sourceWarehouseId}`, 404);
-    }
-    // Validate destination warehouses are active and distinct from source
-    const destIds = distributions.map((d) => Number(d.destinationWarehouseId)).filter(id => Boolean(id));
-    if (destIds.includes(Number(sourceWarehouseId))) {
-        return sendError(res, 'Le dépôt source ne peut pas être une destination de transfert', 400);
-    }
-    if (destIds.length === 0) {
-        return sendError(res, 'Aucune destination valide spécifiée', 400);
-    }
-    const destWhsRes = await query('SELECT id, name, code, active FROM warehouses WHERE id = ANY($1::int[])', [destIds]);
-    for (const dId of destIds) {
-        const dWh = destWhsRes.rows.find((w) => w.id === dId);
-        if (!dWh || !dWh.active) {
-            return sendError(res, `Le dépôt de destination (${dWh ? dWh.name : dId}) est inactif ou introuvable`, 400);
-        }
-    }
     try {
+        const { sourceWarehouseId, distributions, immediateExecution, notes } = req.body;
+        if (!sourceWarehouseId || !distributions || !Array.isArray(distributions) || distributions.length === 0) {
+            return sendError(res, 'sourceWarehouseId and non-empty distributions array are required', 400);
+        }
+        // Validate source warehouse exists
+        const sourceWhRes = await query('SELECT id, name, code, active FROM warehouses WHERE id = $1', [sourceWarehouseId]);
+        const sourceWh = sourceWhRes.rows[0];
+        if (!sourceWh) {
+            return sendError(res, `Dépôt source introuvable avec l'ID ${sourceWarehouseId}`, 404);
+        }
+        // Validate destination warehouses are active and distinct from source
+        const destIds = distributions.map((d) => Number(d.destinationWarehouseId)).filter(id => Boolean(id));
+        if (destIds.includes(Number(sourceWarehouseId))) {
+            return sendError(res, 'Le dépôt source ne peut pas être une destination de transfert', 400);
+        }
+        if (destIds.length === 0) {
+            return sendError(res, 'Aucune destination valide spécifiée', 400);
+        }
+        const destWhsRes = await query('SELECT id, name, code, active FROM warehouses WHERE id = ANY($1::int[])', [destIds]);
+        for (const dId of destIds) {
+            const dWh = destWhsRes.rows.find((w) => w.id === dId);
+            if (!dWh || !dWh.active) {
+                return sendError(res, `Le dépôt de destination (${dWh ? dWh.name : dId}) est inactif ou introuvable`, 400);
+            }
+        }
         const result = await runTransaction(async (client) => {
             // Aggregate total quantity needed per product across all destinations
             const productTotalAllocated = {};
@@ -409,23 +409,23 @@ router.post('/bulk-relocation', authenticate, requireRole('ADMIN', 'SUPER_MANAGE
     }
 });
 router.post('/:id/approve', authenticate, async (req, res) => {
-    const id = Number(req.params.id);
-    const user = req.user;
-    const { items } = req.body;
-    const transferRes = await query('SELECT * FROM transfers WHERE id = $1', [id]);
-    const transfer = transferRes.rows[0];
-    if (!transfer)
-        return sendError(res, `Transfer not found with id ${id}`, 404);
-    if (user?.role !== 'ADMIN') {
-        const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
-        const isSourceManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.source_warehouse_id);
-        if (!isGlobalSuper && !isSourceManager) {
-            return sendError(res, 'Access denied: Only the source warehouse manager or an administrator can approve this transfer', 403);
-        }
-    }
-    if (transfer.status !== 'REQUESTED')
-        return sendError(res, `Cannot approve transfer in status ${transfer.status}`, 400);
     try {
+        const id = Number(req.params.id);
+        const user = req.user;
+        const { items } = req.body;
+        const transferRes = await query('SELECT * FROM transfers WHERE id = $1', [id]);
+        const transfer = transferRes.rows[0];
+        if (!transfer)
+            return sendError(res, `Transfer not found with id ${id}`, 404);
+        if (user?.role !== 'ADMIN') {
+            const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
+            const isSourceManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.source_warehouse_id);
+            if (!isGlobalSuper && !isSourceManager) {
+                return sendError(res, 'Access denied: Only the source warehouse manager or an administrator can approve this transfer', 403);
+            }
+        }
+        if (transfer.status !== 'REQUESTED')
+            return sendError(res, `Cannot approve transfer in status ${transfer.status}`, 400);
         await runTransaction(async (client) => {
             const approvedItems = items && Array.isArray(items) ? items : [];
             const currentItemsRes = await client.query('SELECT * FROM transfer_items WHERE transfer_id = $1', [id]);
@@ -467,28 +467,28 @@ router.post('/:id/approve', authenticate, async (req, res) => {
     }
 });
 router.post('/:id/confirm', authenticate, async (req, res) => {
-    const id = Number(req.params.id);
-    const user = req.user;
-    const transferRes = await query(`
-    SELECT t.*, sw.name as source_warehouse_name, dw.name as destination_warehouse_name
-    FROM transfers t
-    JOIN warehouses sw ON t.source_warehouse_id = sw.id
-    JOIN warehouses dw ON t.destination_warehouse_id = dw.id
-    WHERE t.id = $1
-  `, [id]);
-    const transfer = transferRes.rows[0];
-    if (!transfer)
-        return sendError(res, `Transfer not found with id ${id}`, 404);
-    if (user?.role !== 'ADMIN') {
-        const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
-        const isDestManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.destination_warehouse_id);
-        if (!isGlobalSuper && !isDestManager) {
-            return sendError(res, 'Access denied: Only the destination warehouse manager or an administrator can confirm receipt of this transfer', 403);
-        }
-    }
-    if (transfer.status !== 'APPROVED')
-        return sendError(res, `Cannot confirm transfer in status ${transfer.status}`, 400);
     try {
+        const id = Number(req.params.id);
+        const user = req.user;
+        const transferRes = await query(`
+      SELECT t.*, sw.name as source_warehouse_name, dw.name as destination_warehouse_name
+      FROM transfers t
+      JOIN warehouses sw ON t.source_warehouse_id = sw.id
+      JOIN warehouses dw ON t.destination_warehouse_id = dw.id
+      WHERE t.id = $1
+    `, [id]);
+        const transfer = transferRes.rows[0];
+        if (!transfer)
+            return sendError(res, `Transfer not found with id ${id}`, 404);
+        if (user?.role !== 'ADMIN') {
+            const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
+            const isDestManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.destination_warehouse_id);
+            if (!isGlobalSuper && !isDestManager) {
+                return sendError(res, 'Access denied: Only the destination warehouse manager or an administrator can confirm receipt of this transfer', 403);
+            }
+        }
+        if (transfer.status !== 'APPROVED')
+            return sendError(res, `Cannot confirm transfer in status ${transfer.status}`, 400);
         await runTransaction(async (client) => {
             const itemsRes = await client.query('SELECT * FROM transfer_items WHERE transfer_id = $1', [id]);
             for (const item of itemsRes.rows) {
@@ -536,45 +536,50 @@ router.post('/:id/confirm', authenticate, async (req, res) => {
     }
 });
 router.post('/:id/decline', authenticate, async (req, res) => {
-    const id = Number(req.params.id);
-    const user = req.user;
-    const transferRes = await query('SELECT * FROM transfers WHERE id = $1', [id]);
-    const transfer = transferRes.rows[0];
-    if (!transfer)
-        return sendError(res, `Transfer not found with id ${id}`, 404);
-    if (user?.role !== 'ADMIN') {
-        const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
-        const isSourceManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.source_warehouse_id);
-        if (!isGlobalSuper && !isSourceManager) {
-            return sendError(res, 'Access denied: Only the source warehouse manager or an administrator can decline this transfer', 403);
+    try {
+        const id = Number(req.params.id);
+        const user = req.user;
+        const transferRes = await query('SELECT * FROM transfers WHERE id = $1', [id]);
+        const transfer = transferRes.rows[0];
+        if (!transfer)
+            return sendError(res, `Transfer not found with id ${id}`, 404);
+        if (user?.role !== 'ADMIN') {
+            const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
+            const isSourceManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.source_warehouse_id);
+            if (!isGlobalSuper && !isSourceManager) {
+                return sendError(res, 'Access denied: Only the source warehouse manager or an administrator can decline this transfer', 403);
+            }
         }
+        if (transfer.status !== 'REQUESTED')
+            return sendError(res, `Cannot decline transfer in status ${transfer.status}`, 400);
+        await query("UPDATE transfers SET status = 'DECLINED', updated_at = NOW() WHERE id = $1", [id]);
+        await logAudit(req.user, 'TRANSFER_DECLINED', 'TRANSFER', id, `Declined transfer request ${transfer.transfer_number}`, transfer.source_warehouse_id);
+        return sendSuccess(res, { id, status: 'DECLINED' }, 'Transfer declined');
     }
-    if (transfer.status !== 'REQUESTED')
-        return sendError(res, `Cannot decline transfer in status ${transfer.status}`, 400);
-    await query("UPDATE transfers SET status = 'DECLINED', updated_at = NOW() WHERE id = $1", [id]);
-    await logAudit(req.user, 'TRANSFER_DECLINED', 'TRANSFER', id, `Declined transfer request ${transfer.transfer_number}`, transfer.source_warehouse_id);
-    return sendSuccess(res, { id, status: 'DECLINED' }, 'Transfer declined');
+    catch (err) {
+        return sendError(res, err.message, 500);
+    }
 });
 router.post('/:id/cancel', authenticate, async (req, res) => {
-    const id = Number(req.params.id);
-    const user = req.user;
-    const transferRes = await query('SELECT * FROM transfers WHERE id = $1', [id]);
-    const transfer = transferRes.rows[0];
-    if (!transfer)
-        return sendError(res, `Transfer not found with id ${id}`, 404);
-    if (transfer.status === 'CONFIRMED' || transfer.status === 'CANCELLED' || transfer.status === 'DECLINED') {
-        return sendError(res, `Cannot cancel transfer in status ${transfer.status}`, 400);
-    }
-    if (user?.role !== 'ADMIN') {
-        const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
-        const isRequester = Number(user?.id) === Number(transfer.requested_by_user_id);
-        const isDestManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.destination_warehouse_id);
-        const isSourceManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.source_warehouse_id);
-        if (!isGlobalSuper && !isRequester && !isDestManager && !isSourceManager) {
-            return sendError(res, 'Access denied: You do not have permission to cancel this transfer', 403);
-        }
-    }
     try {
+        const id = Number(req.params.id);
+        const user = req.user;
+        const transferRes = await query('SELECT * FROM transfers WHERE id = $1', [id]);
+        const transfer = transferRes.rows[0];
+        if (!transfer)
+            return sendError(res, `Transfer not found with id ${id}`, 404);
+        if (transfer.status === 'CONFIRMED' || transfer.status === 'CANCELLED' || transfer.status === 'DECLINED') {
+            return sendError(res, `Cannot cancel transfer in status ${transfer.status}`, 400);
+        }
+        if (user?.role !== 'ADMIN') {
+            const isGlobalSuper = user?.role === 'SUPER_MANAGER' && !user?.warehouseId;
+            const isRequester = Number(user?.id) === Number(transfer.requested_by_user_id);
+            const isDestManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.destination_warehouse_id);
+            const isSourceManager = (user?.role === 'MANAGER' || user?.role === 'SUPER_MANAGER') && Number(user?.warehouseId) === Number(transfer.source_warehouse_id);
+            if (!isGlobalSuper && !isRequester && !isDestManager && !isSourceManager) {
+                return sendError(res, 'Access denied: You do not have permission to cancel this transfer', 403);
+            }
+        }
         await runTransaction(async (client) => {
             if (transfer.status === 'APPROVED') {
                 const itemsRes = await client.query('SELECT * FROM transfer_items WHERE transfer_id = $1', [id]);

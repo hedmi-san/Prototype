@@ -36,12 +36,28 @@ const total = ref(0);
 const totalPages = ref(1);
 
 // Request Transfer Modal
+interface CreateTransferLineItem {
+  _uid: string;
+  productId: number;
+  requestedQuantity: number;
+}
+
+let createUidCounter = 0;
+function createTransferLineItem(initial?: Partial<CreateTransferLineItem>): CreateTransferLineItem {
+  return {
+    _uid: `transfer_line_${++createUidCounter}_${Date.now()}`,
+    productId: 0,
+    requestedQuantity: 5,
+    ...initial,
+  };
+}
+
 const showCreateModal = ref(false);
 const createForm = ref({
   sourceWarehouseId: 0,
   destinationWarehouseId: 0,
   notes: '',
-  items: [{ productId: 0, requestedQuantity: 5 }],
+  items: [createTransferLineItem({ productId: 0, requestedQuantity: 5 })] as CreateTransferLineItem[],
 });
 
 // Approve Transfer Modal
@@ -156,7 +172,12 @@ async function openCreateModal() {
     sourceWarehouseId: sourceId,
     destinationWarehouseId: destId,
     notes: '',
-    items: [{ productId: productStore.products[0]?.id || 0, requestedQuantity: 5 }],
+    items: [
+      createTransferLineItem({
+        productId: productStore.products[0]?.id || 0,
+        requestedQuantity: 5,
+      }),
+    ],
   };
   errorMessage.value = '';
   showCreateModal.value = true;
@@ -165,10 +186,12 @@ async function openCreateModal() {
 
 function addCreateItem() {
   if (productStore.products.length > 0) {
-    createForm.value.items.push({
-      productId: productStore.products[0].id,
-      requestedQuantity: 5,
-    });
+    createForm.value.items.push(
+      createTransferLineItem({
+        productId: productStore.products[0].id,
+        requestedQuantity: 5,
+      })
+    );
   }
 }
 
@@ -187,7 +210,15 @@ async function handleSaveCreate() {
   saving.value = true;
   errorMessage.value = '';
   try {
-    await transferService.createTransfer(createForm.value);
+    await transferService.createTransfer({
+      sourceWarehouseId: createForm.value.sourceWarehouseId,
+      destinationWarehouseId: createForm.value.destinationWarehouseId,
+      notes: createForm.value.notes,
+      items: createForm.value.items.map((i) => ({
+        productId: i.productId,
+        requestedQuantity: i.requestedQuantity,
+      })),
+    });
     showCreateModal.value = false;
     await fetchTransfers();
   } catch (err: any) {
@@ -553,7 +584,7 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
             </button>
           </div>
 
-          <div v-for="(item, idx) in createForm.items" :key="idx" class="item-row">
+          <div v-for="(item, idx) in createForm.items" :key="item._uid" class="item-row">
             <div style="flex: 1;">
               <AppProductCombobox
                 v-model="item.productId"

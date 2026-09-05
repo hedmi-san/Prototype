@@ -55,13 +55,25 @@ const getLocalDefaultDateTime = () => {
 const saleDate = ref(getLocalDefaultDateTime());
 
 interface LineItem {
+  _uid: string;
   productId: number;
   quantity: number;
   unitPrice: number;
 }
 
+let uidCounter = 0;
+function createLineItem(initial?: Partial<LineItem>): LineItem {
+  return {
+    _uid: `sale_line_${++uidCounter}_${Date.now()}`,
+    productId: 0,
+    quantity: 1,
+    unitPrice: 0,
+    ...initial,
+  };
+}
+
 const lineItems = ref<LineItem[]>([
-  { productId: 0, quantity: 1, unitPrice: 0 },
+  createLineItem(),
 ]);
 
 const selectedClient = computed(() => {
@@ -154,11 +166,7 @@ function onProductSelect(item: LineItem) {
 }
 
 function addLineItem() {
-  lineItems.value.push({
-    productId: 0,
-    quantity: 1,
-    unitPrice: 0,
-  });
+  lineItems.value.push(createLineItem());
 }
 
 function removeLineItem(index: number) {
@@ -299,7 +307,7 @@ async function handleSubmitSale() {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(item, idx) in lineItems" :key="idx">
+              <tr v-for="(item, idx) in lineItems" :key="item._uid">
                 <td class="col-product">
                   <AppProductCombobox
                     v-model="item.productId"

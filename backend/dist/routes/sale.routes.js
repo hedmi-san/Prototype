@@ -369,43 +369,43 @@ function normalizeSaleDate(input) {
     return str;
 }
 router.post('/', authenticate, async (req, res) => {
-    const { warehouseId, employeeId, clientId, customerName, customerPhone, saleDate, items, paymentCondition, // 'FULL_CASH' | 'CREDIT' | 'PARTIAL_DOWNPAYMENT'
-    downpaymentAmount, paymentMethod, } = req.body;
-    const targetWarehouseId = warehouseId || req.user?.warehouseId;
-    if (!targetWarehouseId || !items || !Array.isArray(items) || items.length === 0) {
-        return sendError(res, 'warehouseId and non-empty items array are required', 400);
-    }
-    if (req.user) {
-        try {
-            validateWarehouseScope(req.user, targetWarehouseId);
-        }
-        catch (err) {
-            return sendError(res, err.message, 403);
-        }
-    }
-    // Validate warehouse
-    const whRes = await query('SELECT id, name, active FROM warehouses WHERE id = $1', [targetWarehouseId]);
-    const targetWh = whRes.rows[0];
-    if (!targetWh || !targetWh.active) {
-        return sendError(res, `Impossible de créer une vente : l'entrepôt (${targetWh ? targetWh.name : targetWarehouseId}) est inactif`, 400);
-    }
-    // Validate employee if provided
-    if (employeeId) {
-        const empRes = await query('SELECT id, full_name, status, active, warehouse_id FROM employees WHERE id = $1', [Number(employeeId)]);
-        const emp = empRes.rows[0];
-        if (!emp) {
-            return sendError(res, `Employé non trouvé avec l'identifiant ${employeeId}`, 400);
-        }
-        if (emp.warehouse_id !== targetWarehouseId) {
-            return sendError(res, `L'employé ${emp.full_name} n'est pas affecté à cet entrepôt`, 400);
-        }
-        const empStatus = emp.status || (emp.active ? 'ACTIVE' : 'TERMINATED');
-        if (empStatus !== 'ACTIVE') {
-            const statusLabel = empStatus === 'ON_LEAVE' ? 'En congé' : empStatus === 'SUSPENDED' ? 'Suspendu' : 'Inactif';
-            return sendError(res, `Impossible d'assigner l'employé ${emp.full_name} à une vente : son statut est '${statusLabel}'`, 400);
-        }
-    }
     try {
+        const { warehouseId, employeeId, clientId, customerName, customerPhone, saleDate, items, paymentCondition, // 'FULL_CASH' | 'CREDIT' | 'PARTIAL_DOWNPAYMENT'
+        downpaymentAmount, paymentMethod, } = req.body;
+        const targetWarehouseId = warehouseId || req.user?.warehouseId;
+        if (!targetWarehouseId || !items || !Array.isArray(items) || items.length === 0) {
+            return sendError(res, 'warehouseId and non-empty items array are required', 400);
+        }
+        if (req.user) {
+            try {
+                validateWarehouseScope(req.user, targetWarehouseId);
+            }
+            catch (err) {
+                return sendError(res, err.message, 403);
+            }
+        }
+        // Validate warehouse
+        const whRes = await query('SELECT id, name, active FROM warehouses WHERE id = $1', [targetWarehouseId]);
+        const targetWh = whRes.rows[0];
+        if (!targetWh || !targetWh.active) {
+            return sendError(res, `Impossible de créer une vente : l'entrepôt (${targetWh ? targetWh.name : targetWarehouseId}) est inactif`, 400);
+        }
+        // Validate employee if provided
+        if (employeeId) {
+            const empRes = await query('SELECT id, full_name, status, active, warehouse_id FROM employees WHERE id = $1', [Number(employeeId)]);
+            const emp = empRes.rows[0];
+            if (!emp) {
+                return sendError(res, `Employé non trouvé avec l'identifiant ${employeeId}`, 400);
+            }
+            if (emp.warehouse_id !== targetWarehouseId) {
+                return sendError(res, `L'employé ${emp.full_name} n'est pas affecté à cet entrepôt`, 400);
+            }
+            const empStatus = emp.status || (emp.active ? 'ACTIVE' : 'TERMINATED');
+            if (empStatus !== 'ACTIVE') {
+                const statusLabel = empStatus === 'ON_LEAVE' ? 'En congé' : empStatus === 'SUSPENDED' ? 'Suspendu' : 'Inactif';
+                return sendError(res, `Impossible d'assigner l'employé ${emp.full_name} à une vente : son statut est '${statusLabel}'`, 400);
+            }
+        }
         const sale = await runTransaction(async (client) => {
             const invoiceNumber = `INV-${Date.now().toString().slice(-8)}`;
             let totalAmount = 0;
@@ -661,40 +661,40 @@ router.post('/', authenticate, async (req, res) => {
     }
 });
 router.put('/:id', authenticate, async (req, res) => {
-    const id = Number(req.params.id);
-    const { employeeId, customerName, customerPhone, saleDate, items } = req.body;
-    const currentRes = await query('SELECT * FROM sales WHERE id = $1', [id]);
-    const currentSale = currentRes.rows[0];
-    if (!currentSale) {
-        return sendError(res, `Sale not found with id ${id}`, 404);
-    }
-    if (req.user) {
-        try {
-            validateWarehouseScope(req.user, currentSale.warehouse_id);
-        }
-        catch (err) {
-            return sendError(res, err.message, 403);
-        }
-    }
-    if (currentSale.status === 'CANCELLED') {
-        return sendError(res, 'Cannot edit a cancelled sale', 400);
-    }
-    if (employeeId !== undefined && employeeId !== null && Number(employeeId) !== Number(currentSale.employee_id)) {
-        const empRes = await query('SELECT id, full_name, status, active, warehouse_id FROM employees WHERE id = $1', [Number(employeeId)]);
-        const emp = empRes.rows[0];
-        if (!emp) {
-            return sendError(res, `Employé non trouvé avec l'identifiant ${employeeId}`, 400);
-        }
-        if (emp.warehouse_id !== currentSale.warehouse_id) {
-            return sendError(res, `L'employé ${emp.full_name} n'est pas affecté à cet entrepôt`, 400);
-        }
-        const empStatus = emp.status || (emp.active ? 'ACTIVE' : 'TERMINATED');
-        if (empStatus !== 'ACTIVE') {
-            const statusLabel = empStatus === 'ON_LEAVE' ? 'En congé' : empStatus === 'SUSPENDED' ? 'Suspendu' : 'Inactif';
-            return sendError(res, `Impossible d'assigner l'employé ${emp.full_name} à une vente : son statut est '${statusLabel}'`, 400);
-        }
-    }
     try {
+        const id = Number(req.params.id);
+        const { employeeId, customerName, customerPhone, saleDate, items } = req.body;
+        const currentRes = await query('SELECT * FROM sales WHERE id = $1', [id]);
+        const currentSale = currentRes.rows[0];
+        if (!currentSale) {
+            return sendError(res, `Sale not found with id ${id}`, 404);
+        }
+        if (req.user) {
+            try {
+                validateWarehouseScope(req.user, currentSale.warehouse_id);
+            }
+            catch (err) {
+                return sendError(res, err.message, 403);
+            }
+        }
+        if (currentSale.status === 'CANCELLED') {
+            return sendError(res, 'Cannot edit a cancelled sale', 400);
+        }
+        if (employeeId !== undefined && employeeId !== null && Number(employeeId) !== Number(currentSale.employee_id)) {
+            const empRes = await query('SELECT id, full_name, status, active, warehouse_id FROM employees WHERE id = $1', [Number(employeeId)]);
+            const emp = empRes.rows[0];
+            if (!emp) {
+                return sendError(res, `Employé non trouvé avec l'identifiant ${employeeId}`, 400);
+            }
+            if (emp.warehouse_id !== currentSale.warehouse_id) {
+                return sendError(res, `L'employé ${emp.full_name} n'est pas affecté à cet entrepôt`, 400);
+            }
+            const empStatus = emp.status || (emp.active ? 'ACTIVE' : 'TERMINATED');
+            if (empStatus !== 'ACTIVE') {
+                const statusLabel = empStatus === 'ON_LEAVE' ? 'En congé' : empStatus === 'SUSPENDED' ? 'Suspendu' : 'Inactif';
+                return sendError(res, `Impossible d'assigner l'employé ${emp.full_name} à une vente : son statut est '${statusLabel}'`, 400);
+            }
+        }
         const updatedSale = await runTransaction(async (client) => {
             let newTotal = Number(currentSale.total_amount);
             if (items && Array.isArray(items) && items.length > 0) {
@@ -767,24 +767,24 @@ router.put('/:id', authenticate, async (req, res) => {
     }
 });
 router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER'), async (req, res) => {
-    const id = Number(req.params.id);
-    const currentRes = await query('SELECT * FROM sales WHERE id = $1', [id]);
-    const currentSale = currentRes.rows[0];
-    if (!currentSale) {
-        return sendError(res, `Sale not found with id ${id}`, 404);
-    }
-    if (req.user) {
-        try {
-            validateWarehouseScope(req.user, currentSale.warehouse_id);
-        }
-        catch (err) {
-            return sendError(res, err.message, 403);
-        }
-    }
-    if (currentSale.status === 'CANCELLED') {
-        return sendError(res, 'Sale is already cancelled', 400);
-    }
     try {
+        const id = Number(req.params.id);
+        const currentRes = await query('SELECT * FROM sales WHERE id = $1', [id]);
+        const currentSale = currentRes.rows[0];
+        if (!currentSale) {
+            return sendError(res, `Sale not found with id ${id}`, 404);
+        }
+        if (req.user) {
+            try {
+                validateWarehouseScope(req.user, currentSale.warehouse_id);
+            }
+            catch (err) {
+                return sendError(res, err.message, 403);
+            }
+        }
+        if (currentSale.status === 'CANCELLED') {
+            return sendError(res, 'Sale is already cancelled', 400);
+        }
         await runTransaction(async (client) => {
             // 1. Reverse stock
             const itemsRes = await client.query('SELECT * FROM sale_items WHERE sale_id = $1', [id]);
