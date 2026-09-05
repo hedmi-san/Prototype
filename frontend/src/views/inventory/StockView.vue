@@ -666,7 +666,7 @@ async function handleSaveReceipt() {
                 RUPTURE
               </AppBadge>
               <AppBadge
-                v-else-if="stock.availableQuantity <= (stock.minStockAlert ?? 5)"
+                v-else-if="stock.availableQuantity <= (stock.minStockAlert ?? 1)"
                 variant="warning"
                 size="sm"
               >

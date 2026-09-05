@@ -239,6 +239,7 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req, res)
             return sendError(res, `Product with reference ${reference} already exists`, 400);
         }
         const validBoxSize = Math.max(0, Number(boxSize) || 0);
+        const validMinStockAlert = minStockAlert !== undefined ? Math.max(0, parseInt(minStockAlert, 10) || 0) : 1;
         const insertRes = await query(`
       INSERT INTO products (reference, name, brand, description, purchase_price, sale_price, min_stock_alert, unit, box_size, active)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
@@ -250,7 +251,7 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req, res)
             description || '',
             Number(purchasePrice),
             Number(salePrice),
-            minStockAlert !== undefined ? Number(minStockAlert) : 5,
+            validMinStockAlert,
             unit || 'PIECE',
             validBoxSize,
         ]);
@@ -324,7 +325,7 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
         const updatedDesc = description !== undefined ? description : current.description;
         const updatedPurchase = purchasePrice !== undefined ? Number(purchasePrice) : current.purchase_price;
         const updatedSale = salePrice !== undefined ? Number(salePrice) : current.sale_price;
-        const updatedAlert = minStockAlert !== undefined ? Number(minStockAlert) : current.min_stock_alert;
+        const updatedAlert = minStockAlert !== undefined ? Math.max(0, parseInt(minStockAlert, 10) || 0) : current.min_stock_alert;
         const updatedUnit = unit !== undefined ? unit : current.unit;
         const updatedBoxSize = boxSize !== undefined ? Math.max(0, Number(boxSize) || 0) : current.box_size;
         const updatedActive = active !== undefined ? Boolean(active) : Boolean(current.active);

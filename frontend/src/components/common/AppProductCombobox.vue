@@ -171,7 +171,7 @@ function getStockInfo(productId: number) {
   const stock = props.warehouseStock.find((s) => s.productId === productId);
   const qty = stock ? stock.availableQuantity : 0;
   const product = productStore.getProductById(productId);
-  const minAlert = product?.minStockAlert ?? 5;
+  const minAlert = product?.minStockAlert ?? 1;
 
   if (qty <= 0) {
     return {

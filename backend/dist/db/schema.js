@@ -38,7 +38,7 @@ export async function initSchema() {
       description TEXT,
       purchase_price NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       sale_price NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
-      min_stock_alert INTEGER NOT NULL DEFAULT 5,
+      min_stock_alert INTEGER NOT NULL DEFAULT 1,
       unit VARCHAR(50) NOT NULL DEFAULT 'PIECE',
       box_size INTEGER NOT NULL DEFAULT 0,
       active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -229,6 +229,7 @@ export async function initSchema() {
     UPDATE employees SET status = CASE WHEN active = FALSE THEN 'TERMINATED' ELSE 'ACTIVE' END WHERE status IS NULL OR status = '';
     ALTER TABLE products ADD COLUMN IF NOT EXISTS box_size INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE products DROP COLUMN IF EXISTS category;
+    ALTER TABLE products ALTER COLUMN min_stock_alert SET DEFAULT 1;
   `);
     // Ensure default walk-in client exists
     await query(`

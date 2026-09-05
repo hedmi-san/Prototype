@@ -264,6 +264,7 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
     }
 
     const validBoxSize = Math.max(0, Number(boxSize) || 0);
+    const validMinStockAlert = minStockAlert !== undefined ? Math.max(0, parseInt(minStockAlert, 10) || 0) : 1;
 
     const insertRes = await query(`
       INSERT INTO products (reference, name, brand, description, purchase_price, sale_price, min_stock_alert, unit, box_size, active)
@@ -276,7 +277,7 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
       description || '',
       Number(purchasePrice),
       Number(salePrice),
-      minStockAlert !== undefined ? Number(minStockAlert) : 5,
+      validMinStockAlert,
       unit || 'PIECE',
       validBoxSize,
     ]);
@@ -359,7 +360,7 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
     const updatedDesc = description !== undefined ? description : current.description;
     const updatedPurchase = purchasePrice !== undefined ? Number(purchasePrice) : current.purchase_price;
     const updatedSale = salePrice !== undefined ? Number(salePrice) : current.sale_price;
-    const updatedAlert = minStockAlert !== undefined ? Number(minStockAlert) : current.min_stock_alert;
+    const updatedAlert = minStockAlert !== undefined ? Math.max(0, parseInt(minStockAlert, 10) || 0) : current.min_stock_alert;
     const updatedUnit = unit !== undefined ? unit : current.unit;
     const updatedBoxSize = boxSize !== undefined ? Math.max(0, Number(boxSize) || 0) : current.box_size;
     const updatedActive = active !== undefined ? Boolean(active) : Boolean(current.active);

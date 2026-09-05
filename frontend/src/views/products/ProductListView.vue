@@ -51,6 +51,7 @@ const productForm = ref({
   salePrice: 0,
   unit: 'PIECE',
   boxSize: 0,
+  minStockAlert: 1,
 });
 const saving = ref(false);
 const exporting = ref(false);
@@ -325,6 +326,7 @@ function openCreateModal() {
     salePrice: 0,
     unit: 'PIECE',
     boxSize: 0,
+    minStockAlert: 1,
   };
   showProductModal.value = true;
 }
@@ -339,6 +341,7 @@ function openEditModal(product: Product) {
     salePrice: product.salePrice,
     unit: product.unit,
     boxSize: product.boxSize || 0,
+    minStockAlert: product.minStockAlert !== undefined ? product.minStockAlert : 1,
   };
   showProductModal.value = true;
 }
@@ -346,10 +349,15 @@ function openEditModal(product: Product) {
 async function handleSaveProduct() {
   saving.value = true;
   try {
+    const payload = {
+      ...productForm.value,
+      boxSize: Math.max(0, Number(productForm.value.boxSize) || 0),
+      minStockAlert: Math.max(0, Math.floor(Number(productForm.value.minStockAlert) || 0)),
+    };
     if (editingProduct.value) {
-      await productService.updateProduct(editingProduct.value.id, productForm.value);
+      await productService.updateProduct(editingProduct.value.id, payload);
     } else {
-      await productService.createProduct(productForm.value);
+      await productService.createProduct(payload);
     }
     showProductModal.value = false;
     await Promise.all([fetchProducts(), fetchBrands()]);
@@ -665,6 +673,7 @@ async function handleSaveProduct() {
               <template v-else>
                 • Colisage : —
               </template>
+              • Alerte Min : <strong>{{ product.minStockAlert ?? 1 }}</strong>
             </span>
           </td>
           <td>
@@ -772,6 +781,14 @@ async function handleSaveProduct() {
             hint="0 si pièce vendue seule"
           />
         </div>
+        <AppInput
+          v-model="productForm.minStockAlert"
+          type="number"
+          label="Seuil d'Alerte Stock Min"
+          placeholder="1"
+          hint="Seuil déclenchant l'alerte stock faible (défaut: 1)"
+          required
+        />
       </form>
       <template #footer>
         <AppButton variant="secondary" @click="showProductModal = false">Annuler</AppButton>
