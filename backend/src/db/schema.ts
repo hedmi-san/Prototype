@@ -35,7 +35,7 @@ export async function initSchema(): Promise<void> {
       id SERIAL PRIMARY KEY,
       reference VARCHAR(50) NOT NULL UNIQUE,
       name VARCHAR(255) NOT NULL,
-      brand VARCHAR(100) NOT NULL,
+      brand VARCHAR(100) NOT NULL DEFAULT 'WEHAND',
       description TEXT,
       purchase_price NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       sale_price NUMERIC(14, 2) NOT NULL DEFAULT 0.0,

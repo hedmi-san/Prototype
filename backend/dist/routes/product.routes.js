@@ -231,9 +231,10 @@ router.get('/:id', authenticate, async (req, res) => {
 router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
     try {
         const { reference, name, brand, description, purchasePrice, salePrice, minStockAlert, unit, boxSize } = req.body;
-        if (!reference || !name || !brand || purchasePrice === undefined || salePrice === undefined) {
-            return sendError(res, 'Reference, name, brand, purchasePrice, and salePrice are required', 400);
+        if (!reference || !name || purchasePrice === undefined || salePrice === undefined) {
+            return sendError(res, 'Reference, name, purchasePrice, and salePrice are required', 400);
         }
+        const validBrand = (typeof brand === 'string' && brand.trim()) ? brand.trim() : 'WEHAND';
         const existing = await query('SELECT id FROM products WHERE reference = $1', [reference]);
         if (existing.rowCount && existing.rowCount > 0) {
             return sendError(res, `Product with reference ${reference} already exists`, 400);
@@ -247,7 +248,7 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req, res)
     `, [
             reference,
             name,
-            brand,
+            validBrand,
             description || '',
             Number(purchasePrice),
             Number(salePrice),
@@ -321,7 +322,7 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
             return sendError(res, `Product not found with id ${id}`, 404);
         }
         const updatedName = name !== undefined ? name : current.name;
-        const updatedBrand = brand !== undefined ? brand : current.brand;
+        const updatedBrand = brand !== undefined ? ((typeof brand === 'string' && brand.trim()) ? brand.trim() : current.brand) : current.brand;
         const updatedDesc = description !== undefined ? description : current.description;
         const updatedPurchase = purchasePrice !== undefined ? Number(purchasePrice) : current.purchase_price;
         const updatedSale = salePrice !== undefined ? Number(salePrice) : current.sale_price;

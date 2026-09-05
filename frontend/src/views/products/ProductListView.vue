@@ -46,7 +46,7 @@ const editingProduct = ref<Product | null>(null);
 const productForm = ref({
   reference: '',
   name: '',
-  brand: 'KRAFT',
+  brand: 'WEHAND',
   purchasePrice: 0,
   salePrice: 0,
   unit: 'PIECE',
@@ -321,7 +321,7 @@ function openCreateModal() {
   productForm.value = {
     reference: '',
     name: '',
-    brand: brands.value[0] || 'KRAFT',
+    brand: 'WEHAND',
     purchasePrice: 0,
     salePrice: 0,
     unit: 'PIECE',
@@ -351,6 +351,7 @@ async function handleSaveProduct() {
   try {
     const payload = {
       ...productForm.value,
+      brand: (productForm.value.brand && productForm.value.brand.trim()) ? productForm.value.brand.trim() : 'WEHAND',
       boxSize: Math.max(0, Number(productForm.value.boxSize) || 0),
       minStockAlert: Math.max(0, Math.floor(Number(productForm.value.minStockAlert) || 0)),
     };
