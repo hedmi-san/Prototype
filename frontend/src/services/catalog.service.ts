@@ -90,6 +90,20 @@ export const productService = {
       responseType: 'blob',
     });
     downloadCsvResponse(response, `produits_${new Date().toISOString().split('T')[0]}.csv`);
+  },
+  async importBatch(warehouseId: number, items: any[]): Promise<{
+    processed: number;
+    created: number;
+    existing: number;
+    stockUpdated: number;
+    warehouseId: number;
+    warehouseName: string;
+  }> {
+    const response = await api.post<ApiResponse<any>>('/products/import-batch', {
+      warehouseId,
+      items,
+    });
+    return response.data.data;
   }
 };
 

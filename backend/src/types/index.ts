@@ -45,6 +45,7 @@ export interface Product {
   min_stock_alert: number;
   unit: string;
   box_size?: number;
+  tva?: number;
   active: number;
   created_at: string;
   updated_at: string;

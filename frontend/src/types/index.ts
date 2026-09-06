@@ -46,6 +46,7 @@ export interface Product {
   minStockAlert?: number;
   unit: string;
   boxSize?: number;
+  tva?: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;

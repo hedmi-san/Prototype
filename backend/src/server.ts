@@ -86,7 +86,7 @@ app.use(helmet({
   contentSecurityPolicy: false,
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Request logger
 app.use((req: Request, res: Response, next: NextFunction) => {

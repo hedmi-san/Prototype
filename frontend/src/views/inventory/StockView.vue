@@ -14,6 +14,7 @@ import AppInput from '../../components/common/AppInput.vue';
 import AppPagination from '../../components/common/AppPagination.vue';
 import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
 import ProductDocumentModal from '../../components/products/ProductDocumentModal.vue';
+import ProductImportModal from '../../components/products/ProductImportModal.vue';
 
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
@@ -81,6 +82,13 @@ const activeDocType = ref<'price_list' | 'catalog'>('price_list');
 const docProducts = ref<Product[]>([]);
 const docScopeText = ref('');
 const preparingDoc = ref(false);
+
+// Excel Import Modal State
+const showImportModal = ref(false);
+
+function onImportSuccess() {
+  fetchStock();
+}
 
 // Computed selection helpers
 const selectedCount = computed(() => selectedStockIds.value.size);
@@ -447,6 +455,21 @@ async function handleSaveReceipt() {
             </button>
           </div>
         </div>
+
+        <!-- Import Excel Action -->
+        <AppButton
+          v-if="authStore.isAdmin || authStore.isManager"
+          variant="secondary"
+          title="Importer des produits et stocks depuis un fichier Excel (.xlsx)"
+          @click="showImportModal = true"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          <span>Importer Excel</span>
+        </AppButton>
 
         <!-- Primary Action -->
         <AppButton variant="primary" @click="openReceiptModal">
@@ -830,6 +853,13 @@ async function handleSaveReceipt() {
         </AppButton>
       </template>
     </AppModal>
+
+    <!-- Excel Bulk Product & Stock Import Modal -->
+    <ProductImportModal
+      v-model="showImportModal"
+      :initial-warehouse-id="authStore.user?.warehouseId || 0"
+      @success="onImportSuccess"
+    />
   </div>
 </template>
 

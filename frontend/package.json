@@ -12,7 +12,8 @@
     "axios": "^1.7.2",
     "pinia": "^2.1.7",
     "vue": "^3.4.31",
-    "vue-router": "^4.4.0"
+    "vue-router": "^4.4.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.5",
