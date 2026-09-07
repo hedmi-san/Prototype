@@ -1,4 +1,5 @@
 import api from './api';
+import { clientService } from './client.service';
 import type { ApiResponse, Stock, StockMovement, Sale, Transfer, PaginationParams, PaginatedData } from '../types';
 import { downloadCsvResponse } from '../utils/export';
 
@@ -168,3 +169,8 @@ export const transferService = {
     return response.data.data;
   }
 };
+
+export const refundClientAdvance = clientService.refundClientAdvance;
+export const getClientRefunds = clientService.getClientRefunds;
+export const getClientRefundById = clientService.getClientRefundById;
+

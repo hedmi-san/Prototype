@@ -219,6 +219,19 @@ export async function initSchema(): Promise<void> {
       allocated_amount NUMERIC(14, 2) NOT NULL CHECK(allocated_amount > 0),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS client_refunds (
+      id SERIAL PRIMARY KEY,
+      refund_number VARCHAR(50) NOT NULL UNIQUE,
+      client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
+      amount NUMERIC(14, 2) NOT NULL CHECK(amount > 0),
+      refund_method VARCHAR(50) NOT NULL DEFAULT 'CASH',
+      notes TEXT,
+      transaction_id INTEGER REFERENCES client_transactions(id) ON DELETE RESTRICT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   // Migrations for existing databases
@@ -258,6 +271,9 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_client_transactions_ref ON client_transactions(reference_type, reference_id);
     CREATE INDEX IF NOT EXISTS idx_client_payments_client_date ON client_payments(client_id, payment_date);
     CREATE INDEX IF NOT EXISTS idx_client_payments_wh ON client_payments(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_client_refunds_client_id ON client_refunds(client_id);
+    CREATE INDEX IF NOT EXISTS idx_client_refunds_wh ON client_refunds(warehouse_id);
+    CREATE INDEX IF NOT EXISTS idx_client_refunds_created ON client_refunds(created_at);
     CREATE INDEX IF NOT EXISTS idx_payment_allocations_payment_id ON payment_allocations(payment_id);
     CREATE INDEX IF NOT EXISTS idx_payment_allocations_sale_id ON payment_allocations(sale_id);
     CREATE INDEX IF NOT EXISTS idx_employees_status_wh ON employees(status, warehouse_id);

@@ -5,6 +5,7 @@ import type {
   ClientDetail,
   ClientKPIs,
   ClientPayment,
+  ClientRefund,
   PaymentAllocation,
   StatementOfAccount,
   Sale,
@@ -150,4 +151,22 @@ export const clientService = {
     const response = await api.post<ApiResponse<ClientPayment>>('/client-payments', data);
     return response.data.data;
   },
+
+  async refundClientAdvance(clientId: number, data: { amount: number; warehouseId?: number; notes?: string }): Promise<ClientRefund> {
+    const response = await api.post<ApiResponse<ClientRefund>>(`/clients/${clientId}/refund`, data);
+    return response.data.data;
+  },
+
+  async getClientRefunds(clientId: number, warehouseId?: number): Promise<ClientRefund[]> {
+    const response = await api.get<ApiResponse<ClientRefund[]>>(`/clients/${clientId}/refunds`, {
+      params: warehouseId ? { warehouseId } : undefined,
+    });
+    return response.data.data;
+  },
+
+  async getClientRefundById(clientId: number, refundId: number): Promise<ClientRefund> {
+    const response = await api.get<ApiResponse<ClientRefund>>(`/clients/${clientId}/refunds/${refundId}`);
+    return response.data.data;
+  },
 };
+

@@ -192,3 +192,31 @@ export interface AuditLog {
   ip_address: string | null;
   created_at: string;
 }
+
+export interface ClientRefund {
+  id: number;
+  refund_number: string;
+  client_id: number;
+  client_name?: string;
+  client_code?: string;
+  client_phone?: string;
+  warehouse_id: number;
+  warehouse_name?: string;
+  warehouse_code?: string;
+  amount: number;
+  refund_method: 'CASH';
+  notes?: string;
+  transaction_id?: number;
+  created_by: number;
+  created_by_name?: string;
+  created_at: string;
+  prior_balance?: number;
+  new_balance?: number;
+}
+
+export interface CreateClientRefundRequest {
+  amount: number;
+  warehouseId?: number;
+  notes?: string;
+  refundMethod?: 'CASH';
+}

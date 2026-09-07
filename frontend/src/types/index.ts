@@ -74,7 +74,7 @@ export interface Stock {
   updatedAt: string;
 }
 
-export type StockMovementType = 'INITIAL_STOCK' | 'SALE' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'ADJUSTMENT';
+export type StockMovementType = 'INITIAL_STOCK' | 'SALE' | 'SALE_EDIT' | 'SALE_CANCEL' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'ADJUSTMENT';
 
 export interface StockMovement {
   id: number;
@@ -178,7 +178,7 @@ export interface ClientKPIs {
   totalAdvance: number;
 }
 
-export type TransactionType = 'INVOICE' | 'PAYMENT' | 'CREDIT_NOTE' | 'ADJUSTMENT' | 'OPENING_BALANCE';
+export type TransactionType = 'INVOICE' | 'PAYMENT' | 'CREDIT_NOTE' | 'ADJUSTMENT' | 'OPENING_BALANCE' | 'REFUND';
 
 export interface ClientTransaction {
   id: number;
@@ -235,6 +235,39 @@ export interface ClientPayment {
   createdByName?: string;
   createdAt: string;
   allocations?: PaymentAllocation[];
+}
+
+export interface ClientRefund {
+  id: number;
+  refundNumber: string;
+  clientId: number;
+  clientName?: string;
+  clientCode?: string;
+  clientPhone?: string;
+  clientAddress?: string;
+  warehouseId: number;
+  warehouseName?: string;
+  warehouseCode?: string;
+  warehousePhone?: string;
+  warehouseLocation?: string;
+  amount: number;
+  refundMethod: 'CASH';
+  notes?: string;
+  transactionId?: number;
+  createdById?: number;
+  createdByName?: string;
+  createdAt: string;
+  snapshotRunningBalance?: number | null;
+  priorBalance?: number | null;
+  newBalance?: number | null;
+  availableAdvanceBefore?: number | null;
+  availableAdvanceAfter?: number | null;
+}
+
+export interface CreateClientRefundPayload {
+  amount: number;
+  warehouseId?: number;
+  notes?: string;
 }
 
 export interface StatementOfAccount {

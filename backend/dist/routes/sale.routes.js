@@ -696,47 +696,284 @@ router.put('/:id', authenticate, async (req, res) => {
             }
         }
         const updatedSale = await runTransaction(async (client) => {
-            let newTotal = Number(currentSale.total_amount);
+            // 1. Lock the sale record for update to prevent concurrent modifications
+            const saleLockRes = await client.query('SELECT * FROM sales WHERE id = $1 FOR UPDATE', [id]);
+            const currentSale = saleLockRes.rows[0];
+            if (!currentSale) {
+                throw new Error(`Sale not found with id ${id}`);
+            }
+            if (currentSale.status === 'CANCELLED') {
+                throw new Error('Cannot edit a cancelled sale');
+            }
+            const revRef = `${currentSale.invoice_number}-REV-${Date.now().toString().slice(-6)}`;
+            const oldTotal = Number(currentSale.total_amount);
+            let newTotal = oldTotal;
             if (items && Array.isArray(items) && items.length > 0) {
-                const existingItemsRes = await client.query('SELECT * FROM sale_items WHERE sale_id = $1', [id]);
-                for (const item of existingItemsRes.rows) {
-                    await client.query(`
-            UPDATE stock SET physical_quantity = physical_quantity + $1, updated_at = NOW()
-            WHERE warehouse_id = $2 AND product_id = $3
-          `, [item.quantity, currentSale.warehouse_id, item.product_id]);
+                // 2. Fetch baseline items under lock
+                const existingItemsRes = await client.query('SELECT product_id, quantity, unit_price FROM sale_items WHERE sale_id = $1', [id]);
+                const oldMap = new Map();
+                for (const row of existingItemsRes.rows) {
+                    const pid = Number(row.product_id);
+                    oldMap.set(pid, (oldMap.get(pid) || 0) + Number(row.quantity));
                 }
+                const newMap = new Map();
+                for (const item of items) {
+                    const pid = Number(item.productId);
+                    const qty = Number(item.quantity);
+                    if (isNaN(qty) || qty <= 0) {
+                        throw new Error('La quantité doit être un entier strictement supérieur à zéro');
+                    }
+                    const existing = newMap.get(pid);
+                    if (existing) {
+                        existing.quantity += qty;
+                    }
+                    else {
+                        newMap.set(pid, {
+                            quantity: qty,
+                            unitPrice: item.unitPrice !== undefined ? Number(item.unitPrice) : undefined,
+                        });
+                    }
+                }
+                // All distinct product IDs involved, sorted ascending to prevent deadlocks
+                const allProductIds = Array.from(new Set([...oldMap.keys(), ...newMap.keys()])).sort((a, b) => a - b);
+                // Fetch product information and lock stock rows
+                const stockRowsMap = new Map();
+                const productInfoMap = new Map();
+                for (const pid of allProductIds) {
+                    const prodRes = await client.query('SELECT id, name, sale_price FROM products WHERE id = $1', [pid]);
+                    const product = prodRes.rows[0];
+                    if (!product)
+                        throw new Error(`Produit introuvable avec l'identifiant ${pid}`);
+                    productInfoMap.set(pid, product);
+                    const stockRes = await client.query('SELECT id, physical_quantity, reserved_quantity FROM stock WHERE warehouse_id = $1 AND product_id = $2 FOR UPDATE', [currentSale.warehouse_id, pid]);
+                    if (!stockRes.rows[0]) {
+                        const newStockRes = await client.query('INSERT INTO stock (warehouse_id, product_id, physical_quantity, reserved_quantity) VALUES ($1, $2, 0, 0) RETURNING id, physical_quantity, reserved_quantity', [currentSale.warehouse_id, pid]);
+                        stockRowsMap.set(pid, newStockRes.rows[0]);
+                    }
+                    else {
+                        stockRowsMap.set(pid, stockRes.rows[0]);
+                    }
+                }
+                // 3. Validate stock availability for all quantity increases (deltaStock < 0)
+                for (const pid of allProductIds) {
+                    const oldQty = oldMap.get(pid) || 0;
+                    const newQty = newMap.get(pid)?.quantity || 0;
+                    const deltaStock = oldQty - newQty;
+                    if (deltaStock < 0) {
+                        const neededExtra = Math.abs(deltaStock);
+                        const stock = stockRowsMap.get(pid);
+                        const physQty = stock ? Number(stock.physical_quantity || 0) : 0;
+                        const resQty = stock ? Number(stock.reserved_quantity || 0) : 0;
+                        const available = physQty - resQty;
+                        if (available < neededExtra) {
+                            const product = productInfoMap.get(pid);
+                            throw new Error(`Stock insuffisant pour ${product.name}. Disponible : ${available}, Requis en plus : ${neededExtra}`);
+                        }
+                    }
+                }
+                // 4. Stock check passed! Update stock quantities and log movements for non-zero deltas
+                for (const pid of allProductIds) {
+                    const oldQty = oldMap.get(pid) || 0;
+                    const newQty = newMap.get(pid)?.quantity || 0;
+                    const deltaStock = oldQty - newQty;
+                    const stock = stockRowsMap.get(pid);
+                    if (deltaStock !== 0) {
+                        await client.query('UPDATE stock SET physical_quantity = physical_quantity + $1, updated_at = NOW() WHERE id = $2', [deltaStock, stock.id]);
+                        const noteDesc = deltaStock > 0
+                            ? `[${revRef}] Retour suite modification vente (${oldQty} → ${newQty})`
+                            : `[${revRef}] Sortie suppl. suite modification vente (${oldQty} → ${newQty})`;
+                        await client.query(`
+              INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
+              VALUES ($1, $2, 'SALE_EDIT', $3, $4, $5)
+            `, [currentSale.warehouse_id, pid, deltaStock, currentSale.invoice_number, noteDesc]);
+                    }
+                }
+                // 5. Replace sale_items and compute new total
                 await client.query('DELETE FROM sale_items WHERE sale_id = $1', [id]);
                 newTotal = 0;
                 for (const item of items) {
-                    const prodRes = await client.query('SELECT id, name, sale_price FROM products WHERE id = $1', [item.productId]);
-                    const product = prodRes.rows[0];
-                    if (!product)
-                        throw new Error(`Product not found with id ${item.productId}`);
-                    const stockRes = await client.query('SELECT * FROM stock WHERE warehouse_id = $1 AND product_id = $2 FOR UPDATE', [currentSale.warehouse_id, item.productId]);
-                    const stock = stockRes.rows[0];
-                    const physQty = stock ? Number(stock.physical_quantity) : 0;
-                    const resQty = stock ? Number(stock.reserved_quantity) : 0;
-                    const available = physQty - resQty;
-                    if (available < Number(item.quantity)) {
-                        throw new Error(`Insufficient stock for product ${product.name}. Available: ${available}, Requested: ${item.quantity}`);
-                    }
-                    await client.query('UPDATE stock SET physical_quantity = physical_quantity - $1, updated_at = NOW() WHERE id = $2', [item.quantity, stock.id]);
+                    const pid = Number(item.productId);
+                    const product = productInfoMap.get(pid);
+                    const qty = Number(item.quantity);
                     const unitPrice = item.unitPrice !== undefined ? Number(item.unitPrice) : Number(product.sale_price);
                     if (isNaN(unitPrice) || unitPrice < 0) {
                         throw new Error(`Prix unitaire invalide pour le produit ${product.name}`);
                     }
-                    const subtotal = Number(item.quantity) * unitPrice;
+                    const subtotal = qty * unitPrice;
                     await client.query(`
             INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
             VALUES ($1, $2, $3, $4, $5)
-          `, [id, item.productId, Number(item.quantity), unitPrice, subtotal]);
+          `, [id, pid, qty, unitPrice, subtotal]);
                     newTotal += subtotal;
                 }
-                await client.query(`
-          INSERT INTO stock_movements (warehouse_id, product_id, movement_type, quantity_change, reference, notes)
-          VALUES ($1, $2, 'SALE_EDIT', 0, $3, 'Sale modified with inventory reconciliation')
-        `, [currentSale.warehouse_id, items[0]?.productId || 1, currentSale.invoice_number]);
             }
+            // 6. Financial Ledger Reconciliation
+            const deltaTotal = newTotal - oldTotal;
+            if (currentSale.client_id && deltaTotal !== 0) {
+                const clientRes = await client.query('SELECT id, name, code, current_balance, is_default FROM clients WHERE id = $1 FOR UPDATE', [currentSale.client_id]);
+                const clientRecord = clientRes.rows[0];
+                if (clientRecord) {
+                    const prevBal = Number(clientRecord.current_balance || 0);
+                    if (clientRecord.is_default) {
+                        // Walk-in counter customer: balance stays 0.00 DA, cash movements traced
+                        if (deltaTotal < 0) {
+                            const refundAmount = Math.abs(deltaTotal);
+                            // Avoir (Credit Note)
+                            await client.query(`
+                INSERT INTO client_transactions (
+                  client_id, warehouse_id, type, reference_type, reference_id,
+                  debit, credit, running_balance, description, transaction_date, created_by, created_at
+                ) VALUES ($1, $2, 'CREDIT_NOTE', 'SALES_EDIT', $3, 0, $4, $5, $6, NOW(), $7, NOW())
+              `, [
+                                clientRecord.id,
+                                currentSale.warehouse_id,
+                                id,
+                                refundAmount,
+                                prevBal - refundAmount,
+                                `[${revRef}] Avoir retour articles facture ${currentSale.invoice_number} (-${refundAmount.toFixed(2)} DA)`,
+                                req.user?.id || 1,
+                            ]);
+                            // Compensating cash refund (REFUND)
+                            await client.query(`
+                INSERT INTO client_transactions (
+                  client_id, warehouse_id, type, reference_type, reference_id,
+                  debit, credit, running_balance, description, transaction_date, created_by, created_at
+                ) VALUES ($1, $2, 'REFUND', 'SALES_EDIT', $3, $4, 0, $5, $6, NOW(), $7, NOW())
+              `, [
+                                clientRecord.id,
+                                currentSale.warehouse_id,
+                                id,
+                                refundAmount,
+                                prevBal,
+                                `[${revRef}] Remboursement espèces comptoir suite modification facture ${currentSale.invoice_number}`,
+                                req.user?.id || 1,
+                            ]);
+                        }
+                        else {
+                            const extraAmount = deltaTotal;
+                            // Supplementary invoice debit
+                            await client.query(`
+                INSERT INTO client_transactions (
+                  client_id, warehouse_id, type, reference_type, reference_id,
+                  debit, credit, running_balance, description, transaction_date, created_by, created_at
+                ) VALUES ($1, $2, 'INVOICE', 'SALES_EDIT', $3, $4, 0, $5, $6, NOW(), $7, NOW())
+              `, [
+                                clientRecord.id,
+                                currentSale.warehouse_id,
+                                id,
+                                extraAmount,
+                                prevBal + extraAmount,
+                                `[${revRef}] Complément facture ${currentSale.invoice_number} (+${extraAmount.toFixed(2)} DA)`,
+                                req.user?.id || 1,
+                            ]);
+                            // Immediate cash payment credit
+                            const payNumber = `PAY-${Date.now().toString().slice(-8)}`;
+                            const payInsertRes = await client.query(`
+                INSERT INTO client_payments (
+                  payment_number, client_id, warehouse_id, amount, payment_method,
+                  reference_number, payment_date, notes, created_by, created_at
+                ) VALUES ($1, $2, $3, $4, 'CASH', $5, NOW(), $6, $7, NOW())
+                RETURNING id
+              `, [
+                                payNumber,
+                                clientRecord.id,
+                                currentSale.warehouse_id,
+                                extraAmount,
+                                currentSale.invoice_number,
+                                `[${revRef}] Règlement complémentaire comptoir vente ${currentSale.invoice_number}`,
+                                req.user?.id || 1,
+                            ]);
+                            const paymentId = payInsertRes.rows[0].id;
+                            const payTxRes = await client.query(`
+                INSERT INTO client_transactions (
+                  client_id, warehouse_id, type, reference_type, reference_id,
+                  debit, credit, running_balance, description, transaction_date, created_by, created_at
+                ) VALUES ($1, $2, 'PAYMENT', 'CLIENT_PAYMENT', $3, 0, $4, $5, $6, NOW(), $7, NOW())
+                RETURNING id
+              `, [
+                                clientRecord.id,
+                                currentSale.warehouse_id,
+                                paymentId,
+                                extraAmount,
+                                prevBal,
+                                `[${revRef}] Encaissement complémentaire comptoir vente ${currentSale.invoice_number}`,
+                                req.user?.id || 1,
+                            ]);
+                            const payTxId = payTxRes.rows[0].id;
+                            await client.query('UPDATE client_payments SET transaction_id = $1 WHERE id = $2', [payTxId, paymentId]);
+                            await client.query(`
+                INSERT INTO payment_allocations (payment_id, sale_id, allocated_amount)
+                VALUES ($1, $2, $3)
+              `, [paymentId, id, extraAmount]);
+                        }
+                    }
+                    else {
+                        // Nominative account: update balance and post transaction
+                        const newBalance = prevBal + deltaTotal;
+                        if (deltaTotal < 0) {
+                            const creditAmount = Math.abs(deltaTotal);
+                            await client.query(`
+                INSERT INTO client_transactions (
+                  client_id, warehouse_id, type, reference_type, reference_id,
+                  debit, credit, running_balance, description, transaction_date, created_by, created_at
+                ) VALUES ($1, $2, 'CREDIT_NOTE', 'SALES_EDIT', $3, 0, $4, $5, $6, NOW(), $7, NOW())
+              `, [
+                                clientRecord.id,
+                                currentSale.warehouse_id,
+                                id,
+                                creditAmount,
+                                newBalance,
+                                `[${revRef}] Avoir suite modification facture ${currentSale.invoice_number} (-${creditAmount.toFixed(2)} DA)`,
+                                req.user?.id || 1,
+                            ]);
+                        }
+                        else {
+                            const debitAmount = deltaTotal;
+                            await client.query(`
+                INSERT INTO client_transactions (
+                  client_id, warehouse_id, type, reference_type, reference_id,
+                  debit, credit, running_balance, description, transaction_date, created_by, created_at
+                ) VALUES ($1, $2, 'INVOICE', 'SALES_EDIT', $3, $4, 0, $5, $6, NOW(), $7, NOW())
+              `, [
+                                clientRecord.id,
+                                currentSale.warehouse_id,
+                                id,
+                                debitAmount,
+                                newBalance,
+                                `[${revRef}] Complément facturation suite modification ${currentSale.invoice_number} (+${debitAmount.toFixed(2)} DA)`,
+                                req.user?.id || 1,
+                            ]);
+                        }
+                        await client.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBalance, clientRecord.id]);
+                    }
+                }
+            }
+            // 7. Payment Lifecycle & Allocations Reconciliation
+            let currentPaid = Number(currentSale.paid_amount || 0);
+            let newPaid = currentPaid;
+            const isWalkinClient = currentSale.client_id
+                ? (await client.query('SELECT is_default FROM clients WHERE id = $1', [currentSale.client_id])).rows[0]?.is_default
+                : false;
+            if (isWalkinClient) {
+                newPaid = newTotal;
+            }
+            else if (newPaid > newTotal) {
+                newPaid = newTotal;
+            }
+            let newPaymentStatus = 'UNPAID';
+            if (newPaid >= newTotal && newTotal > 0) {
+                newPaymentStatus = 'PAID';
+            }
+            else if (newPaid > 0) {
+                newPaymentStatus = 'PARTIALLY_PAID';
+            }
+            // Cap payment allocations to newTotal
+            await client.query(`
+        UPDATE payment_allocations
+        SET allocated_amount = LEAST(allocated_amount, $1)
+        WHERE sale_id = $2
+      `, [newTotal, id]);
+            // 8. Update Sale Record
             const formattedSaleDate = saleDate !== undefined
                 ? normalizeSaleDate(saleDate)
                 : currentSale.sale_date;
@@ -746,20 +983,31 @@ router.put('/:id', authenticate, async (req, res) => {
             await client.query(`
         UPDATE sales
         SET customer_name = $1, customer_phone = $2, total_amount = $3,
-            employee_id = $4,
-            sale_date = COALESCE($5::timestamptz, sale_date, created_at), updated_at = NOW()
-        WHERE id = $6
+            paid_amount = $4, payment_status = $5, employee_id = $6,
+            sale_date = COALESCE($7::timestamptz, sale_date, created_at), updated_at = NOW()
+        WHERE id = $8
       `, [
                 customerName !== undefined ? customerName : currentSale.customer_name,
                 customerPhone !== undefined ? customerPhone : currentSale.customer_phone,
                 newTotal,
+                newPaid,
+                newPaymentStatus,
                 parsedEmployeeId,
                 formattedSaleDate,
                 id,
             ]);
-            return { id, invoiceNumber: currentSale.invoice_number, totalAmount: newTotal, saleDate: formattedSaleDate, employeeId: parsedEmployeeId };
+            return {
+                id,
+                invoiceNumber: currentSale.invoice_number,
+                totalAmount: newTotal,
+                paidAmount: newPaid,
+                paymentStatus: newPaymentStatus,
+                saleDate: formattedSaleDate,
+                employeeId: parsedEmployeeId,
+                revisionRef: revRef,
+            };
         });
-        await logAudit(req.user, 'SALE_MODIFIED', 'SALE', id, `Modified sale ${currentSale.invoice_number}`, currentSale.warehouse_id);
+        await logAudit(req.user, 'SALE_MODIFIED', 'SALE', id, `[${updatedSale.revisionRef}] Modified sale ${updatedSale.invoiceNumber}: total ${currentSale.total_amount} -> ${updatedSale.totalAmount}`, currentSale.warehouse_id);
         return sendSuccess(res, updatedSale, 'Sale updated successfully');
     }
     catch (err) {

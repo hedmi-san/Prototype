@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { query, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { generateCsv, sendCsv, CsvColumn } from '../common/csv.js';
-import { authenticate, requireRole, AuthRequest, logAudit } from '../middleware/auth.js';
+import { authenticate, requireRole, AuthRequest, logAudit, validateWarehouseScope, enforceWarehouseScope } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -644,6 +644,270 @@ router.post('/:id/adjustment', authenticate, requireRole('ADMIN', 'SUPER_MANAGER
     return sendSuccess(res, result, 'Ajustement de solde enregistré avec succès');
   } catch (err: any) {
     return sendError(res, err.message, 400);
+  }
+});
+
+function generateRefundNumber(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  return `REF-${yyyy}${mm}${dd}-${rand}`;
+}
+
+// POST /api/clients/:id/refund - Process client advance cash-back / refund
+router.post('/:id/refund', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const { amount, notes, warehouseId } = req.body;
+    const numAmount = Number(amount);
+
+    if (!id || isNaN(id)) {
+      return sendError(res, 'ID client invalide', 400);
+    }
+    if (!numAmount || isNaN(numAmount) || numAmount <= 0) {
+      return sendError(res, 'Le montant du remboursement doit être strictement supérieur à 0', 400);
+    }
+
+    const targetWhId = Number(warehouseId) || req.user?.warehouseId || 1;
+    if (req.user) {
+      try {
+        validateWarehouseScope(req.user, targetWhId);
+      } catch (err: any) {
+        return sendError(res, err.message, 403);
+      }
+    }
+
+    const result = await runTransaction(async (dbClient) => {
+      // 1. Lock client row
+      const lockRes = await dbClient.query(
+        'SELECT id, name, code, phone, address, current_balance, is_default, active FROM clients WHERE id = $1 FOR UPDATE',
+        [id]
+      );
+      const client = lockRes.rows[0];
+      if (!client) {
+        throw new Error(`Client introuvable avec l'id ${id}`);
+      }
+      if (client.is_default) {
+        throw new Error(`Impossible de rembourser une avance pour le Client Passager / Comptoir. Les remboursements d'avance sont réservés aux comptes clients nominatifs.`);
+      }
+      if (!client.active) {
+        throw new Error(`Le client ${client.name} est inactif.`);
+      }
+
+      const prevBal = Number(client.current_balance || 0);
+      if (prevBal >= 0) {
+        throw new Error(`Ce client ne dispose d'aucun crédit d'avance disponible (solde actuel: ${prevBal.toFixed(2)} DA). Le remboursement d'avance n'est autorisé que pour les clients avec un solde créditeur en avance.`);
+      }
+
+      const availableAdvance = Math.abs(prevBal);
+      if (numAmount > availableAdvance + 0.001) {
+        throw new Error(`Le montant du remboursement (${numAmount.toFixed(2)} DA) dépasse le solde d'avance disponible (${availableAdvance.toFixed(2)} DA).`);
+      }
+
+      // 2. Generate unique refund reference
+      const refundNumber = generateRefundNumber();
+      const newBal = prevBal + numAmount; // Debit brings negative balance closer to 0 (e.g. -25000 + 20000 = -5000)
+
+      // 3. Insert into client_refunds
+      const cleanNotes = typeof notes === 'string' ? notes.trim() : '';
+      const refundRes = await dbClient.query(`
+        INSERT INTO client_refunds (
+          refund_number, client_id, warehouse_id, amount, refund_method, notes, created_by, created_at
+        ) VALUES ($1, $2, $3, $4, 'CASH', $5, $6, NOW())
+        RETURNING id, created_at
+      `, [refundNumber, id, targetWhId, numAmount, cleanNotes, req.user?.id || 1]);
+
+      const refundId = refundRes.rows[0].id;
+      const createdAt = refundRes.rows[0].created_at;
+
+      // 4. Insert into client_transactions (DEBIT)
+      const txDesc = `Remboursement d'avance en espèces [${refundNumber}]${cleanNotes ? ' - ' + cleanNotes : ''}`;
+      const txRes = await dbClient.query(`
+        INSERT INTO client_transactions (
+          client_id, warehouse_id, type, reference_type, reference_id,
+          debit, credit, running_balance, description, transaction_date, created_by, created_at
+        ) VALUES ($1, $2, 'REFUND', 'REFUND', $3, $4, 0, $5, $6, NOW(), $7, NOW())
+        RETURNING id
+      `, [id, targetWhId, refundId, numAmount, newBal, txDesc, req.user?.id || 1]);
+
+      const transactionId = txRes.rows[0].id;
+
+      // 5. Link transaction_id back in client_refunds
+      await dbClient.query('UPDATE client_refunds SET transaction_id = $1 WHERE id = $2', [transactionId, refundId]);
+
+      // 6. Update client current_balance
+      await dbClient.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, id]);
+
+      return {
+        id: refundId,
+        refundNumber,
+        clientId: id,
+        clientName: client.name,
+        clientCode: client.code,
+        clientPhone: client.phone,
+        clientAddress: client.address,
+        warehouseId: targetWhId,
+        amount: numAmount,
+        refundMethod: 'CASH',
+        notes: cleanNotes,
+        transactionId,
+        previousBalance: prevBal,
+        newBalance: newBal,
+        availableAdvanceBefore: availableAdvance,
+        availableAdvanceAfter: Math.abs(Math.min(0, newBal)),
+        createdById: req.user?.id || 1,
+        createdByName: req.user?.fullName || req.user?.username || 'Utilisateur',
+        createdAt,
+      };
+    });
+
+    await logAudit(
+      req.user,
+      'CLIENT_ADVANCE_REFUND',
+      'CLIENT_REFUND',
+      result.id,
+      `Remboursement d'avance en espèces de ${numAmount} DA pour client #${id} (${result.clientName}) - ${result.refundNumber}`,
+      targetWhId
+    );
+
+    return sendSuccess(res, result, `Remboursement d'avance de ${numAmount.toFixed(2)} DA enregistré avec succès`);
+  } catch (err: any) {
+    return sendError(res, err.message, 400);
+  }
+});
+
+// GET /api/clients/:id/refunds - List all refunds for a client
+router.get('/:id/refunds', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id || isNaN(id)) {
+      return sendError(res, 'ID client invalide', 400);
+    }
+
+    const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const effectiveWarehouseId = enforceWarehouseScope(req.user, requestedWarehouseId);
+
+    const whereClauses = ['cr.client_id = $1'];
+    const params: any[] = [id];
+
+    if (effectiveWarehouseId) {
+      params.push(effectiveWarehouseId);
+      whereClauses.push(`cr.warehouse_id = $${params.length}`);
+    }
+
+    const whereSql = whereClauses.join(' AND ');
+
+    const refundsRes = await query(`
+      SELECT 
+        cr.*,
+        c.name as client_name, c.code as client_code, c.phone as client_phone, c.address as client_address,
+        w.name as warehouse_name, w.code as warehouse_code, w.location as warehouse_location, w.contact_number as warehouse_phone,
+        u.full_name as created_by_name
+      FROM client_refunds cr
+      JOIN clients c ON cr.client_id = c.id
+      JOIN warehouses w ON cr.warehouse_id = w.id
+      JOIN users u ON cr.created_by = u.id
+      WHERE ${whereSql}
+      ORDER BY cr.created_at DESC, cr.id DESC
+    `, params);
+
+    const items = refundsRes.rows.map((r) => ({
+      id: r.id,
+      refundNumber: r.refund_number,
+      clientId: r.client_id,
+      clientName: r.client_name,
+      clientCode: r.client_code,
+      clientPhone: r.client_phone,
+      clientAddress: r.client_address,
+      warehouseId: r.warehouse_id,
+      warehouseName: r.warehouse_name,
+      warehouseCode: r.warehouse_code,
+      warehouseLocation: r.warehouse_location,
+      warehousePhone: r.warehouse_phone,
+      amount: Number(r.amount),
+      refundMethod: r.refund_method,
+      notes: r.notes || '',
+      transactionId: r.transaction_id,
+      createdById: r.created_by,
+      createdByName: r.created_by_name,
+      createdAt: r.created_at,
+    }));
+
+    return sendSuccess(res, items);
+  } catch (err: any) {
+    const isAccessDenied = err.message?.includes('Access denied');
+    return sendError(res, err.message, isAccessDenied ? 403 : 500);
+  }
+});
+
+// GET /api/clients/:id/refunds/:refundId - Get single refund details for Bon de Décharge
+router.get('/:id/refunds/:refundId', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const refundId = Number(req.params.refundId);
+
+    const refundRes = await query(`
+      SELECT 
+        cr.*,
+        c.name as client_name, c.code as client_code, c.phone as client_phone, c.address as client_address,
+        w.name as warehouse_name, w.code as warehouse_code, w.location as warehouse_location, w.contact_number as warehouse_phone,
+        u.full_name as created_by_name,
+        ct.running_balance as snapshot_running_balance,
+        ct.debit as transaction_debit
+      FROM client_refunds cr
+      JOIN clients c ON cr.client_id = c.id
+      JOIN warehouses w ON cr.warehouse_id = w.id
+      JOIN users u ON cr.created_by = u.id
+      LEFT JOIN client_transactions ct ON cr.transaction_id = ct.id
+      WHERE cr.id = $1 AND cr.client_id = $2
+    `, [refundId, id]);
+
+    const r = refundRes.rows[0];
+    if (!r) {
+      return sendError(res, `Remboursement introuvable avec l'id ${refundId}`, 404);
+    }
+
+    if (req.user) {
+      try {
+        validateWarehouseScope(req.user, r.warehouse_id);
+      } catch (err: any) {
+        return sendError(res, err.message, 403);
+      }
+    }
+
+    const snapRunning = r.snapshot_running_balance !== null ? Number(r.snapshot_running_balance) : null;
+    const amount = Number(r.amount);
+    const priorBal = snapRunning !== null ? snapRunning - amount : null;
+
+    return sendSuccess(res, {
+      id: r.id,
+      refundNumber: r.refund_number,
+      clientId: r.client_id,
+      clientName: r.client_name,
+      clientCode: r.client_code,
+      clientPhone: r.client_phone,
+      clientAddress: r.client_address,
+      warehouseId: r.warehouse_id,
+      warehouseName: r.warehouse_name,
+      warehouseCode: r.warehouse_code,
+      warehouseLocation: r.warehouse_location,
+      warehousePhone: r.warehouse_phone,
+      amount,
+      refundMethod: r.refund_method,
+      notes: r.notes || '',
+      transactionId: r.transaction_id,
+      createdById: r.created_by,
+      createdByName: r.created_by_name,
+      createdAt: r.created_at,
+      snapshotRunningBalance: snapRunning,
+      priorBalance: priorBal,
+      availableAdvanceBefore: priorBal !== null ? Math.abs(priorBal) : null,
+      availableAdvanceAfter: snapRunning !== null ? Math.abs(Math.min(0, snapRunning)) : null,
+    });
+  } catch (err: any) {
+    return sendError(res, err.message, 500);
   }
 });
 

@@ -88,6 +88,8 @@ function getBadgeVariant(type?: string): 'neutral' | 'success' | 'danger' | 'war
   switch (type) {
     case 'INITIAL_STOCK': return 'info';
     case 'SALE': return 'danger';
+    case 'SALE_EDIT': return 'warning';
+    case 'SALE_CANCEL': return 'danger';
     case 'TRANSFER_IN': return 'success';
     case 'TRANSFER_OUT': return 'warning';
     case 'ADJUSTMENT': return 'neutral';
@@ -141,6 +143,8 @@ function getBadgeVariant(type?: string): 'neutral' | 'success' | 'danger' | 'war
           <option value="">Tous les types de mouvement</option>
           <option value="INITIAL_STOCK">Stock initial</option>
           <option value="SALE">Sortie Vente</option>
+          <option value="SALE_EDIT">Modif. Vente</option>
+          <option value="SALE_CANCEL">Annulation Vente</option>
           <option value="TRANSFER_IN">Transfert entrant</option>
           <option value="TRANSFER_OUT">Transfert sortant</option>
           <option value="ADJUSTMENT">Ajustement inventaire</option>

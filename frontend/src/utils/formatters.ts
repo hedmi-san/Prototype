@@ -178,6 +178,10 @@ export function formatMovementType(type: StockMovementType | string | null | und
       return 'Stock initial';
     case 'SALE':
       return 'Sortie Vente';
+    case 'SALE_EDIT':
+      return 'Modif. Vente';
+    case 'SALE_CANCEL':
+      return 'Annulation Vente';
     case 'TRANSFER_IN':
       return 'Transfert entrant';
     case 'TRANSFER_OUT':
@@ -308,4 +312,97 @@ export function extractInvoiceSequence(invoiceNumber?: string | null, saleId?: n
   }
   return saleId ? String(saleId) : '1';
 }
+
+/**
+ * Convert an amount in Dinars to French words (e.g. 20000 -> "Vingt mille dinars algériens")
+ */
+export function amountInFrenchWords(amount: number): string {
+  if (isNaN(amount) || amount === null || amount === undefined) {
+    return 'Zéro dinar algérien';
+  }
+
+  const units = ['', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf'];
+  const teens = ['dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize', 'dix-sept', 'dix-huit', 'dix-neuf'];
+  const tens = ['', 'dix', 'vingt', 'trente', 'quarante', 'cinquante', 'soixante', 'soixante-dix', 'quatre-vingt', 'quatre-vingt-dix'];
+
+  function convertBelow100(n: number): string {
+    if (n === 0) return '';
+    if (n < 10) return units[n];
+    if (n < 20) return teens[n - 10];
+    const t = Math.floor(n / 10);
+    const u = n % 10;
+    if (t === 7) {
+      return `soixante-${u === 1 ? 'et-onze' : teens[u]}`;
+    }
+    if (t === 9) {
+      return `quatre-vingt-${teens[u]}`;
+    }
+    if (t === 8 && u === 0) {
+      return 'quatre-vingts';
+    }
+    if (u === 0) return tens[t];
+    if (u === 1 && t < 8) return `${tens[t]}-et-un`;
+    return `${tens[t]}-${units[u]}`;
+  }
+
+  function convertBelow1000(n: number): string {
+    if (n === 0) return '';
+    const h = Math.floor(n / 100);
+    const rem = n % 100;
+    let res = '';
+    if (h === 1) {
+      res = 'cent';
+    } else if (h > 1) {
+      res = `${units[h]} cent${rem === 0 ? 's' : ''}`;
+    }
+    if (rem > 0) {
+      res = res ? `${res} ${convertBelow100(rem)}` : convertBelow100(rem);
+    }
+    return res;
+  }
+
+  function convert(n: number): string {
+    if (n === 0) return 'zéro';
+    const billions = Math.floor(n / 1000000000);
+    const millions = Math.floor((n % 1000000000) / 1000000);
+    const thousands = Math.floor((n % 1000000) / 1000);
+    const remainder = Math.floor(n % 1000);
+
+    const parts: string[] = [];
+    if (billions > 0) {
+      parts.push(`${convertBelow1000(billions)} milliard${billions > 1 ? 's' : ''}`);
+    }
+    if (millions > 0) {
+      parts.push(`${convertBelow1000(millions)} million${millions > 1 ? 's' : ''}`);
+    }
+    if (thousands > 0) {
+      if (thousands === 1) {
+        parts.push('mille');
+      } else {
+        parts.push(`${convertBelow1000(thousands)} mille`);
+      }
+    }
+    if (remainder > 0) {
+      parts.push(convertBelow1000(remainder));
+    }
+    return parts.join(' ').trim();
+  }
+
+  const absAmount = Math.abs(amount);
+  const intPart = Math.floor(absAmount);
+  const cents = Math.round((absAmount - intPart) * 100);
+
+  const intWords = convert(intPart);
+  const capitalized = intWords.charAt(0).toUpperCase() + intWords.slice(1);
+  const dinarStr = intPart <= 1 ? 'dinar algérien' : 'dinars algériens';
+
+  if (cents > 0) {
+    const centWords = convert(cents);
+    const centStr = cents <= 1 ? 'centime' : 'centimes';
+    return `${capitalized} ${dinarStr} et ${centWords} ${centStr}`;
+  }
+
+  return `${capitalized} ${dinarStr}`;
+}
+
 

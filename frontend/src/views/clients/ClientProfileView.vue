@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { ClientDetail, StatementOfAccount, Sale, ClientPayment } from '../../types';
+import type { ClientDetail, StatementOfAccount, Sale, ClientPayment, ClientRefund } from '../../types';
 import { clientService, type StatementQueryParams } from '../../services/client.service';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { useAuthStore } from '../../stores/auth.store';
@@ -11,6 +11,8 @@ import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
 import ClientFormModal from '../../components/clients/ClientFormModal.vue';
 import ClientPaymentModal from '../../components/clients/ClientPaymentModal.vue';
+import ClientRefundModal from '../../components/clients/ClientRefundModal.vue';
+import RefundDocument from '../../components/clients/RefundDocument.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -36,6 +38,9 @@ const filterEndDate = ref<string>('');
 const showEditModal = ref(false);
 const showPaymentModal = ref(false);
 const showAdjustmentModal = ref(false);
+const showRefundModal = ref(false);
+const showRefundDocModal = ref(false);
+const selectedRefund = ref<ClientRefund | null>(null);
 
 // Adjustment Form
 const adjustAmount = ref<number>(0);
@@ -151,6 +156,26 @@ async function onPaymentSaved() {
   if (activeTab.value === 'payments') await loadPayments();
 }
 
+function handleOpenRefundModal() {
+  showRefundModal.value = true;
+}
+
+function handleRefundSaved(refund: ClientRefund) {
+  selectedRefund.value = refund;
+  showRefundDocModal.value = true;
+  loadClientData();
+}
+
+async function handleViewRefundDocument(refundId: number) {
+  try {
+    const refund = await clientService.getClientRefundById(clientId.value, refundId);
+    selectedRefund.value = refund;
+    showRefundDocModal.value = true;
+  } catch (err) {
+    console.error('Failed to load refund document', err);
+  }
+}
+
 async function submitAdjustment() {
   adjustError.value = '';
   if (!adjustAmount.value || adjustAmount.value <= 0) {
@@ -236,6 +261,21 @@ async function submitAdjustment() {
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
           Ajustement Solde
+        </AppButton>
+        <AppButton
+          v-if="!client?.isDefault"
+          variant="secondary"
+          size="sm"
+          :disabled="(client?.currentBalance || 0) >= 0"
+          :title="(client?.currentBalance || 0) >= 0 ? 'Le client ne dispose pas d\'avance disponible en compte' : 'Rembourser l\'avance en espèces'"
+          @click="handleOpenRefundModal"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Rembourser Avance
         </AppButton>
         <AppButton v-if="!client?.isDefault" variant="secondary" size="sm" @click="showEditModal = true">
           Modifier Infos
@@ -435,11 +475,27 @@ async function submitAdjustment() {
                 <td>{{ t.warehouseName || t.warehouseCode || 'Dépôt' }}</td>
                 <td>
                   <span :class="['tx-badge', t.type.toLowerCase()]">
-                    {{ t.type === 'INVOICE' ? 'Vente' : t.type === 'PAYMENT' ? 'Versement' : t.type === 'CREDIT_NOTE' ? 'Avoir' : t.type === 'OPENING_BALANCE' ? 'Solde Init' : 'Ajustement' }}
+                    {{ t.type === 'INVOICE' ? 'Vente' : t.type === 'PAYMENT' ? 'Versement' : t.type === 'CREDIT_NOTE' ? 'Avoir' : t.type === 'OPENING_BALANCE' ? 'Solde Init' : t.type === 'REFUND' ? 'Remboursement' : 'Ajustement' }}
                   </span>
                 </td>
                 <td>
-                  <span class="ref-tag">{{ t.referenceType }} #{{ t.referenceId || '-' }}</span>
+                  <div class="ref-cell">
+                    <span class="ref-tag">{{ t.referenceType }} #{{ t.referenceId || '-' }}</span>
+                    <button
+                      v-if="t.type === 'REFUND' && t.referenceId"
+                      type="button"
+                      class="btn-print-voucher-inline"
+                      title="Imprimer le bon de décharge"
+                      @click="handleViewRefundDocument(t.referenceId)"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 6 2 18 2 18 9" />
+                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                        <rect x="6" y="14" width="12" height="8" />
+                      </svg>
+                      Bon
+                    </button>
+                  </div>
                 </td>
                 <td>{{ t.description }}</td>
                 <td class="text-right font-mono">
@@ -645,6 +701,19 @@ async function submitAdjustment() {
         </AppButton>
       </template>
     </AppModal>
+
+    <!-- Advance Refund Modal -->
+    <ClientRefundModal
+      v-model="showRefundModal"
+      :client="client"
+      @saved="handleRefundSaved"
+    />
+
+    <!-- Refund Discharge Voucher Document Modal -->
+    <RefundDocument
+      v-model="showRefundDocModal"
+      :refund="selectedRefund"
+    />
   </div>
 </template>
 
@@ -942,6 +1011,37 @@ async function submitAdjustment() {
 .tx-badge.adjustment {
   background: rgba(139, 92, 246, 0.1);
   color: #8b5cf6;
+}
+
+.tx-badge.refund {
+  background: rgba(225, 29, 72, 0.1);
+  color: #e11d48;
+}
+
+.ref-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-print-voucher-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: 4px;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-print-voucher-inline:hover {
+  background: #2563eb;
+  color: #ffffff;
 }
 
 .ref-tag {
