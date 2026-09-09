@@ -92,6 +92,7 @@ export async function initSchema(): Promise<void> {
       customer_name VARCHAR(100) DEFAULT 'Standard Retail Customer',
       customer_phone VARCHAR(50),
       total_amount NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      advance_deducted NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       status VARCHAR(50) NOT NULL DEFAULT 'COMPLETED',
       sale_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -240,6 +241,7 @@ export async function initSchema(): Promise<void> {
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL;
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) NOT NULL DEFAULT 'PAID';
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14, 2) NOT NULL DEFAULT 0.0;
+    ALTER TABLE sales ADD COLUMN IF NOT EXISTS advance_deducted NUMERIC(14, 2) NOT NULL DEFAULT 0.0;
     UPDATE sales SET paid_amount = total_amount WHERE paid_amount = 0 AND status = 'COMPLETED';
     ALTER TABLE employees ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE';
     UPDATE employees SET status = CASE WHEN active = FALSE THEN 'TERMINATED' ELSE 'ACTIVE' END WHERE status IS NULL OR status = '';
@@ -263,6 +265,7 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_sales_employee_id ON sales(employee_id);
     CREATE INDEX IF NOT EXISTS idx_sales_client_id ON sales(client_id);
     CREATE INDEX IF NOT EXISTS idx_sales_payment_status ON sales(payment_status);
+    CREATE INDEX IF NOT EXISTS idx_sales_advance_deducted ON sales(advance_deducted);
     CREATE INDEX IF NOT EXISTS idx_clients_code ON clients(code);
     CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name);
     CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(active);

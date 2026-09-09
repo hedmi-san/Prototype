@@ -429,13 +429,14 @@ async function handleConfirmCancel() {
             <span
               v-else-if="sale.paymentStatus === 'PAID'"
               class="badge-payment paid"
+              :title="`Facture payée${sale.advanceDeducted ? ` (dont ${formatCurrency(sale.advanceDeducted)} par avoir client)` : ''}`"
             >
               Payée
             </span>
             <span
               v-else-if="sale.paymentStatus === 'PARTIALLY_PAID'"
               class="badge-payment partial"
-              :title="`Payé: ${formatCurrency(sale.paidAmount || 0)} / Reste: ${formatCurrency(sale.remainingAmount || 0)}`"
+              :title="`Payé: ${formatCurrency(sale.paidAmount || 0)}${sale.advanceDeducted ? ` (dont ${formatCurrency(sale.advanceDeducted)} par avoir client)` : ''} / Reste: ${formatCurrency(sale.remainingAmount || 0)}`"
             >
               Partielle ({{ formatCurrency(sale.paidAmount || 0) }})
             </span>

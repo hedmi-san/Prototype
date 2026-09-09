@@ -40,6 +40,7 @@ const customerPhone = ref('');
 const paymentCondition = ref<'FULL_CASH' | 'CREDIT' | 'PARTIAL_DOWNPAYMENT'>('FULL_CASH');
 const downpaymentAmount = ref<number>(0);
 const paymentMethod = ref<string>('CASH');
+const useAdvanceCredit = ref<boolean>(true);
 
 const getLocalDefaultDateTime = () => {
   const now = new Date();
@@ -120,6 +121,7 @@ watch(selectedClientId, (newId) => {
     if (cl) {
       customerName.value = cl.name;
       customerPhone.value = cl.phone || '';
+      useAdvanceCredit.value = true;
       if (cl.isDefault && paymentCondition.value !== 'FULL_CASH') {
         paymentCondition.value = 'FULL_CASH';
       }
@@ -192,14 +194,46 @@ const totalAmount = computed(() => {
   }, 0);
 });
 
-const calculatedPaidAmount = computed(() => {
+const clientAvailableAdvance = computed(() => {
+  if (!selectedClient.value || selectedClient.value.isDefault) return 0;
+  const bal = Number(selectedClient.value.currentBalance || 0);
+  return bal < 0 ? Math.abs(bal) : 0;
+});
+
+const isAdvanceCreditAvailable = computed(() => {
+  return clientAvailableAdvance.value > 0;
+});
+
+const effectiveAdvanceDeduction = computed(() => {
+  if (!isAdvanceCreditAvailable.value || !useAdvanceCredit.value) {
+    return 0;
+  }
+  return Math.min(totalAmount.value, clientAvailableAdvance.value);
+});
+
+const netRemainingAfterAdvance = computed(() => {
+  return Math.max(0, totalAmount.value - effectiveAdvanceDeduction.value);
+});
+
+const isFullyCoveredByAdvance = computed(() => {
+  return effectiveAdvanceDeduction.value > 0 && netRemainingAfterAdvance.value === 0;
+});
+
+const calculatedCashPaidAmount = computed(() => {
+  if (isFullyCoveredByAdvance.value) {
+    return 0;
+  }
   if (paymentCondition.value === 'FULL_CASH') {
-    return totalAmount.value;
+    return netRemainingAfterAdvance.value;
   }
   if (paymentCondition.value === 'CREDIT') {
     return 0;
   }
-  return Math.min(totalAmount.value, Number(downpaymentAmount.value) || 0);
+  return Math.min(netRemainingAfterAdvance.value, Number(downpaymentAmount.value) || 0);
+});
+
+const calculatedPaidAmount = computed(() => {
+  return effectiveAdvanceDeduction.value + calculatedCashPaidAmount.value;
 });
 
 const calculatedRemainingDebt = computed(() => {
@@ -227,10 +261,11 @@ async function handleSubmitSale() {
     }
   }
 
-  if (paymentCondition.value === 'PARTIAL_DOWNPAYMENT') {
+  if (paymentCondition.value === 'PARTIAL_DOWNPAYMENT' && !isFullyCoveredByAdvance.value) {
     const dp = Number(downpaymentAmount.value);
-    if (isNaN(dp) || dp < 0 || dp > totalAmount.value) {
-      errorMessage.value = `Le montant de l'acompte doit être compris entre 0 et ${formatCurrency(totalAmount.value)}.`;
+    const maxAllowed = netRemainingAfterAdvance.value;
+    if (isNaN(dp) || dp < 0 || dp > maxAllowed) {
+      errorMessage.value = `Le montant de l'acompte doit être compris entre 0 et ${formatCurrency(maxAllowed)}.`;
       return;
     }
   }
@@ -244,9 +279,10 @@ async function handleSubmitSale() {
       customerName: customerName.value.trim() || undefined,
       customerPhone: customerPhone.value.trim() || undefined,
       saleDate: saleDate.value ? saleDate.value.replace('T', ' ') : undefined,
-      paymentCondition: paymentCondition.value,
+      paymentCondition: isFullyCoveredByAdvance.value ? 'FULL_CASH' : paymentCondition.value,
       downpaymentAmount: paymentCondition.value === 'PARTIAL_DOWNPAYMENT' ? Number(downpaymentAmount.value) : undefined,
       paymentMethod: paymentMethod.value,
+      useAdvanceCredit: isAdvanceCreditAvailable.value ? useAdvanceCredit.value : undefined,
       items: lineItems.value.map((i) => ({
         productId: i.productId,
         quantity: i.quantity,
@@ -454,12 +490,49 @@ async function handleSubmitSale() {
               <span>💡 Le <strong>Client Passager</strong> règle obligatoirement au <strong>comptant (100%)</strong>. Les options de crédit/acompte sont réservées aux comptes clients réguliers.</span>
             </div>
 
-            <div class="condition-radios">
+            <!-- Advance Credit Banner & Toggle -->
+            <div v-else-if="isAdvanceCreditAvailable" class="advance-credit-banner">
+              <div class="advance-credit-header">
+                <div class="advance-credit-info">
+                  <span class="advance-badge">💡 Avoir disponible</span>
+                  <strong class="text-success font-mono">{{ formatCurrency(clientAvailableAdvance) }}</strong>
+                </div>
+                <label class="advance-toggle-label">
+                  <input v-model="useAdvanceCredit" type="checkbox" class="advance-checkbox" />
+                  <span class="font-bold">Imputer l'avoir disponible sur cette facture</span>
+                </label>
+              </div>
+
+              <div v-if="useAdvanceCredit" class="advance-deduction-summary">
+                <div class="advance-math-row">
+                  <span>Total de la facture :</span>
+                  <span class="font-mono">{{ formatCurrency(totalAmount) }}</span>
+                </div>
+                <div class="advance-math-row text-success">
+                  <span>Avoir client déduit :</span>
+                  <span class="font-mono font-bold">- {{ formatCurrency(effectiveAdvanceDeduction) }}</span>
+                </div>
+                <div class="advance-math-row highlight-net">
+                  <span class="font-bold">Net restant à régler :</span>
+                  <span class="font-mono font-bold">{{ formatCurrency(netRemainingAfterAdvance) }}</span>
+                </div>
+                <div v-if="isFullyCoveredByAdvance" class="advance-covered-pill">
+                  ✔ Facture entièrement couverte par l'avoir client. Règlement comptant automatique (Payée à 100%).
+                </div>
+              </div>
+
+              <div v-else class="advance-optout-warning">
+                ⚠️ <strong>Avoir non appliqué :</strong> Le montant total sera traité sans toucher à l'avoir du client. Cette décision sera consignée dans le journal d'audit.
+              </div>
+            </div>
+
+            <!-- Condition Radios (if not 100% covered by advance credit) -->
+            <div v-if="!isFullyCoveredByAdvance" class="condition-radios">
               <label class="condition-radio">
                 <input v-model="paymentCondition" type="radio" value="FULL_CASH" />
                 <div class="radio-content">
-                  <strong>Comptant (Payé à 100%)</strong>
-                  <span>Règlement immédiat</span>
+                  <strong>{{ effectiveAdvanceDeduction > 0 ? 'Comptant sur le reste' : 'Comptant (Payé à 100%)' }}</strong>
+                  <span>{{ effectiveAdvanceDeduction > 0 ? `Règlement immédiat de ${formatCurrency(netRemainingAfterAdvance)}` : 'Règlement immédiat' }}</span>
                 </div>
               </label>
 
@@ -471,8 +544,8 @@ async function handleSubmitSale() {
                   :disabled="selectedClient?.isDefault"
                 />
                 <div class="radio-content">
-                  <strong>À Crédit (Non payé)</strong>
-                  <span>Ajoute la dette au compte client</span>
+                  <strong>{{ effectiveAdvanceDeduction > 0 ? 'Reste à crédit (Dette)' : 'À Crédit (Non payé)' }}</strong>
+                  <span>{{ effectiveAdvanceDeduction > 0 ? `Ajoute ${formatCurrency(netRemainingAfterAdvance)} à la dette client` : 'Ajoute la dette au compte client' }}</span>
                 </div>
               </label>
 
@@ -484,20 +557,20 @@ async function handleSubmitSale() {
                   :disabled="selectedClient?.isDefault"
                 />
                 <div class="radio-content">
-                  <strong>Acompte (Versement partiel)</strong>
+                  <strong>{{ effectiveAdvanceDeduction > 0 ? 'Acompte sur le reste' : 'Acompte (Versement partiel)' }}</strong>
                   <span>Paiement partiel à la caisse</span>
                 </div>
               </label>
             </div>
 
             <!-- Downpayment amount input -->
-            <div v-if="paymentCondition === 'PARTIAL_DOWNPAYMENT'" class="downpayment-input-group">
-              <label class="input-label">Montant de l'Acompte (DZD) *</label>
+            <div v-if="paymentCondition === 'PARTIAL_DOWNPAYMENT' && !isFullyCoveredByAdvance" class="downpayment-input-group">
+              <label class="input-label">Montant de l'Acompte (DZD) * (Max: {{ formatCurrency(netRemainingAfterAdvance) }})</label>
               <input
                 v-model.number="downpaymentAmount"
                 type="number"
                 min="1"
-                :max="totalAmount"
+                :max="netRemainingAfterAdvance"
                 step="any"
                 placeholder="0.00"
                 class="app-input"
@@ -505,9 +578,9 @@ async function handleSubmitSale() {
               />
             </div>
 
-            <!-- Payment Method (if paid > 0) -->
-            <div v-if="paymentCondition !== 'CREDIT'" class="payment-method-group">
-              <label class="input-label">Mode d'Encaissement</label>
+            <!-- Payment Method (if cash paid > 0) -->
+            <div v-if="calculatedCashPaidAmount > 0" class="payment-method-group">
+              <label class="input-label">Mode d'Encaissement (pour le versement physique)</label>
               <select v-model="paymentMethod" class="app-select">
                 <option value="CASH">Espèces</option>
                 <option value="CHECK">Chèque Bancaire</option>
@@ -530,15 +603,28 @@ async function handleSubmitSale() {
             <span class="font-mono text-h2 font-bold">{{ formatCurrency(totalAmount) }}</span>
           </div>
 
-          <div v-if="paymentCondition !== 'FULL_CASH'" class="debt-breakdown">
-            <div class="summary-row">
-              <span>Montant Payé Immédiat :</span>
-              <strong class="text-success">{{ formatCurrency(calculatedPaidAmount) }}</strong>
-            </div>
-            <div class="summary-row">
-              <span>Créance Restante (Dette) :</span>
-              <strong class="text-danger font-bold">{{ formatCurrency(calculatedRemainingDebt) }}</strong>
-            </div>
+          <div v-if="effectiveAdvanceDeduction > 0" class="summary-row text-success">
+            <span>Imputation Avoir Client :</span>
+            <strong class="font-mono font-bold">- {{ formatCurrency(effectiveAdvanceDeduction) }}</strong>
+          </div>
+
+          <div v-if="calculatedCashPaidAmount > 0" class="summary-row">
+            <span>Versement Immédiat ({{ paymentMethod }}) :</span>
+            <strong class="font-mono text-success">{{ formatCurrency(calculatedCashPaidAmount) }}</strong>
+          </div>
+
+          <div class="summary-row">
+            <span>Total Règlement Vente :</span>
+            <strong class="font-mono text-success font-bold">{{ formatCurrency(calculatedPaidAmount) }}</strong>
+          </div>
+
+          <div v-if="calculatedRemainingDebt > 0" class="summary-row">
+            <span>Créance Restante (Dette) :</span>
+            <strong class="text-danger font-bold font-mono">{{ formatCurrency(calculatedRemainingDebt) }}</strong>
+          </div>
+          <div v-else class="summary-row">
+            <span>Reste Dû :</span>
+            <strong class="text-success font-bold font-mono">0,00 DZD (Soldée)</strong>
           </div>
         </div>
 
@@ -928,5 +1014,100 @@ async function handleSubmitSale() {
 
 .text-h2 {
   font-size: 18px;
+}
+
+.advance-credit-banner {
+  background: var(--color-bg-subtle, #f8fafc);
+  border: 1px solid #10b981;
+  border-radius: var(--radius-md, 8px);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.advance-credit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.advance-credit-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.advance-badge {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.advance-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+
+.advance-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #10b981;
+}
+
+.advance-deduction-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--color-bg-surface, #ffffff);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.advance-math-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.highlight-net {
+  border-top: 1px dashed var(--color-border, #e2e8f0);
+  padding-top: 4px;
+  margin-top: 2px;
+  color: var(--color-text-primary);
+}
+
+.advance-covered-pill {
+  background: rgba(16, 185, 129, 0.12);
+  color: #065f46;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.advance-optout-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
 }
 </style>

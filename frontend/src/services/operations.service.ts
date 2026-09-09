@@ -89,6 +89,8 @@ export const saleService = {
     paymentCondition?: 'FULL_CASH' | 'CREDIT' | 'PARTIAL_DOWNPAYMENT';
     downpaymentAmount?: number;
     paymentMethod?: string;
+    useAdvanceCredit?: boolean;
+    advanceDeducted?: number;
     items: { productId: number; quantity: number; unitPrice?: number }[];
   }): Promise<Sale> {
     const response = await api.post<ApiResponse<Sale>>('/sales', data);

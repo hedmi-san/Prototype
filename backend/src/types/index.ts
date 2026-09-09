@@ -90,9 +90,15 @@ export interface Sale {
   warehouse_name?: string;
   user_id: number;
   user_name?: string;
+  employee_id?: number | null;
+  client_id?: number | null;
   customer_name: string;
   customer_phone: string;
   total_amount: number;
+  paid_amount?: number;
+  advance_deducted?: number;
+  payment_status?: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'CANCELLED';
+  sale_date?: string;
   status: 'COMPLETED' | 'CANCELLED';
   created_at: string;
   updated_at: string;

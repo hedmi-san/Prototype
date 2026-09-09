@@ -88,7 +88,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
              s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
              s.client_id, cl.name as client_name, cl.code as client_code,
              s.customer_name, s.customer_phone,
-             s.total_amount, s.paid_amount, s.payment_status, s.status,
+             s.total_amount, s.paid_amount, s.advance_deducted, s.payment_status, s.status,
              COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
       ${baseFromWhere}
       ORDER BY COALESCE(s.sale_date, s.created_at) DESC, s.id DESC
@@ -150,6 +150,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       customerPhone: s.customer_phone,
       totalAmount: Number(s.total_amount),
       paidAmount: Number(s.paid_amount || 0),
+      advanceDeducted: Number(s.advance_deducted || 0),
       remainingAmount: Math.max(0, Number(s.total_amount) - Number(s.paid_amount || 0)),
       paymentStatus: s.payment_status || (Number(s.paid_amount) >= Number(s.total_amount) ? 'PAID' : 'UNPAID'),
       status: s.status,
@@ -310,7 +311,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
              s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
              s.client_id, cl.name as client_name, cl.code as client_code, cl.address as client_address,
              s.customer_name, s.customer_phone,
-             s.total_amount, s.paid_amount, s.payment_status, s.status,
+             s.total_amount, s.paid_amount, s.advance_deducted, s.payment_status, s.status,
              COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
       FROM sales s
       JOIN warehouses w ON s.warehouse_id = w.id
@@ -375,6 +376,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       customerPhone: s.customer_phone,
       totalAmount: Number(s.total_amount),
       paidAmount: Number(s.paid_amount || 0),
+      advanceDeducted: Number(s.advance_deducted || 0),
       remainingAmount: Math.max(0, Number(s.total_amount) - Number(s.paid_amount || 0)),
       paymentStatus: s.payment_status || (Number(s.paid_amount) >= Number(s.total_amount) ? 'PAID' : 'UNPAID'),
       saleDate: s.sale_date || s.created_at,
@@ -417,6 +419,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       paymentCondition, // 'FULL_CASH' | 'CREDIT' | 'PARTIAL_DOWNPAYMENT'
       downpaymentAmount,
       paymentMethod,
+      useAdvanceCredit,
     } = req.body;
 
     const targetWarehouseId = warehouseId || req.user?.warehouseId;
@@ -518,18 +521,42 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
         totalAmount += Number(item.quantity) * unitPrice;
       }
 
-      // 3. Determine Payment Amount and Status
+      // 3. Determine Payment Amount, Advance Deduction, and Status
       if (clientRecord?.is_default && paymentCondition && paymentCondition !== 'FULL_CASH') {
         throw new Error('Les ventes au Client Passager / Comptoir doivent être obligatoirement réglées au comptant (100%). Pour accorder un crédit ou un acompte, veuillez sélectionner ou enregistrer un compte client nominatif.');
       }
 
-      let paidAmount = totalAmount; // Default full cash
-      if (paymentCondition === 'CREDIT') {
-        paidAmount = 0;
-      } else if (paymentCondition === 'PARTIAL_DOWNPAYMENT') {
-        paidAmount = Math.max(0, Math.min(totalAmount, Number(downpaymentAmount) || 0));
+      const prevBal = Number(clientRecord?.current_balance || 0);
+      const isWalkin = Boolean(clientRecord?.is_default);
+      const availableAdvance = (!isWalkin && prevBal < 0) ? Math.abs(prevBal) : 0;
+
+      let advanceDeducted = 0;
+      let isOptedOut = false;
+
+      if (availableAdvance > 0) {
+        if (useAdvanceCredit === false) {
+          isOptedOut = true;
+          advanceDeducted = 0;
+        } else {
+          advanceDeducted = Math.min(totalAmount, availableAdvance);
+        }
       }
 
+      const netRemaining = Math.max(0, totalAmount - advanceDeducted);
+
+      let cashPaid = 0;
+      if (advanceDeducted > 0 && netRemaining === 0) {
+        cashPaid = 0;
+      } else if (paymentCondition === 'CREDIT') {
+        cashPaid = 0;
+      } else if (paymentCondition === 'PARTIAL_DOWNPAYMENT') {
+        cashPaid = Math.max(0, Math.min(netRemaining, Number(downpaymentAmount) || 0));
+      } else {
+        // FULL_CASH
+        cashPaid = netRemaining;
+      }
+
+      const paidAmount = advanceDeducted + cashPaid;
       let paymentStatus = 'PAID';
       if (paidAmount === 0) {
         paymentStatus = 'UNPAID';
@@ -545,9 +572,9 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       const saleRes = await client.query(`
         INSERT INTO sales (
           invoice_number, warehouse_id, user_id, employee_id, client_id,
-          customer_name, customer_phone, total_amount, paid_amount, payment_status,
+          customer_name, customer_phone, total_amount, paid_amount, advance_deducted, payment_status,
           status, sale_date, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'COMPLETED', COALESCE($11::timestamptz, NOW()), NOW(), NOW())
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'COMPLETED', COALESCE($12::timestamptz, NOW()), NOW(), NOW())
         RETURNING id
       `, [
         invoiceNumber,
@@ -559,6 +586,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
         customerPhone || clientRecord?.phone || '',
         totalAmount,
         paidAmount,
+        advanceDeducted,
         paymentStatus,
         formattedSaleDate,
       ]);
@@ -579,10 +607,13 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
 
       // 6. Record Financial Ledger Entries (if client exists and is non-walkin, or walk-in with credit/downpayment)
       if (clientRecord && targetClientId) {
-        const prevBal = Number(clientRecord.current_balance || 0);
-
         // A. Invoice Debit Transaction
         const afterDebitBal = prevBal + totalAmount;
+        let invoiceDesc = `Facture vente ${invoiceNumber}`;
+        if (advanceDeducted > 0) {
+          invoiceDesc += ` (Imputation avoir: ${advanceDeducted.toFixed(2)} DA)`;
+        }
+
         await client.query(`
           INSERT INTO client_transactions (
             client_id, warehouse_id, type, reference_type, reference_id,
@@ -594,16 +625,16 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
           saleId,
           totalAmount,
           afterDebitBal,
-          `Facture vente ${invoiceNumber}`,
+          invoiceDesc,
           formattedSaleDate,
           req.user?.id || 1,
         ]);
 
         let finalClientBalance = afterDebitBal;
 
-        // B. Payment Credit Transaction (if downpayment or immediate payment was made)
-        if (paidAmount > 0) {
-          finalClientBalance = afterDebitBal - paidAmount;
+        // B. Payment Credit Transaction ONLY if physical cash payment was made (cashPaid > 0)
+        if (cashPaid > 0) {
+          finalClientBalance = afterDebitBal - cashPaid;
           const payNumber = `PAY-${Date.now().toString().slice(-8)}`;
 
           const payInsertRes = await client.query(`
@@ -616,7 +647,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
             payNumber,
             targetClientId,
             targetWarehouseId,
-            paidAmount,
+            cashPaid,
             paymentMethod || 'CASH',
             invoiceNumber,
             formattedSaleDate,
@@ -635,7 +666,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
             targetClientId,
             targetWarehouseId,
             paymentId,
-            paidAmount,
+            cashPaid,
             finalClientBalance,
             `Règlement ${paymentMethod || 'CASH'} vente ${invoiceNumber}`,
             formattedSaleDate,
@@ -649,7 +680,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
           await client.query(`
             INSERT INTO payment_allocations (payment_id, sale_id, allocated_amount)
             VALUES ($1, $2, $3)
-          `, [paymentId, saleId, paidAmount]);
+          `, [paymentId, saleId, cashPaid]);
         }
 
         // Update Client Cached Balance
@@ -661,10 +692,14 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
         invoiceNumber,
         totalAmount,
         paidAmount,
+        advanceDeducted,
         paymentStatus,
         saleDate: formattedSaleDate,
         employeeId: parsedEmployeeId,
         clientId: targetClientId,
+        isOptedOut,
+        availableAdvance,
+        clientName: clientRecord?.name,
       };
     });
 
@@ -677,13 +712,24 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       targetWarehouseId
     );
 
+    if (sale.isOptedOut) {
+      await logAudit(
+        req.user,
+        'SALE_CREDIT_OPT_OUT',
+        'SALE',
+        sale.id,
+        `L'avoir disponible de ${sale.availableAdvance.toFixed(2)} DZD n'a pas été appliqué sur la facture ${sale.invoiceNumber} pour le client ${sale.clientName} (choix caissier/client)`,
+        targetWarehouseId
+      );
+    }
+
     const fullSaleRes = await query(`
       SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
              w.location as warehouse_address, w.contact_number as warehouse_phone,
              s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
              s.client_id, cl.name as client_name, cl.code as client_code, cl.address as client_address,
              s.customer_name, s.customer_phone,
-             s.total_amount, s.paid_amount, s.payment_status, s.status,
+             s.total_amount, s.paid_amount, s.advance_deducted, s.payment_status, s.status,
              COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
       FROM sales s
       JOIN warehouses w ON s.warehouse_id = w.id
@@ -736,6 +782,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       customerPhone: s.customer_phone,
       totalAmount: Number(s.total_amount),
       paidAmount: Number(s.paid_amount || 0),
+      advanceDeducted: Number(s.advance_deducted || 0),
       remainingAmount: Math.max(0, Number(s.total_amount) - Number(s.paid_amount || 0)),
       paymentStatus: s.payment_status,
       saleDate: s.sale_date || s.created_at,
@@ -1088,6 +1135,12 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
 
       // 7. Payment Lifecycle & Allocations Reconciliation
       let currentPaid = Number(currentSale.paid_amount || 0);
+      let currentAdvanceDeducted = Number(currentSale.advance_deducted || 0);
+      let newAdvanceDeducted = currentAdvanceDeducted;
+      if (newAdvanceDeducted > newTotal) {
+        newAdvanceDeducted = newTotal;
+      }
+
       let newPaid = currentPaid;
 
       const isWalkinClient = currentSale.client_id
@@ -1126,14 +1179,15 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
       await client.query(`
         UPDATE sales
         SET customer_name = $1, customer_phone = $2, total_amount = $3,
-            paid_amount = $4, payment_status = $5, employee_id = $6,
-            sale_date = COALESCE($7::timestamptz, sale_date, created_at), updated_at = NOW()
-        WHERE id = $8
+            paid_amount = $4, advance_deducted = $5, payment_status = $6, employee_id = $7,
+            sale_date = COALESCE($8::timestamptz, sale_date, created_at), updated_at = NOW()
+        WHERE id = $9
       `, [
         customerName !== undefined ? customerName : currentSale.customer_name,
         customerPhone !== undefined ? customerPhone : currentSale.customer_phone,
         newTotal,
         newPaid,
+        newAdvanceDeducted,
         newPaymentStatus,
         parsedEmployeeId,
         formattedSaleDate,
@@ -1145,6 +1199,7 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
         invoiceNumber: currentSale.invoice_number,
         totalAmount: newTotal,
         paidAmount: newPaid,
+        advanceDeducted: newAdvanceDeducted,
         paymentStatus: newPaymentStatus,
         saleDate: formattedSaleDate,
         employeeId: parsedEmployeeId,
@@ -1228,7 +1283,10 @@ router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', '
         }
       }
 
-      // 3. Update Sale Status
+      // 3. Remove payment allocations associated with this cancelled sale so payments become unallocated
+      await client.query('DELETE FROM payment_allocations WHERE sale_id = $1', [id]);
+
+      // 4. Update Sale Status
       await client.query("UPDATE sales SET status = 'CANCELLED', payment_status = 'CANCELLED', updated_at = NOW() WHERE id = $1", [id]);
     });
 

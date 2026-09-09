@@ -554,7 +554,12 @@ async function submitAdjustment() {
                 <td>{{ formatDate(inv.saleDate) }}</td>
                 <td>{{ inv.warehouseName }}</td>
                 <td class="text-right font-mono">{{ formatCurrency(inv.totalAmount) }}</td>
-                <td class="text-right font-mono text-success">{{ formatCurrency(inv.paidAmount || 0) }}</td>
+                <td class="text-right font-mono text-success">
+                  <div>{{ formatCurrency(inv.paidAmount || 0) }}</div>
+                  <div v-if="inv.advanceDeducted && inv.advanceDeducted > 0" class="text-caption text-muted" title="Imputé sur l'avoir">
+                    ({{ formatCurrency(inv.advanceDeducted) }} avoir)
+                  </div>
+                </td>
                 <td class="text-right font-mono font-bold" :class="(inv.remainingAmount || 0) > 0 ? 'text-danger' : ''">
                   {{ formatCurrency(inv.remainingAmount || 0) }}
                 </td>

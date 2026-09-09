@@ -130,6 +130,7 @@ export interface Sale {
   customerPhone: string | null;
   totalAmount: number;
   paidAmount?: number;
+  advanceDeducted?: number;
   remainingAmount?: number;
   paymentStatus?: PaymentStatus;
   saleDate: string;

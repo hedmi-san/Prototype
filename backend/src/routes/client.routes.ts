@@ -490,7 +490,7 @@ router.get('/:id/invoices', authenticate, async (req: AuthRequest, res: Response
     const id = Number(req.params.id);
     const salesRes = await query(`
       SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name,
-             s.total_amount, s.paid_amount, s.payment_status, s.status,
+             s.total_amount, s.paid_amount, s.advance_deducted, s.payment_status, s.status,
              COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at
       FROM sales s
       JOIN warehouses w ON s.warehouse_id = w.id
@@ -505,6 +505,7 @@ router.get('/:id/invoices', authenticate, async (req: AuthRequest, res: Response
       warehouseName: s.warehouse_name,
       totalAmount: Number(s.total_amount),
       paidAmount: Number(s.paid_amount || 0),
+      advanceDeducted: Number(s.advance_deducted || 0),
       remainingAmount: Math.max(0, Number(s.total_amount) - Number(s.paid_amount || 0)),
       paymentStatus: s.payment_status || (Number(s.paid_amount) >= Number(s.total_amount) ? 'PAID' : 'UNPAID'),
       status: s.status,

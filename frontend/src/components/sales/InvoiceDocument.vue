@@ -246,14 +246,22 @@ const computedCartonCount = computed(() => {
           <span class="total-label font-bold">Total Facture :</span>
           <span class="total-val font-bold">{{ formatInvoiceAmount(sale.totalAmount) }}</span>
         </div>
-        <div v-if="sale.paidAmount !== undefined && sale.paidAmount !== null && sale.paymentStatus !== 'PAID'" class="payment-breakdown-box">
-          <div class="sub-total-row">
-            <span>Versé (Payé) :</span>
-            <strong class="font-bold">{{ formatInvoiceAmount(sale.paidAmount) }}</strong>
+        <div v-if="(sale.advanceDeducted && sale.advanceDeducted > 0) || (sale.paidAmount !== undefined && sale.paidAmount !== null && sale.paymentStatus !== 'PAID')" class="payment-breakdown-box">
+          <div v-if="sale.advanceDeducted && sale.advanceDeducted > 0" class="sub-total-row text-success">
+            <span>Déduit de l'Avoir :</span>
+            <strong class="font-bold">- {{ formatInvoiceAmount(sale.advanceDeducted) }}</strong>
+          </div>
+          <div v-if="((sale.paidAmount || 0) - (sale.advanceDeducted || 0)) > 0" class="sub-total-row">
+            <span>Versé (Paiement) :</span>
+            <strong class="font-bold">{{ formatInvoiceAmount((sale.paidAmount || 0) - (sale.advanceDeducted || 0)) }}</strong>
           </div>
           <div class="sub-total-row">
+            <span>Total Réglé :</span>
+            <strong class="font-bold text-success">{{ formatInvoiceAmount(sale.paidAmount || 0) }}</strong>
+          </div>
+          <div v-if="sale.paymentStatus !== 'PAID'" class="sub-total-row">
             <span>Reste Dû :</span>
-            <strong class="font-bold text-danger">{{ formatInvoiceAmount(sale.remainingAmount ?? (sale.totalAmount - sale.paidAmount)) }}</strong>
+            <strong class="font-bold text-danger">{{ formatInvoiceAmount(sale.remainingAmount ?? (sale.totalAmount - (sale.paidAmount || 0))) }}</strong>
           </div>
         </div>
       </div>
