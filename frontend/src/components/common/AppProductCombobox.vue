@@ -321,7 +321,7 @@ function handleClickOutside(event: MouseEvent) {
 <template>
   <div ref="comboboxRef" class="app-product-combobox">
     <div :class="['combobox-input-wrapper', { 'is-open': isOpen, 'has-value': !!modelValue, 'is-disabled': disabled }]">
-      <span class="search-icon">🔍</span>
+
       <input
         ref="inputRef"
         v-model="searchQuery"
@@ -427,19 +427,10 @@ function handleClickOutside(event: MouseEvent) {
   opacity: 0.7;
 }
 
-.search-icon {
-  position: absolute;
-  left: 10px;
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  pointer-events: none;
-  user-select: none;
-}
-
 .combobox-input {
   width: 100%;
   height: 100%;
-  padding: 8px 32px 8px 32px;
+  padding: 8px 32px 8px 8px;
   font-size: 13px;
   color: var(--color-text-primary);
   background: transparent;

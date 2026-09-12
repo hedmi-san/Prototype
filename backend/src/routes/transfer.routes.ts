@@ -157,6 +157,110 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+router.get('/settlements/balances', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const balancesRes = await query(`
+      SELECT 
+        s.debtor_warehouse_id, dw.name as debtor_warehouse_name, dw.code as debtor_warehouse_code,
+        s.creditor_warehouse_id, cw.name as creditor_warehouse_name, cw.code as creditor_warehouse_code,
+        SUM(s.amount) as pending_amount,
+        COUNT(*) as count,
+        ARRAY_AGG(s.id) as settlement_ids
+      FROM inter_warehouse_settlements s
+      JOIN warehouses dw ON s.debtor_warehouse_id = dw.id
+      JOIN warehouses cw ON s.creditor_warehouse_id = cw.id
+      WHERE s.status = 'PENDING'
+      GROUP BY s.debtor_warehouse_id, dw.name, dw.code, s.creditor_warehouse_id, cw.name, cw.code
+      ORDER BY dw.name, cw.name
+    `);
+
+    const recentSettlementsRes = await query(`
+      SELECT s.id, s.settlement_number, s.debtor_warehouse_id, dw.name as debtor_warehouse_name,
+             s.creditor_warehouse_id, cw.name as creditor_warehouse_name,
+             s.amount, s.status, s.settlement_date, s.settled_by_user_id, u.full_name as settled_by_name,
+             s.notes, s.created_at
+      FROM inter_warehouse_settlements s
+      JOIN warehouses dw ON s.debtor_warehouse_id = dw.id
+      JOIN warehouses cw ON s.creditor_warehouse_id = cw.id
+      LEFT JOIN users u ON s.settled_by_user_id = u.id
+      ORDER BY s.created_at DESC
+      LIMIT 100
+    `);
+
+    const balances = balancesRes.rows.map((b: any) => ({
+      debtorWarehouseId: b.debtor_warehouse_id,
+      debtorWarehouseName: b.debtor_warehouse_name,
+      debtorWarehouseCode: b.debtor_warehouse_code,
+      creditorWarehouseId: b.creditor_warehouse_id,
+      creditorWarehouseName: b.creditor_warehouse_name,
+      creditorWarehouseCode: b.creditor_warehouse_code,
+      pendingAmount: Number(b.pending_amount || 0),
+      count: Number(b.count || 0),
+      settlementIds: b.settlement_ids || [],
+    }));
+
+    const settlements = recentSettlementsRes.rows.map((s: any) => ({
+      id: s.id,
+      settlementNumber: s.settlement_number,
+      debtorWarehouseId: s.debtor_warehouse_id,
+      debtorWarehouseName: s.debtor_warehouse_name,
+      creditorWarehouseId: s.creditor_warehouse_id,
+      creditorWarehouseName: s.creditor_warehouse_name,
+      amount: Number(s.amount),
+      status: s.status,
+      settlementDate: s.settlement_date,
+      settledByUserId: s.settled_by_user_id,
+      settledByName: s.settled_by_name,
+      notes: s.notes,
+      createdAt: s.created_at,
+    }));
+
+    return sendSuccess(res, { balances, settlements });
+  } catch (err: any) {
+    return sendError(res, err.message, 500);
+  }
+});
+
+router.post('/settlements/clear', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'ACCOUNTANT'), async (req: AuthRequest, res) => {
+  try {
+    const { debtorWarehouseId, creditorWarehouseId, settlementIds, notes } = req.body;
+
+    const result = await runTransaction(async (client) => {
+      let updatedRows: any[] = [];
+      if (Array.isArray(settlementIds) && settlementIds.length > 0) {
+        const updateRes = await client.query(`
+          UPDATE inter_warehouse_settlements
+          SET status = 'SETTLED', settlement_date = NOW(), settled_by_user_id = $1, notes = COALESCE($2, notes)
+          WHERE id = ANY($3::int[]) AND status = 'PENDING'
+          RETURNING id, amount
+        `, [req.user?.id || 1, notes || 'Règlement de compensation inter-dépôts validé', settlementIds]);
+        updatedRows = updateRes.rows;
+      } else if (debtorWarehouseId && creditorWarehouseId) {
+        const updateRes = await client.query(`
+          UPDATE inter_warehouse_settlements
+          SET status = 'SETTLED', settlement_date = NOW(), settled_by_user_id = $1, notes = COALESCE($2, notes)
+          WHERE debtor_warehouse_id = $3 AND creditor_warehouse_id = $4 AND status = 'PENDING'
+          RETURNING id, amount
+        `, [req.user?.id || 1, notes || 'Règlement de compensation inter-dépôts validé', debtorWarehouseId, creditorWarehouseId]);
+        updatedRows = updateRes.rows;
+      } else {
+        throw new Error('debtorWarehouseId and creditorWarehouseId or settlementIds array is required');
+      }
+
+      const totalCleared = updatedRows.reduce((acc, r) => acc + Number(r.amount), 0);
+      return {
+        clearedCount: updatedRows.length,
+        totalClearedAmount: totalCleared,
+      };
+    });
+
+    await logAudit(req.user, 'SETTLEMENT_CLEARED', 'INTER_WAREHOUSE_SETTLEMENT', 0, `Cleared ${result.clearedCount} settlements totaling ${result.totalClearedAmount} DZD`);
+    return sendSuccess(res, result, 'Règlement inter-dépôts compensé avec succès');
+  } catch (err: any) {
+    return sendError(res, err.message, 400);
+  }
+});
+
 router.get('/:id', authenticate, async (req: AuthRequest, res) => {
   try {
     const id = Number(req.params.id);

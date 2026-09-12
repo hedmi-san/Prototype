@@ -4,9 +4,8 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { useProductStore } from '../../stores/product.store';
 import { transferService, inventoryService } from '../../services/operations.service';
-import type { Transfer, Product, Warehouse, Stock } from '../../types';
 import type { ComputedPeriodRange } from '../../utils/periodNavigator';
-import { formatDateTime, formatNumber, formatTransferStatus } from '../../utils/formatters';
+import { formatCurrency, formatDateTime, formatNumber, formatTransferStatus } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -17,6 +16,7 @@ import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
 import AppPagination from '../../components/common/AppPagination.vue';
 import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
 import StockRelocationModal from '../../components/transfers/StockRelocationModal.vue';
+import type { Transfer, Product, Warehouse, Stock, InterWarehouseSettlementBalance } from '../../types';
 
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
@@ -34,6 +34,54 @@ const page = ref(1);
 const limit = ref(25);
 const total = ref(0);
 const totalPages = ref(1);
+
+// Inter-Warehouse Balances & Settlements State
+const settlementBalances = ref<InterWarehouseSettlementBalance[]>([]);
+const settlementsLoading = ref(false);
+const showSettlementModal = ref(false);
+const selectedBalance = ref<InterWarehouseSettlementBalance | null>(null);
+const settlementNotes = ref('');
+const clearingSettlement = ref(false);
+const settlementError = ref('');
+
+async function fetchSettlementBalances() {
+  settlementsLoading.value = true;
+  try {
+    const res = await transferService.getSettlementBalances();
+    settlementBalances.value = res.balances;
+  } catch (err) {
+    console.error('Failed to load settlement balances', err);
+  } finally {
+    settlementsLoading.value = false;
+  }
+}
+
+function openSettleModal(bal: InterWarehouseSettlementBalance) {
+  selectedBalance.value = bal;
+  settlementNotes.value = '';
+  settlementError.value = '';
+  showSettlementModal.value = true;
+}
+
+async function handleConfirmClearSettlement() {
+  if (!selectedBalance.value) return;
+  clearingSettlement.value = true;
+  settlementError.value = '';
+  try {
+    await transferService.clearSettlement({
+      debtorWarehouseId: selectedBalance.value.debtorWarehouseId,
+      creditorWarehouseId: selectedBalance.value.creditorWarehouseId,
+      settlementIds: selectedBalance.value.settlementIds,
+      notes: settlementNotes.value.trim() || undefined,
+    });
+    showSettlementModal.value = false;
+    await fetchSettlementBalances();
+  } catch (err: any) {
+    settlementError.value = err.response?.data?.message || 'Échec de la régularisation de la balance inter-dépôts';
+  } finally {
+    clearingSettlement.value = false;
+  }
+}
 
 // Request Transfer Modal
 interface CreateTransferLineItem {
@@ -77,7 +125,7 @@ const saving = ref(false);
 const errorMessage = ref('');
 
 onMounted(async () => {
-  await Promise.all([productStore.fetchProducts()]);
+  await Promise.all([productStore.fetchProducts(), fetchSettlementBalances()]);
   if (!activeRange.value) {
     await fetchTransfers();
   }
@@ -86,7 +134,7 @@ onMounted(async () => {
 // Watch warehouse and status filter changes
 watch(() => authStore.activeWarehouseId, async () => {
   page.value = 1;
-  await fetchTransfers();
+  await Promise.all([fetchTransfers(), fetchSettlementBalances()]);
 });
 
 watch(statusFilter, async () => {
@@ -408,6 +456,88 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
       initial-granularity="month"
       @change="onPeriodChange"
     />
+
+    <!-- Inter-Warehouse Balances & Treasury Settlements Card -->
+    <div class="settlements-card">
+      <div class="settlements-header">
+        <div class="header-left">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="1" x2="12" y2="23" />
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+          </svg>
+          <div>
+            <h3 class="card-title">Soldes & Régularisations Financières Inter-Dépôts</h3>
+            <p class="card-subtitle">
+              Créances et compensations de trésorerie nées des ventes déportées
+            </p>
+          </div>
+        </div>
+        <div class="header-right">
+          <AppButton
+            variant="secondary"
+            size="sm"
+            :loading="settlementsLoading"
+            @click="fetchSettlementBalances"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+            Actualiser
+          </AppButton>
+        </div>
+      </div>
+
+      <div v-if="settlementsLoading && !settlementBalances.length" class="balances-loading">
+        Chargement des soldes inter-entrepôts...
+      </div>
+
+      <div v-else-if="!settlementBalances.length" class="balances-empty">
+        ✓ Tous les soldes inter-dépôts sont équilibrés. Aucune compensation de trésorerie en attente.
+      </div>
+
+      <div v-else class="balances-grid">
+        <div
+          v-for="bal in settlementBalances"
+          :key="`${bal.debtorWarehouseId}-${bal.creditorWarehouseId}`"
+          class="balance-card-item"
+        >
+          <div class="balance-flow">
+            <div class="wh-party debtor-box">
+              <span class="role-tag debtor">Débiteur (A encaissé)</span>
+              <strong>{{ bal.debtorWarehouseName }}</strong>
+            </div>
+            <div class="arrow-container">
+              <span class="arrow-label">doit rembourser</span>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </div>
+            <div class="wh-party creditor-box">
+              <span class="role-tag creditor">Créancier (A livré)</span>
+              <strong>{{ bal.creditorWarehouseName }}</strong>
+            </div>
+          </div>
+
+          <div class="balance-amount-box">
+            <div class="amount-val font-mono font-bold">{{ formatCurrency(bal.pendingAmount) }}</div>
+            <span class="count-tag font-mono">{{ bal.count }} vente(s) déportée(s)</span>
+          </div>
+
+          <div class="balance-action">
+            <AppButton
+              v-if="!authStore.isReadOnly && (authStore.isAdmin || authStore.isSuperManager)"
+              variant="secondary"
+              size="sm"
+              @click="openSettleModal(bal)"
+            >
+              Régulariser le Solde
+            </AppButton>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Filter Bar -->
     <div class="filter-bar">
@@ -745,6 +875,63 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
       v-model="showRelocationModal"
       @relocated="fetchTransfers"
     />
+
+    <!-- Settlement Confirmation Modal -->
+    <AppModal
+      v-model="showSettlementModal"
+      title="Régularisation du Solde Inter-Dépôts"
+      max-width="520px"
+    >
+      <div v-if="settlementError" class="modal-error mb-3">
+        {{ settlementError }}
+      </div>
+
+      <div v-if="selectedBalance" class="settlement-modal-content">
+        <p class="text-caption text-muted mb-3">
+          Cette opération régularise la compensation financière entre les deux dépôts pour les ventes déportées spécifiées.
+        </p>
+
+        <div class="settle-summary-box">
+          <div class="settle-summary-row">
+            <span class="label">Dépôt Débiteur (A encaissé) :</span>
+            <strong class="val">{{ selectedBalance.debtorWarehouseName }}</strong>
+          </div>
+          <div class="settle-summary-row">
+            <span class="label">Dépôt Créancier (A livré) :</span>
+            <strong class="val">{{ selectedBalance.creditorWarehouseName }}</strong>
+          </div>
+          <div class="settle-summary-row highlight">
+            <span class="label">Montant à régulariser :</span>
+            <strong class="val font-mono">{{ formatCurrency(selectedBalance.pendingAmount) }}</strong>
+          </div>
+          <div class="settle-summary-row">
+            <span class="label">Opérations incluses :</span>
+            <span class="val font-mono">{{ selectedBalance.count }} vente(s) déportée(s)</span>
+          </div>
+        </div>
+
+        <div class="app-input-group mt-3">
+          <label class="input-label">Notes ou référence de compensation (optionnel)</label>
+          <input
+            v-model="settlementNotes"
+            type="text"
+            class="app-input"
+            placeholder="Ex: Virement interne TR-2026-0045 ou Espèces régularisées"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <AppButton variant="secondary" @click="showSettlementModal = false">Annuler</AppButton>
+        <AppButton
+          variant="primary"
+          :loading="clearingSettlement"
+          @click="handleConfirmClearSettlement"
+        >
+          Confirmer la Régularisation
+        </AppButton>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -997,4 +1184,184 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
 .mb-3 { margin-bottom: 12px; }
 .mt-3 { margin-top: 12px; }
 .mb-2 { margin-bottom: 8px; }
+
+/* Inter-Warehouse Settlements Card */
+.settlements-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settlements-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-border-subtle, var(--color-border));
+  padding-bottom: 12px;
+}
+
+.header-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--color-primary);
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+.card-subtitle {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin: 2px 0 0 0;
+}
+
+.balances-loading,
+.balances-empty {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  padding: 12px 0;
+}
+
+.balances-empty {
+  color: #10b981;
+  font-weight: 500;
+}
+
+.balances-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+
+.balance-card-item {
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.balance-flow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wh-party {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.wh-party.debtor-box {
+  text-align: left;
+}
+
+.wh-party.creditor-box {
+  text-align: right;
+}
+
+.role-tag {
+  display: inline-block;
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.role-tag.debtor {
+  color: #ef4444;
+}
+
+.role-tag.creditor {
+  color: #10b981;
+}
+
+.arrow-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--color-text-muted);
+}
+
+.arrow-label {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+}
+
+.balance-amount-box {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.amount-val {
+  font-size: 16px;
+  color: var(--color-text-primary);
+}
+
+.count-tag {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.balance-action {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Settle Modal */
+.settlement-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settle-summary-box {
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settle-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.settle-summary-row.highlight {
+  border-top: 1px dashed var(--color-border);
+  border-bottom: 1px dashed var(--color-border);
+  padding: 8px 0;
+  margin: 4px 0;
+}
+
+.settle-summary-row.highlight .val {
+  font-size: 15px;
+  color: var(--color-primary);
+}
 </style>

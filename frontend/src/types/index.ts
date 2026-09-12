@@ -97,7 +97,7 @@ export interface StockMovement {
   createdAt: string;
 }
 
-export type SaleStatus = 'COMPLETED' | 'CANCELLED';
+export type SaleStatus = 'COMPLETED' | 'CANCELLED' | 'PARTIALLY_CANCELLED' | 'PENDING_PICKUP';
 export type PaymentStatus = 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'CANCELLED';
 
 export interface SaleItem {
@@ -114,6 +114,93 @@ export interface SaleItem {
   subtotal: number;
 }
 
+export interface SaleFulfillmentLine {
+  id: number;
+  saleId: number;
+  invoiceNumber?: string;
+  customerName?: string;
+  customerPhone?: string;
+  clientId?: number | null;
+  clientName?: string | null;
+  clientCode?: string | null;
+  productId: number;
+  productName: string;
+  productReference: string;
+  productBoxSize?: number;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  originWarehouseId: number;
+  originWarehouseName?: string;
+  fulfillmentWarehouseId: number;
+  fulfillmentWarehouseName?: string;
+  paymentWarehouseId: number;
+  paymentWarehouseName?: string;
+  fulfillmentStatus: 'PENDING_PICKUP' | 'FULFILLED' | 'CANCELLED';
+  paymentStatus: 'PAID' | 'COLLECT_ON_PICKUP';
+  pickupVoucherCode: string;
+  voucherCode?: string;
+  reservationId?: number;
+  reservedQuantity?: number;
+  reservationExpiresAt?: string;
+  expiresAt?: string;
+  fulfilledAt?: string | null;
+  fulfilledByUserId?: number | null;
+  fulfilledByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FulfillmentAllocationInput {
+  productId: number;
+  originWarehouseId: number;
+  fulfillmentWarehouseId: number;
+  paymentWarehouseId: number;
+  quantity: number;
+  unitPrice?: number;
+  paymentStatus: 'PAID' | 'COLLECT_ON_PICKUP';
+  ttlHours?: number;
+}
+
+export interface InterWarehouseSettlementBalance {
+  debtorWarehouseId: number;
+  debtorWarehouseName: string;
+  debtorWarehouseCode: string;
+  creditorWarehouseId: number;
+  creditorWarehouseName: string;
+  creditorWarehouseCode: string;
+  pendingAmount: number;
+  count: number;
+  settlementIds: number[];
+}
+
+export interface InterWarehouseSettlement {
+  id: number;
+  settlementNumber: string;
+  debtorWarehouseId: number;
+  debtorWarehouseName: string;
+  creditorWarehouseId: number;
+  creditorWarehouseName: string;
+  amount: number;
+  status: 'PENDING' | 'SETTLED' | 'CANCELLED';
+  settlementDate?: string | null;
+  settledByUserId?: number | null;
+  settledByName?: string | null;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface CrossWarehouseStockAvailability {
+  warehouseId: number;
+  warehouseName: string;
+  warehouseCode: string;
+  warehouseLocation?: string;
+  warehousePhone?: string;
+  physicalQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+}
+
 export interface Sale {
   id: number;
   warehouseId: number;
@@ -121,6 +208,9 @@ export interface Sale {
   warehouseCode: string;
   warehousePhone?: string;
   warehouseAddress?: string;
+  originWarehouseId?: number | null;
+  originWarehouseName?: string | null;
+  hasInterWarehouseFulfillment?: boolean;
   invoiceNumber: string;
   clientId?: number | null;
   clientName?: string | null;
@@ -142,6 +232,7 @@ export interface Sale {
   employeeId?: number | null;
   employeeName?: string | null;
   items: SaleItem[];
+  fulfillmentLines?: SaleFulfillmentLine[];
   createdAt: string;
   updatedAt: string;
 }

@@ -233,6 +233,51 @@ export async function initSchema(): Promise<void> {
       created_by INTEGER NOT NULL REFERENCES users(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS sale_fulfillment_lines (
+      id SERIAL PRIMARY KEY,
+      sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      quantity INTEGER NOT NULL CHECK(quantity > 0),
+      unit_price NUMERIC(14, 2) NOT NULL,
+      subtotal NUMERIC(14, 2) NOT NULL,
+      origin_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      fulfillment_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      payment_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      fulfillment_status VARCHAR(50) NOT NULL DEFAULT 'PENDING_PICKUP',
+      payment_status VARCHAR(50) NOT NULL DEFAULT 'PAID',
+      pickup_voucher_code VARCHAR(50) NOT NULL UNIQUE,
+      fulfilled_at TIMESTAMPTZ,
+      fulfilled_by_user_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS stock_reservations (
+      id SERIAL PRIMARY KEY,
+      fulfillment_line_id INTEGER NOT NULL REFERENCES sale_fulfillment_lines(id) ON DELETE CASCADE,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      reserved_quantity INTEGER NOT NULL CHECK(reserved_quantity > 0),
+      status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+      expires_at TIMESTAMPTZ NOT NULL,
+      cancelled_at TIMESTAMPTZ,
+      fulfilled_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS inter_warehouse_settlements (
+      id SERIAL PRIMARY KEY,
+      settlement_number VARCHAR(50) NOT NULL UNIQUE,
+      debtor_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      creditor_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      amount NUMERIC(14, 2) NOT NULL CHECK(amount > 0),
+      status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+      settlement_date TIMESTAMPTZ,
+      settled_by_user_id INTEGER REFERENCES users(id),
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   // Migrations for existing databases
@@ -242,6 +287,8 @@ export async function initSchema(): Promise<void> {
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) NOT NULL DEFAULT 'PAID';
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14, 2) NOT NULL DEFAULT 0.0;
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS advance_deducted NUMERIC(14, 2) NOT NULL DEFAULT 0.0;
+    ALTER TABLE sales ADD COLUMN IF NOT EXISTS origin_warehouse_id INTEGER REFERENCES warehouses(id);
+    ALTER TABLE sales ADD COLUMN IF NOT EXISTS has_inter_warehouse_fulfillment BOOLEAN NOT NULL DEFAULT FALSE;
     UPDATE sales SET paid_amount = total_amount WHERE paid_amount = 0 AND status = 'COMPLETED';
     ALTER TABLE employees ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE';
     UPDATE employees SET status = CASE WHEN active = FALSE THEN 'TERMINATED' ELSE 'ACTIVE' END WHERE status IS NULL OR status = '';
@@ -266,6 +313,7 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_sales_client_id ON sales(client_id);
     CREATE INDEX IF NOT EXISTS idx_sales_payment_status ON sales(payment_status);
     CREATE INDEX IF NOT EXISTS idx_sales_advance_deducted ON sales(advance_deducted);
+    CREATE INDEX IF NOT EXISTS idx_sales_origin_wh ON sales(origin_warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_clients_code ON clients(code);
     CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name);
     CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(active);
@@ -281,6 +329,13 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_payment_allocations_sale_id ON payment_allocations(sale_id);
     CREATE INDEX IF NOT EXISTS idx_employees_status_wh ON employees(status, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_sale_fulfillment_lines_sale ON sale_fulfillment_lines(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_sale_fulfillment_lines_wh_status ON sale_fulfillment_lines(fulfillment_warehouse_id, fulfillment_status);
+    CREATE INDEX IF NOT EXISTS idx_sale_fulfillment_lines_voucher ON sale_fulfillment_lines(pickup_voucher_code);
+    CREATE INDEX IF NOT EXISTS idx_stock_reservations_wh_prod ON stock_reservations(warehouse_id, product_id, status);
+    CREATE INDEX IF NOT EXISTS idx_stock_reservations_status_expires ON stock_reservations(status, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_stock_reservations_line ON stock_reservations(fulfillment_line_id);
+    CREATE INDEX IF NOT EXISTS idx_settlements_debtor_creditor ON inter_warehouse_settlements(debtor_warehouse_id, creditor_warehouse_id, status);
     CREATE INDEX IF NOT EXISTS idx_stock_movements_created_wh ON stock_movements(created_at, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_stock_movements_type_created ON stock_movements(movement_type, created_at);
     CREATE INDEX IF NOT EXISTS idx_transfers_created_wh ON transfers(created_at, source_warehouse_id, destination_warehouse_id);

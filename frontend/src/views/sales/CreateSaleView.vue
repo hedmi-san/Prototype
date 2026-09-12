@@ -7,12 +7,15 @@ import { useProductStore } from '../../stores/product.store';
 import { useClientStore } from '../../stores/client.store';
 import { saleService, inventoryService } from '../../services/operations.service';
 import { employeeService } from '../../services/admin-reports.service';
-import type { Product, Stock, Employee, Client } from '../../types';
+import type { Product, Stock, Employee, Client, FulfillmentAllocationInput, Sale, SaleFulfillmentLine } from '../../types';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import AppButton from '../../components/common/AppButton.vue';
 import AppInput from '../../components/common/AppInput.vue';
+import AppModal from '../../components/common/AppModal.vue';
 import AppProductCombobox from '../../components/common/AppProductCombobox.vue';
 import AppClientCombobox from '../../components/common/AppClientCombobox.vue';
+import InterWarehouseSplitModal from '../../components/sales/InterWarehouseSplitModal.vue';
+import PickupSlipDocument from '../../components/sales/PickupSlipDocument.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -60,6 +63,7 @@ interface LineItem {
   productId: number;
   quantity: number;
   unitPrice: number;
+  allocations?: FulfillmentAllocationInput[];
 }
 
 let uidCounter = 0;
@@ -76,6 +80,58 @@ function createLineItem(initial?: Partial<LineItem>): LineItem {
 const lineItems = ref<LineItem[]>([
   createLineItem(),
 ]);
+
+const isSplitModalOpen = ref(false);
+const activeSplitItem = ref<LineItem | null>(null);
+
+const originWarehouseName = computed(() => {
+  const wh = warehouseStore.warehouses.find((w) => w.id === selectedWarehouseId.value);
+  return wh ? wh.name : 'Dépôt Local';
+});
+
+function openSplitModal(item: LineItem) {
+  if (!item.productId) {
+    errorMessage.value = 'Veuillez d\'abord sélectionner un produit';
+    return;
+  }
+  if (!isShortfall(item) && !hasAllocations(item)) {
+    return;
+  }
+  activeSplitItem.value = item;
+  isSplitModalOpen.value = true;
+}
+
+function onSplitSaved(allocations: FulfillmentAllocationInput[]) {
+  if (activeSplitItem.value) {
+    activeSplitItem.value.allocations = allocations;
+  }
+}
+
+function isShortfall(item: LineItem): boolean {
+  if (!item.productId) return false;
+  return item.quantity > getAvailableStock(item.productId);
+}
+
+function getShortfallCount(item: LineItem): number {
+  const avail = getAvailableStock(item.productId);
+  return Math.max(0, item.quantity - avail);
+}
+
+function hasAllocations(item: LineItem): boolean {
+  return Array.isArray(item.allocations) && item.allocations.length > 0;
+}
+
+// Pickup vouchers modal state after sale creation
+const isVouchersModalOpen = ref(false);
+const createdSaleData = ref<Sale | null>(null);
+const selectedVoucherIndex = ref(0);
+
+const remoteVoucherLines = computed(() => {
+  if (!createdSaleData.value || !createdSaleData.value.fulfillmentLines) return [];
+  return createdSaleData.value.fulfillmentLines.filter(
+    (fl) => fl.fulfillmentWarehouseId !== createdSaleData.value?.warehouseId
+  );
+});
 
 const selectedClient = computed(() => {
   if (!selectedClientId.value) return null;
@@ -243,7 +299,9 @@ const calculatedRemainingDebt = computed(() => {
 async function handleSubmitSale() {
   errorMessage.value = '';
 
-  // Validate items selection, prices, and stock
+  const allAllocations: FulfillmentAllocationInput[] = [];
+
+  // Validate items selection, prices, and stock/allocations
   for (const item of lineItems.value) {
     if (!item.productId) {
       errorMessage.value = 'Veuillez sélectionner un produit pour chaque ligne de vente.';
@@ -255,9 +313,26 @@ async function handleSubmitSale() {
     }
     const avail = getAvailableStock(item.productId);
     const prod = getProductById(item.productId);
+
     if (item.quantity > avail) {
-      errorMessage.value = `Stock insuffisant pour ${prod?.name || 'le produit'}. Disponible : ${avail}, Demandé : ${item.quantity}`;
-      return;
+      if (!item.allocations || item.allocations.length === 0) {
+        errorMessage.value = `Stock local insuffisant pour ${prod?.name || 'le produit'}. Disponible : ${avail}, Demandé : ${item.quantity}. Veuillez cliquer sur "Répartir / Transfert Inter-Dépôts".`;
+        return;
+      }
+      const sumAlloc = item.allocations.reduce((s, a) => s + (Number(a.quantity) || 0), 0);
+      if (sumAlloc !== item.quantity) {
+        errorMessage.value = `La répartition inter-dépôts pour ${prod?.name} (${sumAlloc} u.) ne correspond pas à la quantité demandée (${item.quantity} u.).`;
+        return;
+      }
+    }
+
+    if (item.allocations && item.allocations.length > 0) {
+      for (const a of item.allocations) {
+        allAllocations.push({
+          ...a,
+          unitPrice: Number(item.unitPrice),
+        });
+      }
     }
   }
 
@@ -272,7 +347,7 @@ async function handleSubmitSale() {
 
   submitting.value = true;
   try {
-    await saleService.createSale({
+    const created = await saleService.createSale({
       warehouseId: selectedWarehouseId.value,
       employeeId: selectedEmployeeId.value || undefined,
       clientId: selectedClientId.value || undefined,
@@ -288,14 +363,30 @@ async function handleSubmitSale() {
         quantity: i.quantity,
         unitPrice: Number(i.unitPrice),
       })),
+      fulfillmentAllocations: allAllocations.length > 0 ? allAllocations : undefined,
     });
 
-    router.push('/sales');
+    const remoteLines = created.fulfillmentLines?.filter(
+      (fl) => fl.fulfillmentWarehouseId !== selectedWarehouseId.value
+    ) || [];
+
+    if (remoteLines.length > 0) {
+      createdSaleData.value = created;
+      selectedVoucherIndex.value = 0;
+      isVouchersModalOpen.value = true;
+    } else {
+      router.push('/sales');
+    }
   } catch (err: any) {
     errorMessage.value = err.response?.data?.message || "Échec de l'enregistrement de la vente";
   } finally {
     submitting.value = false;
   }
+}
+
+function closeVouchersAndNavigate() {
+  isVouchersModalOpen.value = false;
+  router.push('/sales');
 }
 </script>
 
@@ -343,59 +434,130 @@ async function handleSubmitSale() {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(item, idx) in lineItems" :key="item._uid">
-                <td class="col-product">
-                  <AppProductCombobox
-                    v-model="item.productId"
-                    :warehouse-stock="warehouseStock"
-                    placeholder="Taper nom ou réf (ex: DCD796)..."
-                    required
-                    @update:model-value="() => onProductSelect(item)"
-                  />
-                </td>
-                <td class="col-avail font-mono">
-                  <span :class="getAvailableStock(item.productId) < item.quantity ? 'text-danger font-bold' : 'text-success'">
-                    {{ formatNumber(getAvailableStock(item.productId)) }} u.
-                  </span>
-                </td>
-                <td class="col-price">
-                  <input
-                    v-model.number="item.unitPrice"
-                    type="number"
-                    min="0"
-                    step="any"
-                    class="app-input price-input font-mono"
-                    placeholder="0.00"
-                    required
-                  />
-                </td>
-                <td class="col-qty">
-                  <input
-                    v-model.number="item.quantity"
-                    type="number"
-                    min="1"
-                    class="app-input qty-input"
-                    required
-                  />
-                </td>
-                <td class="col-subtotal font-mono font-bold">
-                  {{ formatCurrency((item.unitPrice || 0) * (item.quantity || 0)) }}
-                </td>
-                <td class="col-action">
-                  <button
-                    type="button"
-                    class="remove-btn"
-                    :disabled="lineItems.length <= 1"
-                    title="Supprimer cette ligne"
-                    @click="removeLineItem(idx)"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                </td>
-              </tr>
+              <template v-for="(item, idx) in lineItems" :key="item._uid">
+                <tr
+                  class="item-main-row"
+                  :class="{
+                    'has-shortfall': isShortfall(item) && !hasAllocations(item),
+                    'has-allocations': hasAllocations(item)
+                  }"
+                >
+                  <td class="col-product">
+                    <AppProductCombobox
+                      v-model="item.productId"
+                      :warehouse-stock="warehouseStock"
+                      placeholder="Taper nom ou réf (ex: DCD796)..."
+                      required
+                      @update:model-value="() => onProductSelect(item)"
+                    />
+                  </td>
+                  <td class="col-avail font-mono">
+                    <span :class="getAvailableStock(item.productId) < item.quantity ? 'text-danger font-bold' : 'text-success'">
+                      {{ formatNumber(getAvailableStock(item.productId)) }} u.
+                    </span>
+                  </td>
+                  <td class="col-price">
+                    <input
+                      v-model.number="item.unitPrice"
+                      type="number"
+                      min="0"
+                      step="any"
+                      class="app-input price-input font-mono"
+                      placeholder="0.00"
+                      required
+                    />
+                  </td>
+                  <td class="col-qty">
+                    <input
+                      v-model.number="item.quantity"
+                      type="number"
+                      min="1"
+                      class="app-input qty-input"
+                      required
+                    />
+                  </td>
+                  <td class="col-subtotal font-mono font-bold">
+                    {{ formatCurrency((item.unitPrice || 0) * (item.quantity || 0)) }}
+                  </td>
+                  <td class="col-action">
+                    <div class="row-actions">
+                      <button
+                        v-if="item.productId"
+                        type="button"
+                        class="action-icon-btn transfer-icon-btn"
+                        :class="{
+                          'is-active': hasAllocations(item),
+                          'is-shortfall': isShortfall(item) && !hasAllocations(item),
+                          'is-disabled': !isShortfall(item) && !hasAllocations(item)
+                        }"
+                        :disabled="!isShortfall(item) && !hasAllocations(item)"
+                        :title="
+                          hasAllocations(item)
+                            ? 'Répartition inter-dépôts configurée'
+                            : isShortfall(item)
+                              ? `Déficit local (-${getShortfallCount(item)} u.) - Transférer depuis un autre dépôt`
+                              : 'Stock local suffisant (aucun transfert requis)'
+                        "
+                        @click="openSplitModal(item)"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                          <polyline points="17 1 21 5 17 9" />
+                          <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                          <polyline points="7 23 3 19 7 15" />
+                          <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="action-icon-btn remove-btn"
+                        :disabled="lineItems.length <= 1"
+                        title="Supprimer cette ligne"
+                        @click="removeLineItem(idx)"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Shortfall / Inter-Warehouse Transfer Sub-row -->
+                <tr
+                  v-if="item.productId && (isShortfall(item) || hasAllocations(item))"
+                  class="item-shortfall-subrow"
+                  :class="{
+                    'is-warning': isShortfall(item) && !hasAllocations(item),
+                    'is-success': hasAllocations(item)
+                  }"
+                >
+                  <td colspan="5" class="col-subrow-status">
+                    <div class="shortfall-status-wrap">
+                      <span
+                        v-if="isShortfall(item) && !hasAllocations(item)"
+                        class="shortfall-chip clickable"
+                        title="Déficit local - Cliquer pour répartir ou transférer"
+                        @click="openSplitModal(item)"
+                      >
+                        Déficit local (-{{ getShortfallCount(item) }} u.)
+                      </span>
+                      <span
+                        v-else-if="hasAllocations(item)"
+                        class="allocated-chip clickable"
+                        title="Cliquer pour modifier la répartition"
+                        @click="openSplitModal(item)"
+                      >
+                        ✓ Réparti sur {{ item.allocations?.length }} dépôt{{ (item.allocations?.length || 0) > 1 ? 's' : '' }}
+                      </span>
+                      <span v-if="isShortfall(item)" class="shortfall-hint">
+                        Dispo : {{ formatNumber(getAvailableStock(item.productId)) }} u. &bull; Demandé : {{ item.quantity }} u.
+                      </span>
+                    </div>
+                  </td>
+                  <td class="col-subrow-spacer"></td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -639,6 +801,62 @@ async function handleSubmitSale() {
         </AppButton>
       </div>
     </form>
+
+    <!-- Inter-Warehouse Split Fulfillment Modal -->
+    <InterWarehouseSplitModal
+      v-if="activeSplitItem && activeSplitItem.productId"
+      v-model="isSplitModalOpen"
+      :product-id="activeSplitItem.productId"
+      :product-name="getProductById(activeSplitItem.productId)?.name || ''"
+      :product-reference="getProductById(activeSplitItem.productId)?.reference || ''"
+      :requested-quantity="activeSplitItem.quantity"
+      :origin-warehouse-id="selectedWarehouseId"
+      :origin-warehouse-name="originWarehouseName"
+      :initial-allocations="activeSplitItem.allocations"
+      @save="onSplitSaved"
+    />
+
+    <!-- Pickup Slips (Bon de Retrait) Modal after successful sale -->
+    <AppModal
+      v-model="isVouchersModalOpen"
+      title="Bons de Retrait Inter-Dépôts Générés"
+      max-width="840px"
+      @close="closeVouchersAndNavigate"
+    >
+      <div class="vouchers-modal-body">
+        <div class="vouchers-alert-success">
+          🎉 <strong>Vente validée avec succès !</strong> Des articles doivent être retirés dans d'autres dépôts. Veuillez imprimer le(s) Bon(s) de Retrait à remettre au client.
+        </div>
+
+        <div v-if="remoteVoucherLines.length > 1" class="voucher-tabs">
+          <button
+            v-for="(line, idx) in remoteVoucherLines"
+            :key="line.id"
+            type="button"
+            class="voucher-tab-btn"
+            :class="{ active: selectedVoucherIndex === idx }"
+            @click="selectedVoucherIndex = idx"
+          >
+            Bon #{{ idx + 1 }} : {{ line.fulfillmentWarehouseName }} ({{ line.quantity }} u.)
+          </button>
+        </div>
+
+        <div v-if="remoteVoucherLines[selectedVoucherIndex]" class="voucher-preview-area">
+          <PickupSlipDocument
+            :line="remoteVoucherLines[selectedVoucherIndex]"
+            :sale="createdSaleData || {}"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="voucher-modal-footer">
+          <AppButton variant="secondary" @click="closeVouchersAndNavigate">
+            Terminer & Aller aux Ventes &rarr;
+          </AppButton>
+        </div>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -762,7 +980,8 @@ async function handleSubmitSale() {
 }
 
 .col-action {
-  width: 36px;
+  width: 72px;
+  min-width: 72px;
   text-align: center;
 }
 
@@ -1109,5 +1328,283 @@ async function handleSubmitSale() {
   border-radius: 6px;
   font-size: 11px;
   line-height: 1.4;
+}
+
+/* Inter-Warehouse Shortfall & Split Indicators */
+.item-main-row.has-shortfall td {
+  border-bottom: none;
+  background: rgba(254, 242, 242, 0.35);
+}
+
+.item-main-row.has-allocations td {
+  border-bottom: none;
+  background: rgba(240, 253, 244, 0.35);
+}
+
+.item-shortfall-subrow td {
+  padding-top: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.item-shortfall-subrow.is-warning td {
+  background: rgba(254, 242, 242, 0.35);
+}
+
+.item-shortfall-subrow.is-success td {
+  background: rgba(240, 253, 244, 0.35);
+}
+
+.col-subrow-status {
+  padding-left: 8px;
+  vertical-align: middle;
+}
+
+.shortfall-status-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.shortfall-chip {
+  background: #fee2e2;
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #fca5a5;
+  letter-spacing: 0.2px;
+}
+
+.allocated-chip {
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #86efac;
+}
+
+.shortfall-hint {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.col-subrow-action {
+  padding: 2px 4px 6px 4px;
+  vertical-align: middle;
+}
+
+.col-subrow-spacer {
+  width: 72px;
+  min-width: 72px;
+}
+
+.btn-split-modal-trigger {
+  width: 100%;
+  height: 34px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1.5px solid #93c5fd;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+}
+
+.btn-split-modal-trigger:hover {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+  transform: translateY(-1px);
+}
+
+.btn-split-modal-trigger:active {
+  transform: translateY(0);
+}
+
+.btn-split-modal-trigger.is-allocated {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #86efac;
+  box-shadow: 0 1px 2px rgba(22, 163, 74, 0.08);
+}
+
+.btn-split-modal-trigger.is-allocated:hover {
+  background: #16a34a;
+  color: #ffffff;
+  border-color: #16a34a;
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.25);
+}
+
+.trigger-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.action-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  padding: 0;
+}
+
+.transfer-icon-btn {
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+}
+
+.transfer-icon-btn:hover:not(:disabled) {
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #93c5fd;
+}
+
+.transfer-icon-btn:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+  pointer-events: auto;
+}
+
+.transfer-icon-btn:disabled:hover {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+  transform: none;
+  box-shadow: none;
+}
+
+.transfer-icon-btn.is-shortfall {
+  color: #dc2626;
+  background: #fee2e2;
+  border-color: #fca5a5;
+  cursor: pointer;
+}
+
+.transfer-icon-btn.is-shortfall:hover:not(:disabled) {
+  background: #fecaca;
+  border-color: #f87171;
+  color: #b91c1c;
+}
+
+.transfer-icon-btn.is-active {
+  color: #15803d;
+  background: #dcfce7;
+  border-color: #86efac;
+  cursor: pointer;
+}
+
+.transfer-icon-btn.is-active:hover:not(:disabled) {
+  background: #bbf7d0;
+  border-color: #4ade80;
+  color: #166534;
+}
+
+.shortfall-chip.clickable,
+.allocated-chip.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.shortfall-chip.clickable:hover {
+  background: #fecaca;
+  border-color: #f87171;
+  color: #b91c1c;
+}
+
+.allocated-chip.clickable:hover {
+  background: #bbf7d0;
+  border-color: #4ade80;
+}
+
+/* Pickup Slips Modal */
+.vouchers-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vouchers-alert-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.voucher-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 8px;
+  overflow-x: auto;
+}
+
+.voucher-tab-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.voucher-tab-btn.active {
+  background: #1e3a8a;
+  color: white;
+  border-color: #1e3a8a;
+}
+
+.voucher-preview-area {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.voucher-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
 }
 </style>

@@ -88,6 +88,9 @@ export interface Sale {
   invoice_number: string;
   warehouse_id: number;
   warehouse_name?: string;
+  origin_warehouse_id?: number;
+  origin_warehouse_name?: string;
+  has_inter_warehouse_fulfillment?: boolean;
   user_id: number;
   user_name?: string;
   employee_id?: number | null;
@@ -99,10 +102,11 @@ export interface Sale {
   advance_deducted?: number;
   payment_status?: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'CANCELLED';
   sale_date?: string;
-  status: 'COMPLETED' | 'CANCELLED';
+  status: 'COMPLETED' | 'CANCELLED' | 'PARTIALLY_CANCELLED';
   created_at: string;
   updated_at: string;
   items?: SaleItem[];
+  fulfillment_lines?: SaleFulfillmentLine[];
 }
 
 export interface SaleItem {
@@ -114,6 +118,74 @@ export interface SaleItem {
   quantity: number;
   unit_price: number;
   subtotal: number;
+}
+
+export interface SaleFulfillmentLine {
+  id: number;
+  sale_id: number;
+  product_id: number;
+  product_name?: string;
+  product_reference?: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+  origin_warehouse_id: number;
+  origin_warehouse_name?: string;
+  fulfillment_warehouse_id: number;
+  fulfillment_warehouse_name?: string;
+  payment_warehouse_id: number;
+  payment_warehouse_name?: string;
+  fulfillment_status: 'PENDING_PICKUP' | 'FULFILLED' | 'CANCELLED' | 'EXPIRED';
+  payment_status: 'PAID' | 'COLLECT_ON_PICKUP';
+  pickup_voucher_code: string;
+  fulfilled_at?: string | null;
+  fulfilled_by_user_id?: number | null;
+  fulfilled_by_user_name?: string;
+  reservation?: StockReservation;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StockReservation {
+  id: number;
+  fulfillment_line_id: number;
+  warehouse_id: number;
+  warehouse_name?: string;
+  product_id: number;
+  product_name?: string;
+  reserved_quantity: number;
+  status: 'ACTIVE' | 'FULFILLED' | 'CANCELLED' | 'EXPIRED';
+  expires_at: string;
+  cancelled_at?: string | null;
+  fulfilled_at?: string | null;
+  created_at: string;
+}
+
+export interface InterWarehouseSettlement {
+  id: number;
+  settlement_number: string;
+  debtor_warehouse_id: number;
+  debtor_warehouse_name?: string;
+  creditor_warehouse_id: number;
+  creditor_warehouse_name?: string;
+  amount: number;
+  status: 'PENDING' | 'SETTLED';
+  settlement_date?: string | null;
+  settled_by_user_id?: number | null;
+  settled_by_user_name?: string;
+  notes?: string;
+  created_at: string;
+}
+
+export interface FulfillmentAllocationInput {
+  productId: number;
+  originWarehouseId: number;
+  fulfillmentWarehouseId: number;
+  paymentWarehouseId: number;
+  quantity: number;
+  unitPrice: number;
+  paymentStatus: 'PAID' | 'COLLECT_ON_PICKUP';
+  ttlHours?: number;
 }
 
 export interface Transfer {

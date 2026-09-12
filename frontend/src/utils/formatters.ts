@@ -108,6 +108,10 @@ export function formatSaleStatus(status: SaleStatus | string | null | undefined)
       return 'Terminée';
     case 'CANCELLED':
       return 'Annulée';
+    case 'PARTIALLY_CANCELLED':
+      return 'Partiellement annulée';
+    case 'PENDING_PICKUP':
+      return 'En attente de retrait';
     default:
       return status || '-';
   }

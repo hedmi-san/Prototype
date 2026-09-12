@@ -1,6 +1,19 @@
 import api from './api';
 import { clientService } from './client.service';
-import type { ApiResponse, Stock, StockMovement, Sale, Transfer, PaginationParams, PaginatedData } from '../types';
+import type {
+  ApiResponse,
+  Stock,
+  StockMovement,
+  Sale,
+  Transfer,
+  PaginationParams,
+  PaginatedData,
+  CrossWarehouseStockAvailability,
+  SaleFulfillmentLine,
+  FulfillmentAllocationInput,
+  InterWarehouseSettlementBalance,
+  InterWarehouseSettlement,
+} from '../types';
 import { downloadCsvResponse } from '../utils/export';
 
 function normalizeParams(params?: PaginationParams | number): Record<string, any> {
@@ -56,6 +69,10 @@ export const inventoryService = {
     const response = await api.post<ApiResponse<Stock>>('/inventory/initial-receipt', data);
     return response.data.data;
   },
+  async getCrossWarehouseAvailability(productId: number): Promise<CrossWarehouseStockAvailability[]> {
+    const response = await api.get<ApiResponse<CrossWarehouseStockAvailability[]>>(`/inventory/stock/availability/${productId}`);
+    return response.data.data || [];
+  },
   async exportStockCsv(params?: { warehouseId?: number; status?: string; lowStock?: boolean; search?: string; ids?: number[] | string }): Promise<void> {
     const queryParams: Record<string, any> = { ...params };
     if (Array.isArray(params?.ids)) {
@@ -92,6 +109,7 @@ export const saleService = {
     useAdvanceCredit?: boolean;
     advanceDeducted?: number;
     items: { productId: number; quantity: number; unitPrice?: number }[];
+    fulfillmentAllocations?: FulfillmentAllocationInput[];
   }): Promise<Sale> {
     const response = await api.post<ApiResponse<Sale>>('/sales', data);
     return response.data.data;
@@ -109,8 +127,33 @@ export const saleService = {
     const response = await api.put<ApiResponse<Sale>>(`/sales/${id}`, data);
     return response.data.data;
   },
-  async cancelSale(id: number): Promise<Sale> {
-    const response = await api.post<ApiResponse<Sale>>(`/sales/${id}/cancel`);
+  async cancelSale(id: number): Promise<any> {
+    const response = await api.post<ApiResponse<any>>(`/sales/${id}/cancel`);
+    return response.data.data;
+  },
+  async getPendingPickups(params?: { warehouseId?: number; page?: number; limit?: number; search?: string }): Promise<PaginatedData<SaleFulfillmentLine>> {
+    const response = await api.get<ApiResponse<any>>('/sales/fulfillment-lines/pending', { params });
+    return normalizePaginatedResponse<SaleFulfillmentLine>(response.data.data);
+  },
+  async getPendingPickupsCount(warehouseId?: number): Promise<number> {
+    const response = await api.get<ApiResponse<{ count: number }>>('/sales/fulfillment-lines/pending-count', {
+      params: warehouseId ? { warehouseId } : {},
+    });
+    return response.data.data?.count || 0;
+  },
+  async fulfillPickupLine(lineId: number, data?: { paymentMethod?: string }): Promise<any> {
+    const response = await api.post<ApiResponse<any>>(`/sales/fulfillment-lines/${lineId}/fulfill`, data || {});
+    return response.data.data;
+  },
+  async cancelPickupLine(lineId: number): Promise<any> {
+    const response = await api.post<ApiResponse<any>>(`/sales/fulfillment-lines/${lineId}/cancel`);
+    return response.data.data;
+  },
+  async updatePickupLine(
+    lineId: number,
+    data: { quantity?: number; fulfillmentWarehouseId?: number; paymentStatus?: 'PAID' | 'COLLECT_ON_PICKUP' }
+  ): Promise<any> {
+    const response = await api.put<ApiResponse<any>>(`/sales/fulfillment-lines/${lineId}`, data);
     return response.data.data;
   },
   async exportSalesCsv(params?: { warehouseId?: number; startDate?: string; endDate?: string; paymentStatus?: string; search?: string }): Promise<void> {
@@ -150,6 +193,19 @@ export const transferService = {
   },
   async cancelTransfer(id: number): Promise<Transfer> {
     const response = await api.post<ApiResponse<Transfer>>(`/transfers/${id}/cancel`);
+    return response.data.data;
+  },
+  async getSettlementBalances(): Promise<{ balances: InterWarehouseSettlementBalance[]; settlements: InterWarehouseSettlement[] }> {
+    const response = await api.get<ApiResponse<{ balances: InterWarehouseSettlementBalance[]; settlements: InterWarehouseSettlement[] }>>('/transfers/settlements/balances');
+    return response.data.data || { balances: [], settlements: [] };
+  },
+  async clearSettlement(data: {
+    debtorWarehouseId?: number;
+    creditorWarehouseId?: number;
+    settlementIds?: number[];
+    notes?: string;
+  }): Promise<{ clearedCount: number; totalClearedAmount: number }> {
+    const response = await api.post<ApiResponse<{ clearedCount: number; totalClearedAmount: number }>>('/transfers/settlements/clear', data);
     return response.data.data;
   },
   async bulkRelocateStock(data: {

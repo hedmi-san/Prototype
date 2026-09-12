@@ -3,19 +3,61 @@ import { query, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { generateCsv, sendCsv, CsvColumn } from '../common/csv.js';
 import { authenticate, requireRole, AuthRequest, logAudit, validateWarehouseScope, enforceWarehouseScope } from '../middleware/auth.js';
+import { checkAndExpireReservations } from '../common/reservation.js';
 
 const router = Router();
 
+router.get('/stock/availability/:productId', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const productId = Number(req.params.productId);
+    if (!productId) return sendError(res, 'Valid productId required', 400);
+
+    // Trigger lazy TTL sweep
+    await checkAndExpireReservations();
+
+    const result = await query(`
+      SELECT w.id as warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
+             w.location as warehouse_location, w.contact_number as warehouse_phone,
+             COALESCE(s.physical_quantity, 0) as physical_quantity,
+             COALESCE(s.reserved_quantity, 0) as reserved_quantity,
+             (COALESCE(s.physical_quantity, 0) - COALESCE(s.reserved_quantity, 0)) as available_quantity
+      FROM warehouses w
+      LEFT JOIN stock s ON s.warehouse_id = w.id AND s.product_id = $1
+      WHERE w.active = TRUE
+      ORDER BY w.name ASC
+    `, [productId]);
+
+    const availability = result.rows.map((r: any) => ({
+      warehouseId: r.warehouse_id,
+      warehouseName: r.warehouse_name,
+      warehouseCode: r.warehouse_code,
+      warehouseLocation: r.warehouse_location,
+      warehousePhone: r.warehouse_phone,
+      physicalQuantity: Number(r.physical_quantity),
+      reservedQuantity: Number(r.reserved_quantity),
+      availableQuantity: Math.max(0, Number(r.available_quantity)),
+    }));
+
+    return sendSuccess(res, availability);
+  } catch (err: any) {
+    return sendError(res, err.message, 500);
+  }
+});
+
 router.get('/stock', authenticate, async (req: AuthRequest, res) => {
   try {
+    // Lazily clean up overdue reservations
+    await checkAndExpireReservations();
+
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const isCrossWarehouse = req.query.crossWarehouse === 'true';
     const status = (req.query.status as string | undefined)?.toLowerCase();
     const search = (req.query.search as string | undefined)?.trim();
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
     const offset = (page - 1) * limit;
 
-    if (warehouseId && req.user) {
+    if (warehouseId && req.user && !isCrossWarehouse) {
       try {
         validateWarehouseScope(req.user, warehouseId);
       } catch (err: any) {
@@ -30,7 +72,7 @@ router.get('/stock', authenticate, async (req: AuthRequest, res) => {
     if (warehouseId) {
       baseParams.push(warehouseId);
       baseWhereClauses.push(`s.warehouse_id = $${baseParams.length}`);
-    } else if (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT') {
+    } else if (!isCrossWarehouse && (req.user?.role === 'MANAGER' || req.user?.role === 'ACCOUNTANT')) {
       baseParams.push(req.user.warehouseId);
       baseWhereClauses.push(`s.warehouse_id = $${baseParams.length}`);
     }
