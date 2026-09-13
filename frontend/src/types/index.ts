@@ -678,3 +678,34 @@ export interface ApiResponse<T> {
   timestamp: string;
 }
 
+export type NotificationType =
+  | 'TRANSFER_REQUESTED'
+  | 'TRANSFER_APPROVED'
+  | 'TRANSFER_CONFIRMED'
+  | 'TRANSFER_DECLINED'
+  | 'TRANSFER_CANCELLED'
+  | 'SALE_PICKUP_PENDING'
+  | 'SALE_PICKUP_COMPLETED'
+  | 'SALE_PICKUP_CANCELLED';
+
+export interface AppNotification {
+  id: number;
+  warehouseId: number;
+  warehouseName?: string;
+  actorUserId?: number | null;
+  actorUserName?: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link?: string | null;
+  metadata?: Record<string, any>;
+  isRead: boolean;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export interface NotificationCounts {
+  unreadCount: number;
+  pendingTransfersCount: number;
+  pendingPickupsCount: number;
+}

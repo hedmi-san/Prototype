@@ -4,6 +4,7 @@ import { sendSuccess, sendError } from '../common/response.js';
 import { generateCsv, sendCsv } from '../common/csv.js';
 import { authenticate, requireRole, logAudit, validateWarehouseScope, enforceWarehouseScope, validateOriginWarehouseScope } from '../middleware/auth.js';
 import { createStockReservation, releaseStockReservation, fulfillStockReservation, reassignReservationWarehouse, checkAndExpireReservations, } from '../common/reservation.js';
+import { createNotification } from '../common/notifications.js';
 const router = Router();
 router.get('/', authenticate, async (req, res) => {
     try {
@@ -475,6 +476,22 @@ router.post('/fulfillment-lines/:id/fulfill', authenticate, async (req, res) => 
           UPDATE sales SET status = 'COMPLETED', updated_at = NOW() WHERE id = $1
         `, [line.sale_id]);
             }
+            if (Number(line.origin_warehouse_id) !== Number(line.fulfillment_warehouse_id)) {
+                await createNotification(client, {
+                    warehouseId: line.origin_warehouse_id,
+                    actorUserId: req.user?.id || null,
+                    type: 'SALE_PICKUP_COMPLETED',
+                    title: 'Retrait client effectué',
+                    message: `Le client a retiré ses articles pour le bon ${line.pickup_voucher_code} (Facture ${line.invoice_number}).`,
+                    link: `/sales?search=${line.invoice_number}`,
+                    metadata: {
+                        saleId: line.sale_id,
+                        invoiceNumber: line.invoice_number,
+                        fulfillmentLineId: lineId,
+                        voucherCode: line.pickup_voucher_code,
+                    },
+                });
+            }
             return { lineId, status: 'FULFILLED', saleId: line.sale_id };
         });
         await logAudit(req.user, 'FULFILLMENT_LINE_FULFILLED', 'SALE_FULFILLMENT_LINE', lineId, `Fulfilled pickup line for voucher`, req.user?.warehouseId);
@@ -533,6 +550,25 @@ router.post('/fulfillment-lines/:id/cancel', authenticate, async (req, res) => {
                 parentStatus = 'CANCELLED';
             }
             await client.query('UPDATE sales SET status = $1, updated_at = NOW() WHERE id = $2', [parentStatus, line.sale_id]);
+            if (Number(line.origin_warehouse_id) !== Number(line.fulfillment_warehouse_id)) {
+                const notifyWarehouseId = Number(req.user?.warehouseId) === Number(line.origin_warehouse_id)
+                    ? line.fulfillment_warehouse_id
+                    : line.origin_warehouse_id;
+                await createNotification(client, {
+                    warehouseId: notifyWarehouseId,
+                    actorUserId: req.user?.id || null,
+                    type: 'SALE_PICKUP_CANCELLED',
+                    title: 'Retrait client annulé',
+                    message: `Le bon de retrait ${line.pickup_voucher_code} (Facture ${line.invoice_number}) a été annulé. La réservation de stock est libérée.`,
+                    link: '/sales?tab=pickups',
+                    metadata: {
+                        saleId: line.sale_id,
+                        invoiceNumber: line.invoice_number,
+                        fulfillmentLineId: lineId,
+                        voucherCode: line.pickup_voucher_code,
+                    },
+                });
+            }
             return { lineId, status: 'CANCELLED', parentStatus };
         });
         return sendSuccess(res, result, 'Ligne de retrait annulée avec succès');
@@ -1022,9 +1058,26 @@ router.post('/', authenticate, async (req, res) => {
                             quantity: Number(alloc.quantity),
                             ttlHours: Number(alloc.ttlHours) || 120,
                         });
-                        // A remote fulfillment remains fully traceable through its fulfillment
-                        // line and pickup voucher. Cash belongs to the same company, so no
-                        // inter-warehouse debt or treasury settlement is created.
+                        const prodInfo = await client.query('SELECT name, reference FROM products WHERE id = $1', [alloc.productId]);
+                        const prodName = prodInfo.rows[0]?.name || `Produit #${alloc.productId}`;
+                        await createNotification(client, {
+                            warehouseId: Number(alloc.fulfillmentWarehouseId),
+                            actorUserId: req.user?.id || null,
+                            type: 'SALE_PICKUP_PENDING',
+                            title: 'Nouveau retrait client inter-dépôts',
+                            message: `Retrait prévu (${voucherCode}) : ${alloc.quantity}x ${prodName} (Facture ${invoiceNumber}).`,
+                            link: '/sales?tab=pickups',
+                            metadata: {
+                                saleId,
+                                invoiceNumber,
+                                fulfillmentLineId: flId,
+                                voucherCode,
+                                productId: alloc.productId,
+                                quantity: alloc.quantity,
+                                originWarehouseId: targetWarehouseId,
+                                fulfillmentWarehouseId: alloc.fulfillmentWarehouseId,
+                            },
+                        });
                     }
                 }
             }
@@ -1709,12 +1762,6 @@ router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', '
               WHERE id = $1
             `, [line.id]);
                     }
-                    // Cancel pending inter-warehouse settlements
-                    await client.query(`
-            UPDATE inter_warehouse_settlements
-            SET status = 'CANCELLED', notes = notes || ' (Annulé suite à annulation de la vente)'
-            WHERE status = 'PENDING' AND notes LIKE '%' || $1 || '%'
-          `, [currentSale.invoice_number]);
                     // Compensating ledger entry if attached to a client
                     if (currentSale.client_id) {
                         const clientRes = await client.query('SELECT id, current_balance FROM clients WHERE id = $1 FOR UPDATE', [currentSale.client_id]);
@@ -1760,12 +1807,6 @@ router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', '
               WHERE id = $1
             `, [line.id]);
                     }
-                    // Cancel pending inter-warehouse settlements related to this sale
-                    await client.query(`
-            UPDATE inter_warehouse_settlements
-            SET status = 'CANCELLED', notes = notes || ' (Annulé suite à annulation partielle de la vente)'
-            WHERE status = 'PENDING' AND notes LIKE '%' || $1 || '%'
-          `, [currentSale.invoice_number]);
                     const cancelledAmount = pendingLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
                     const fulfilledAmount = fulfilledLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
                     // Compensating ledger entry for the cancelled portion only

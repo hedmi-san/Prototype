@@ -10,6 +10,7 @@ import {
   reassignReservationWarehouse,
   checkAndExpireReservations,
 } from '../common/reservation.js';
+import { createNotification } from '../common/notifications.js';
 
 const router = Router();
 
@@ -540,6 +541,23 @@ router.post('/fulfillment-lines/:id/fulfill', authenticate, async (req: AuthRequ
         `, [line.sale_id]);
       }
 
+      if (Number(line.origin_warehouse_id) !== Number(line.fulfillment_warehouse_id)) {
+        await createNotification(client, {
+          warehouseId: line.origin_warehouse_id,
+          actorUserId: req.user?.id || null,
+          type: 'SALE_PICKUP_COMPLETED',
+          title: 'Retrait client effectué',
+          message: `Le client a retiré ses articles pour le bon ${line.pickup_voucher_code} (Facture ${line.invoice_number}).`,
+          link: `/sales?search=${line.invoice_number}`,
+          metadata: {
+            saleId: line.sale_id,
+            invoiceNumber: line.invoice_number,
+            fulfillmentLineId: lineId,
+            voucherCode: line.pickup_voucher_code,
+          },
+        });
+      }
+
       return { lineId, status: 'FULFILLED', saleId: line.sale_id };
     });
 
@@ -608,6 +626,27 @@ router.post('/fulfillment-lines/:id/cancel', authenticate, async (req: AuthReque
       }
 
       await client.query('UPDATE sales SET status = $1, updated_at = NOW() WHERE id = $2', [parentStatus, line.sale_id]);
+
+      if (Number(line.origin_warehouse_id) !== Number(line.fulfillment_warehouse_id)) {
+        const notifyWarehouseId = Number(req.user?.warehouseId) === Number(line.origin_warehouse_id)
+          ? line.fulfillment_warehouse_id
+          : line.origin_warehouse_id;
+
+        await createNotification(client, {
+          warehouseId: notifyWarehouseId,
+          actorUserId: req.user?.id || null,
+          type: 'SALE_PICKUP_CANCELLED',
+          title: 'Retrait client annulé',
+          message: `Le bon de retrait ${line.pickup_voucher_code} (Facture ${line.invoice_number}) a été annulé. La réservation de stock est libérée.`,
+          link: '/sales?tab=pickups',
+          metadata: {
+            saleId: line.sale_id,
+            invoiceNumber: line.invoice_number,
+            fulfillmentLineId: lineId,
+            voucherCode: line.pickup_voucher_code,
+          },
+        });
+      }
 
       return { lineId, status: 'CANCELLED', parentStatus };
     });
@@ -1163,9 +1202,27 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
               ttlHours: Number(alloc.ttlHours) || 120,
             });
 
-            // A remote fulfillment remains fully traceable through its fulfillment
-            // line and pickup voucher. Cash belongs to the same company, so no
-            // inter-warehouse debt or treasury settlement is created.
+            const prodInfo = await client.query('SELECT name, reference FROM products WHERE id = $1', [alloc.productId]);
+            const prodName = prodInfo.rows[0]?.name || `Produit #${alloc.productId}`;
+
+            await createNotification(client, {
+              warehouseId: Number(alloc.fulfillmentWarehouseId),
+              actorUserId: req.user?.id || null,
+              type: 'SALE_PICKUP_PENDING',
+              title: 'Nouveau retrait client inter-dépôts',
+              message: `Retrait prévu (${voucherCode}) : ${alloc.quantity}x ${prodName} (Facture ${invoiceNumber}).`,
+              link: '/sales?tab=pickups',
+              metadata: {
+                saleId,
+                invoiceNumber,
+                fulfillmentLineId: flId,
+                voucherCode,
+                productId: alloc.productId,
+                quantity: alloc.quantity,
+                originWarehouseId: targetWarehouseId,
+                fulfillmentWarehouseId: alloc.fulfillmentWarehouseId,
+              },
+            });
           }
         }
       } else {

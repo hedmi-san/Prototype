@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { authenticate, requireRole, logAudit } from '../middleware/auth.js';
+import { createNotification } from '../common/notifications.js';
 const router = Router();
 router.get('/', authenticate, async (req, res) => {
     try {
@@ -318,7 +319,6 @@ router.post('/', authenticate, async (req, res) => {
             const transferNumber = `TRF-${Date.now().toString().slice(-8)}`;
             const insertRes = await client.query(`
         INSERT INTO transfers (transfer_number, source_warehouse_id, destination_warehouse_id, requested_by_user_id, status, notes)
-        VALUES ($1, $2, $3, $4, 'REQUESTED', $5)
         RETURNING id
       `, [transferNumber, sourceWarehouseId, destinationWarehouseId, req.user?.id || 1, notes || '']);
             const transferId = insertRes.rows[0].id;
@@ -328,6 +328,21 @@ router.post('/', authenticate, async (req, res) => {
           VALUES ($1, $2, $3, 0)
         `, [transferId, item.productId, item.requestedQuantity]);
             }
+            await createNotification(client, {
+                warehouseId: sourceWarehouseId,
+                actorUserId: req.user?.id || null,
+                type: 'TRANSFER_REQUESTED',
+                title: 'Nouvelle demande de transfert',
+                message: `${destWh?.name || 'Un entrepôt'} a demandé un transfert (${transferNumber}) de ${items.length} article(s) depuis votre stock.`,
+                link: `/transfers?transferId=${transferId}`,
+                metadata: {
+                    transferId,
+                    transferNumber,
+                    sourceWarehouseId,
+                    destinationWarehouseId,
+                    itemCount: items.length,
+                },
+            });
             return { id: transferId, transferNumber, status: 'REQUESTED' };
         });
         await logAudit(req.user, 'TRANSFER_REQUESTED', 'TRANSFER', result.id, `Created transfer request ${result.transferNumber}`, destinationWarehouseId);
@@ -548,6 +563,20 @@ router.post('/:id/approve', authenticate, async (req, res) => {
                 await client.query('UPDATE transfer_items SET approved_quantity = $1 WHERE id = $2', [qtyToApprove, curItem.id]);
             }
             await client.query("UPDATE transfers SET status = 'APPROVED', approved_at = NOW(), updated_at = NOW() WHERE id = $1", [id]);
+            await createNotification(client, {
+                warehouseId: transfer.destination_warehouse_id,
+                actorUserId: req.user?.id || null,
+                type: 'TRANSFER_APPROVED',
+                title: 'Transfert approuvé',
+                message: `Le transfert ${transfer.transfer_number} a été approuvé. Le stock est réservé et prêt pour expédition / réception.`,
+                link: `/transfers?transferId=${id}`,
+                metadata: {
+                    transferId: id,
+                    transferNumber: transfer.transfer_number,
+                    sourceWarehouseId: transfer.source_warehouse_id,
+                    destinationWarehouseId: transfer.destination_warehouse_id,
+                },
+            });
         });
         await logAudit(req.user, 'TRANSFER_APPROVED', 'TRANSFER', id, `Approved transfer ${transfer.transfer_number} and reserved stock`, transfer.source_warehouse_id);
         return sendSuccess(res, { id, status: 'APPROVED' }, 'Transfer approved and stock reserved');
@@ -617,6 +646,20 @@ router.post('/:id/confirm', authenticate, async (req, res) => {
         `, [transfer.destination_warehouse_id, item.product_id, qty, transfer.transfer_number, `Transfert entrant depuis ${transfer.source_warehouse_name}`]);
             }
             await client.query("UPDATE transfers SET status = 'CONFIRMED', confirmed_at = NOW(), updated_at = NOW() WHERE id = $1", [id]);
+            await createNotification(client, {
+                warehouseId: transfer.source_warehouse_id,
+                actorUserId: req.user?.id || null,
+                type: 'TRANSFER_CONFIRMED',
+                title: 'Transfert réceptionné',
+                message: `${transfer.destination_warehouse_name} a confirmé la réception du transfert ${transfer.transfer_number}.`,
+                link: `/transfers?transferId=${id}`,
+                metadata: {
+                    transferId: id,
+                    transferNumber: transfer.transfer_number,
+                    sourceWarehouseId: transfer.source_warehouse_id,
+                    destinationWarehouseId: transfer.destination_warehouse_id,
+                },
+            });
         });
         await logAudit(req.user, 'TRANSFER_CONFIRMED', 'TRANSFER', id, `Confirmed transfer receipt ${transfer.transfer_number}`, transfer.destination_warehouse_id);
         return sendSuccess(res, { id, status: 'CONFIRMED' }, 'Transfer confirmed and inventory updated');
@@ -643,6 +686,20 @@ router.post('/:id/decline', authenticate, async (req, res) => {
         if (transfer.status !== 'REQUESTED')
             return sendError(res, `Cannot decline transfer in status ${transfer.status}`, 400);
         await query("UPDATE transfers SET status = 'DECLINED', updated_at = NOW() WHERE id = $1", [id]);
+        await createNotification(null, {
+            warehouseId: transfer.destination_warehouse_id,
+            actorUserId: req.user?.id || null,
+            type: 'TRANSFER_DECLINED',
+            title: 'Transfert refusé',
+            message: `La demande de transfert ${transfer.transfer_number} a été refusée par le dépôt source.`,
+            link: `/transfers?transferId=${id}`,
+            metadata: {
+                transferId: id,
+                transferNumber: transfer.transfer_number,
+                sourceWarehouseId: transfer.source_warehouse_id,
+                destinationWarehouseId: transfer.destination_warehouse_id,
+            },
+        });
         await logAudit(req.user, 'TRANSFER_DECLINED', 'TRANSFER', id, `Declined transfer request ${transfer.transfer_number}`, transfer.source_warehouse_id);
         return sendSuccess(res, { id, status: 'DECLINED' }, 'Transfer declined');
     }
@@ -684,6 +741,21 @@ router.post('/:id/cancel', authenticate, async (req, res) => {
                 }
             }
             await client.query("UPDATE transfers SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1", [id]);
+            const notifyWarehouseId = Number(user?.warehouseId) === Number(transfer.destination_warehouse_id)
+                ? transfer.source_warehouse_id
+                : transfer.destination_warehouse_id;
+            await createNotification(client, {
+                warehouseId: notifyWarehouseId,
+                actorUserId: req.user?.id || null,
+                type: 'TRANSFER_CANCELLED',
+                title: 'Transfert annulé',
+                message: `Le transfert ${transfer.transfer_number} a été annulé.`,
+                link: `/transfers?transferId=${id}`,
+                metadata: {
+                    transferId: id,
+                    transferNumber: transfer.transfer_number,
+                },
+            });
         });
         await logAudit(req.user, 'TRANSFER_CANCELLED', 'TRANSFER', id, `Cancelled transfer ${transfer.transfer_number} and released reservation`, transfer.source_warehouse_id);
         return sendSuccess(res, { id, status: 'CANCELLED' }, 'Transfer cancelled');

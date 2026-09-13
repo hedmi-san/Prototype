@@ -266,6 +266,20 @@ export async function initSchema(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS notifications (
+      id SERIAL PRIMARY KEY,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+      actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      type VARCHAR(50) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      message TEXT NOT NULL,
+      link VARCHAR(255),
+      metadata JSONB DEFAULT '{}',
+      is_read BOOLEAN NOT NULL DEFAULT FALSE,
+      read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
   `);
 
   // Migrations for existing databases
@@ -336,5 +350,6 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_products_sale_price ON products(sale_price);
     CREATE INDEX IF NOT EXISTS idx_products_purchase_price ON products(purchase_price);
     CREATE INDEX IF NOT EXISTS idx_products_search ON products(reference, name, brand);
+    CREATE INDEX IF NOT EXISTS idx_notifications_wh_read_created ON notifications(warehouse_id, is_read, created_at DESC);
   `);
 }

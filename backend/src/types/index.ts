@@ -282,3 +282,35 @@ export interface CreateClientRefundRequest {
   notes?: string;
   refundMethod?: 'CASH';
 }
+
+export type NotificationType =
+  | 'TRANSFER_REQUESTED'
+  | 'TRANSFER_APPROVED'
+  | 'TRANSFER_CONFIRMED'
+  | 'TRANSFER_DECLINED'
+  | 'TRANSFER_CANCELLED'
+  | 'SALE_PICKUP_PENDING'
+  | 'SALE_PICKUP_COMPLETED'
+  | 'SALE_PICKUP_CANCELLED';
+
+export interface AppNotification {
+  id: number;
+  warehouse_id: number;
+  warehouse_name?: string;
+  actor_user_id?: number | null;
+  actor_user_name?: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link?: string | null;
+  metadata?: Record<string, any>;
+  is_read: boolean;
+  read_at?: string | null;
+  created_at: string;
+}
+
+export interface NotificationCounts {
+  unreadCount: number;
+  pendingTransfersCount: number;
+  pendingPickupsCount: number;
+}

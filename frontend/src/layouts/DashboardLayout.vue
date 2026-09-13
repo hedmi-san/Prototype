@@ -3,14 +3,17 @@ import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
 import { useWarehouseStore } from '../stores/warehouse.store';
+import { useNotificationStore } from '../stores/notification.store';
 import { formatRole } from '../utils/formatters';
 import AppBadge from '../components/common/AppBadge.vue';
 import AppButton from '../components/common/AppButton.vue';
+import NotificationMenu from '../components/notifications/NotificationMenu.vue';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
+const notifStore = useNotificationStore();
 
 const isSidebarOpen = ref(true);
 
@@ -76,6 +79,9 @@ function handleLogout() {
           <span class="scope-val">{{ authStore.user?.warehouseName || 'Assigné' }}</span>
         </div>
 
+        <!-- Notification Center -->
+        <NotificationMenu />
+
         <!-- User Profile Pill -->
         <div class="user-pill">
           <div class="user-avatar">
@@ -139,6 +145,9 @@ function handleLogout() {
               <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
             </svg>
             <span>Ventes & Factures</span>
+            <span v-if="!authStore.isAdmin && notifStore.pendingPickupsCount > 0" class="sidebar-pill warning" title="Retraits clients en attente">
+              {{ notifStore.pendingPickupsCount }}
+            </span>
           </router-link>
 
           <router-link to="/clients" class="nav-item" active-class="active">
@@ -159,6 +168,9 @@ function handleLogout() {
               <polyline points="13 18 17 22 21 18" />
             </svg>
             <span>Transferts Inter-Entrepôts</span>
+            <span v-if="!authStore.isAdmin && notifStore.pendingTransfersCount > 0" class="sidebar-pill info" title="Demandes de transfert en attente">
+              {{ notifStore.pendingTransfersCount }}
+            </span>
           </router-link>
 
           <div class="nav-section-title">GESTION & RH</div>
@@ -539,5 +551,32 @@ function handleLogout() {
 .read-only-banner .banner-desc {
   font-size: 12px;
   color: var(--color-text-secondary);
+}
+
+.sidebar-pill {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+  line-height: 16px;
+}
+
+.sidebar-pill.warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+}
+
+.sidebar-pill.info {
+  background: rgba(14, 165, 233, 0.15);
+  color: #0284c7;
+}
+
+.nav-item.active .sidebar-pill.warning,
+.nav-item.active .sidebar-pill.info {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
 }
 </style>
