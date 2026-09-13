@@ -1163,21 +1163,9 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
               ttlHours: Number(alloc.ttlHours) || 120,
             });
 
-            // If prepaid at origin for goods from remote branch, establish inter-branch settlement liability
-            if (Number(alloc.paymentWarehouseId) !== Number(alloc.fulfillmentWarehouseId) && linePaymentStatus === 'PAID') {
-              const settlNumber = `SETTL-${Date.now().toString().slice(-8)}-${Math.floor(100 + Math.random() * 900)}`;
-              await client.query(`
-                INSERT INTO inter_warehouse_settlements (
-                  settlement_number, debtor_warehouse_id, creditor_warehouse_id, amount, status, notes, created_at
-                ) VALUES ($1, $2, $3, $4, 'PENDING', $5, NOW())
-              `, [
-                settlNumber,
-                alloc.paymentWarehouseId || targetWarehouseId,
-                alloc.fulfillmentWarehouseId,
-                subtotal,
-                `Vente ${invoiceNumber} payée au dépôt ${alloc.paymentWarehouseId || targetWarehouseId} et livrable au dépôt ${alloc.fulfillmentWarehouseId}`,
-              ]);
-            }
+            // A remote fulfillment remains fully traceable through its fulfillment
+            // line and pickup voucher. Cash belongs to the same company, so no
+            // inter-warehouse debt or treasury settlement is created.
           }
         }
       } else {
@@ -1972,13 +1960,6 @@ router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', '
             `, [line.id]);
           }
 
-          // Cancel pending inter-warehouse settlements
-          await client.query(`
-            UPDATE inter_warehouse_settlements
-            SET status = 'CANCELLED', notes = notes || ' (Annulé suite à annulation de la vente)'
-            WHERE status = 'PENDING' AND notes LIKE '%' || $1 || '%'
-          `, [currentSale.invoice_number]);
-
           // Compensating ledger entry if attached to a client
           if (currentSale.client_id) {
             const clientRes = await client.query('SELECT id, current_balance FROM clients WHERE id = $1 FOR UPDATE', [currentSale.client_id]);
@@ -2034,13 +2015,6 @@ router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', '
               WHERE id = $1
             `, [line.id]);
           }
-
-          // Cancel pending inter-warehouse settlements related to this sale
-          await client.query(`
-            UPDATE inter_warehouse_settlements
-            SET status = 'CANCELLED', notes = notes || ' (Annulé suite à annulation partielle de la vente)'
-            WHERE status = 'PENDING' AND notes LIKE '%' || $1 || '%'
-          `, [currentSale.invoice_number]);
 
           const cancelledAmount = pendingLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
           const fulfilledAmount = fulfilledLines.reduce((acc, l) => acc + Number(l.subtotal), 0);

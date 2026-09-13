@@ -138,6 +138,96 @@ router.get('/', authenticate, async (req, res) => {
         return sendError(res, err.message, 500);
     }
 });
+/**
+ * Read-only operational history for customer orders fulfilled from a different
+ * warehouse. This is deliberately based on fulfillment lines, not a treasury
+ * ledger: the warehouses belong to one company, so there is no inter-branch
+ * receivable to settle.
+ */
+router.get('/inter-warehouse-sales', authenticate, async (req, res) => {
+    try {
+        const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+        const status = req.query.status;
+        const search = req.query.search?.trim();
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate;
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
+        const offset = (page - 1) * limit;
+        const params = [];
+        const whereClauses = ['fl.origin_warehouse_id <> fl.fulfillment_warehouse_id'];
+        const scopedWarehouseId = req.user?.role !== 'ADMIN' && req.user?.warehouseId
+            ? req.user.warehouseId
+            : requestedWarehouseId;
+        if (scopedWarehouseId) {
+            const p1 = params.length + 1;
+            const p2 = params.length + 2;
+            const p3 = params.length + 3;
+            whereClauses.push(`(fl.origin_warehouse_id = $${p1} OR fl.fulfillment_warehouse_id = $${p2} OR fl.payment_warehouse_id = $${p3})`);
+            params.push(scopedWarehouseId, scopedWarehouseId, scopedWarehouseId);
+        }
+        if (status) {
+            params.push(status);
+            whereClauses.push(`fl.fulfillment_status = $${params.length}`);
+        }
+        if (startDate) {
+            params.push(startDate.length === 10 ? `${startDate} 00:00:00` : startDate);
+            whereClauses.push(`fl.created_at >= $${params.length}`);
+        }
+        if (endDate) {
+            params.push(endDate.length === 10 ? `${endDate} 23:59:59` : endDate);
+            whereClauses.push(`fl.created_at <= $${params.length}`);
+        }
+        if (search) {
+            const pattern = `%${search}%`;
+            const fields = ['s.invoice_number', 'fl.pickup_voucher_code', 'COALESCE(c.name, s.customer_name)', 'p.name', 'p.reference', 'ow.name', 'fw.name'];
+            const conditions = fields.map((field) => {
+                params.push(pattern);
+                return `${field} ILIKE $${params.length}`;
+            });
+            whereClauses.push(`(${conditions.join(' OR ')})`);
+        }
+        const baseFrom = `
+      FROM sale_fulfillment_lines fl
+      JOIN sales s ON fl.sale_id = s.id
+      JOIN products p ON fl.product_id = p.id
+      JOIN warehouses ow ON fl.origin_warehouse_id = ow.id
+      JOIN warehouses fw ON fl.fulfillment_warehouse_id = fw.id
+      JOIN warehouses pw ON fl.payment_warehouse_id = pw.id
+      LEFT JOIN clients c ON s.client_id = c.id
+      LEFT JOIN users fu ON fl.fulfilled_by_user_id = fu.id
+      WHERE ${whereClauses.join(' AND ')}
+    `;
+        const countRes = await query(`SELECT COUNT(*) AS count ${baseFrom}`, params);
+        const total = Number(countRes.rows[0]?.count || 0);
+        const result = await query(`
+      SELECT fl.id, fl.sale_id, s.invoice_number, COALESCE(c.name, s.customer_name, 'Client comptoir') AS customer_name,
+             fl.pickup_voucher_code, p.name AS product_name, p.reference AS product_reference,
+             fl.quantity, fl.unit_price, fl.subtotal, fl.fulfillment_status, fl.payment_status,
+             ow.name AS origin_warehouse_name, ow.code AS origin_warehouse_code,
+             fw.name AS fulfillment_warehouse_name, fw.code AS fulfillment_warehouse_code,
+             pw.name AS payment_warehouse_name, pw.code AS payment_warehouse_code,
+             fl.created_at, fl.fulfilled_at, fu.full_name AS fulfilled_by_name
+      ${baseFrom}
+      ORDER BY fl.created_at DESC, fl.id DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `, [...params, limit, offset]);
+        const items = result.rows.map((row) => ({
+            id: row.id, saleId: row.sale_id, invoiceNumber: row.invoice_number, customerName: row.customer_name,
+            pickupVoucherCode: row.pickup_voucher_code, productName: row.product_name, productReference: row.product_reference,
+            quantity: Number(row.quantity), unitPrice: Number(row.unit_price), subtotal: Number(row.subtotal),
+            fulfillmentStatus: row.fulfillment_status, paymentStatus: row.payment_status,
+            originWarehouseName: row.origin_warehouse_name, originWarehouseCode: row.origin_warehouse_code,
+            fulfillmentWarehouseName: row.fulfillment_warehouse_name, fulfillmentWarehouseCode: row.fulfillment_warehouse_code,
+            paymentWarehouseName: row.payment_warehouse_name, paymentWarehouseCode: row.payment_warehouse_code,
+            createdAt: row.created_at, fulfilledAt: row.fulfilled_at, fulfilledByName: row.fulfilled_by_name,
+        }));
+        return sendSuccess(res, { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 } });
+    }
+    catch (err) {
+        return sendError(res, err.message, 500);
+    }
+});
 router.get('/:id', authenticate, async (req, res) => {
     try {
         const id = Number(req.params.id);

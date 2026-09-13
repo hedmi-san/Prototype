@@ -266,18 +266,6 @@ export async function initSchema(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS inter_warehouse_settlements (
-      id SERIAL PRIMARY KEY,
-      settlement_number VARCHAR(50) NOT NULL UNIQUE,
-      debtor_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
-      creditor_warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
-      amount NUMERIC(14, 2) NOT NULL CHECK(amount > 0),
-      status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
-      settlement_date TIMESTAMPTZ,
-      settled_by_user_id INTEGER REFERENCES users(id),
-      notes TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
   `);
 
   // Migrations for existing databases
@@ -335,7 +323,6 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_stock_reservations_wh_prod ON stock_reservations(warehouse_id, product_id, status);
     CREATE INDEX IF NOT EXISTS idx_stock_reservations_status_expires ON stock_reservations(status, expires_at);
     CREATE INDEX IF NOT EXISTS idx_stock_reservations_line ON stock_reservations(fulfillment_line_id);
-    CREATE INDEX IF NOT EXISTS idx_settlements_debtor_creditor ON inter_warehouse_settlements(debtor_warehouse_id, creditor_warehouse_id, status);
     CREATE INDEX IF NOT EXISTS idx_stock_movements_created_wh ON stock_movements(created_at, warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_stock_movements_type_created ON stock_movements(movement_type, created_at);
     CREATE INDEX IF NOT EXISTS idx_transfers_created_wh ON transfers(created_at, source_warehouse_id, destination_warehouse_id);

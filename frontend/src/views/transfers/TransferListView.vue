@@ -16,7 +16,7 @@ import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
 import AppPagination from '../../components/common/AppPagination.vue';
 import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
 import StockRelocationModal from '../../components/transfers/StockRelocationModal.vue';
-import type { Transfer, Product, Warehouse, Stock, InterWarehouseSettlementBalance } from '../../types';
+import type { Transfer, Stock, InterWarehouseSaleHistoryItem } from '../../types';
 
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
@@ -27,6 +27,7 @@ const sourceWarehouseStock = ref<Stock[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
 const statusFilter = ref('');
+const activeMainTab = ref<'transfers' | 'sales-history'>('transfers');
 
 // Period & Pagination state
 const activeRange = ref<ComputedPeriodRange | null>(null);
@@ -35,52 +36,57 @@ const limit = ref(25);
 const total = ref(0);
 const totalPages = ref(1);
 
-// Inter-Warehouse Balances & Settlements State
-const settlementBalances = ref<InterWarehouseSettlementBalance[]>([]);
-const settlementsLoading = ref(false);
-const showSettlementModal = ref(false);
-const selectedBalance = ref<InterWarehouseSettlementBalance | null>(null);
-const settlementNotes = ref('');
-const clearingSettlement = ref(false);
-const settlementError = ref('');
+// Inter-warehouse sales history: operational trace, never a debt ledger.
+const interWarehouseSales = ref<InterWarehouseSaleHistoryItem[]>([]);
+const salesHistoryLoading = ref(false);
+const salesHistorySearch = ref('');
+const salesHistoryStatus = ref('');
+const salesHistoryPage = ref(1);
+const salesHistoryLimit = ref(25);
+const salesHistoryTotal = ref(0);
+const salesHistoryTotalPages = ref(1);
 
-async function fetchSettlementBalances() {
-  settlementsLoading.value = true;
+async function fetchInterWarehouseSales() {
+  salesHistoryLoading.value = true;
   try {
-    const res = await transferService.getSettlementBalances();
-    settlementBalances.value = res.balances;
-  } catch (err) {
-    console.error('Failed to load settlement balances', err);
-  } finally {
-    settlementsLoading.value = false;
-  }
-}
-
-function openSettleModal(bal: InterWarehouseSettlementBalance) {
-  selectedBalance.value = bal;
-  settlementNotes.value = '';
-  settlementError.value = '';
-  showSettlementModal.value = true;
-}
-
-async function handleConfirmClearSettlement() {
-  if (!selectedBalance.value) return;
-  clearingSettlement.value = true;
-  settlementError.value = '';
-  try {
-    await transferService.clearSettlement({
-      debtorWarehouseId: selectedBalance.value.debtorWarehouseId,
-      creditorWarehouseId: selectedBalance.value.creditorWarehouseId,
-      settlementIds: selectedBalance.value.settlementIds,
-      notes: settlementNotes.value.trim() || undefined,
+    const res = await transferService.getInterWarehouseSales({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      status: salesHistoryStatus.value || undefined,
+      search: salesHistorySearch.value.trim() || undefined,
+      page: salesHistoryPage.value,
+      limit: salesHistoryLimit.value,
     });
-    showSettlementModal.value = false;
-    await fetchSettlementBalances();
-  } catch (err: any) {
-    settlementError.value = err.response?.data?.message || 'Échec de la régularisation de la balance inter-dépôts';
+    interWarehouseSales.value = res.items;
+    salesHistoryTotal.value = res.pagination.total;
+    salesHistoryTotalPages.value = res.pagination.totalPages;
+    salesHistoryPage.value = res.pagination.page;
+  } catch (err) {
+    console.error('Failed to load inter-warehouse sales history', err);
   } finally {
-    clearingSettlement.value = false;
+    salesHistoryLoading.value = false;
   }
+}
+
+function switchMainTab(tab: 'transfers' | 'sales-history') {
+  activeMainTab.value = tab;
+  if (tab === 'sales-history' && !interWarehouseSales.value.length) {
+    fetchInterWarehouseSales();
+  }
+}
+
+let salesHistorySearchTimeout: any = null;
+function onSalesHistorySearchInput() {
+  clearTimeout(salesHistorySearchTimeout);
+  salesHistorySearchTimeout = setTimeout(() => {
+    salesHistoryPage.value = 1;
+    fetchInterWarehouseSales();
+  }, 300);
+}
+
+function onSalesHistoryPageChange(payload: { page: number; limit: number }) {
+  salesHistoryPage.value = payload.page;
+  salesHistoryLimit.value = payload.limit;
+  fetchInterWarehouseSales();
 }
 
 // Request Transfer Modal
@@ -125,7 +131,7 @@ const saving = ref(false);
 const errorMessage = ref('');
 
 onMounted(async () => {
-  await Promise.all([productStore.fetchProducts(), fetchSettlementBalances()]);
+  await productStore.fetchProducts();
   if (!activeRange.value) {
     await fetchTransfers();
   }
@@ -134,12 +140,18 @@ onMounted(async () => {
 // Watch warehouse and status filter changes
 watch(() => authStore.activeWarehouseId, async () => {
   page.value = 1;
-  await Promise.all([fetchTransfers(), fetchSettlementBalances()]);
+  salesHistoryPage.value = 1;
+  await Promise.all([fetchTransfers(), fetchInterWarehouseSales()]);
 });
 
 watch(statusFilter, async () => {
   page.value = 1;
   await fetchTransfers();
+});
+
+watch(salesHistoryStatus, async () => {
+  salesHistoryPage.value = 1;
+  await fetchInterWarehouseSales();
 });
 
 let searchTimeout: any = null;
@@ -424,8 +436,8 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
   <div class="transfers-view">
     <div class="page-header">
       <div>
-        <h1 class="page-title">Transferts Inter-Entrepôts</h1>
-        <p class="text-muted">Demandes de transfert, réservation de stock source et confirmation de réception</p>
+        <h1 class="page-title">Opérations Inter-Entrepôts</h1>
+        <p class="text-muted">Transferts de stock et traçabilité des ventes avec retrait dans un autre dépôt</p>
       </div>
       <div class="header-actions">
         <AppButton
@@ -451,96 +463,20 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
       </div>
     </div>
 
-    <!-- Reusable Period Navigator -->
-    <AppPeriodNavigator
-      initial-granularity="month"
-      @change="onPeriodChange"
-    />
-
-    <!-- Inter-Warehouse Balances & Treasury Settlements Card -->
-    <div class="settlements-card">
-      <div class="settlements-header">
-        <div class="header-left">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="1" x2="12" y2="23" />
-            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-          </svg>
-          <div>
-            <h3 class="card-title">Soldes & Régularisations Financières Inter-Dépôts</h3>
-            <p class="card-subtitle">
-              Créances et compensations de trésorerie nées des ventes déportées
-            </p>
-          </div>
-        </div>
-        <div class="header-right">
-          <AppButton
-            variant="secondary"
-            size="sm"
-            :loading="settlementsLoading"
-            @click="fetchSettlementBalances"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="23 4 23 10 17 10" />
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-            </svg>
-            Actualiser
-          </AppButton>
-        </div>
-      </div>
-
-      <div v-if="settlementsLoading && !settlementBalances.length" class="balances-loading">
-        Chargement des soldes inter-entrepôts...
-      </div>
-
-      <div v-else-if="!settlementBalances.length" class="balances-empty">
-        ✓ Tous les soldes inter-dépôts sont équilibrés. Aucune compensation de trésorerie en attente.
-      </div>
-
-      <div v-else class="balances-grid">
-        <div
-          v-for="bal in settlementBalances"
-          :key="`${bal.debtorWarehouseId}-${bal.creditorWarehouseId}`"
-          class="balance-card-item"
-        >
-          <div class="balance-flow">
-            <div class="wh-party debtor-box">
-              <span class="role-tag debtor">Débiteur (A encaissé)</span>
-              <strong>{{ bal.debtorWarehouseName }}</strong>
-            </div>
-            <div class="arrow-container">
-              <span class="arrow-label">doit rembourser</span>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </div>
-            <div class="wh-party creditor-box">
-              <span class="role-tag creditor">Créancier (A livré)</span>
-              <strong>{{ bal.creditorWarehouseName }}</strong>
-            </div>
-          </div>
-
-          <div class="balance-amount-box">
-            <div class="amount-val font-mono font-bold">{{ formatCurrency(bal.pendingAmount) }}</div>
-            <span class="count-tag font-mono">{{ bal.count }} vente(s) déportée(s)</span>
-          </div>
-
-          <div class="balance-action">
-            <AppButton
-              v-if="!authStore.isReadOnly && (authStore.isAdmin || authStore.isSuperManager)"
-              variant="secondary"
-              size="sm"
-              @click="openSettleModal(bal)"
-            >
-              Régulariser le Solde
-            </AppButton>
-          </div>
-        </div>
-      </div>
+    <div class="tabs-header" role="tablist" aria-label="Navigation des transferts">
+      <button :class="['main-tab-btn', { active: activeMainTab === 'transfers' }]" @click="switchMainTab('transfers')">
+        Demandes de transfert
+      </button>
+      <button :class="['main-tab-btn', { active: activeMainTab === 'sales-history' }]" @click="switchMainTab('sales-history')">
+        Historique des ventes inter-dépôts
+      </button>
     </div>
 
-    <!-- Filter Bar -->
-    <div class="filter-bar">
+    <div v-if="activeMainTab === 'transfers'" class="tab-pane">
+      <AppPeriodNavigator initial-granularity="month" @change="onPeriodChange" />
+
+      <!-- Filter Bar -->
+      <div class="filter-bar">
       <div class="search-box">
         <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8" />
@@ -569,10 +505,10 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
       <div class="count-badge text-muted font-mono">
         {{ total }} {{ total > 1 ? 'transferts trouvés' : 'transfert trouvé' }}
       </div>
-    </div>
+      </div>
 
-    <!-- Transfers Table -->
-    <AppTable :loading="loading" :empty="!transfers.length" empty-text="Aucun transfert enregistré pour cette période" :columns-count="7">
+      <!-- Transfers Table -->
+      <AppTable :loading="loading" :empty="!transfers.length" empty-text="Aucun transfert enregistré pour cette période" :columns-count="7">
       <template #header>
         <th>N° Transfert</th>
         <th>Entrepôt Source</th>
@@ -640,17 +576,70 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
           </td>
         </tr>
       </template>
-    </AppTable>
+      </AppTable>
 
-    <!-- Pagination -->
-    <AppPagination
-      v-model:page="page"
-      v-model:limit="limit"
-      :total="total"
-      :total-pages="totalPages"
-      :loading="loading"
-      @change="onPageChange"
-    />
+      <AppPagination
+        v-model:page="page"
+        v-model:limit="limit"
+        :total="total"
+        :total-pages="totalPages"
+        :loading="loading"
+        @change="onPageChange"
+      />
+    </div>
+
+    <div v-else class="tab-pane">
+      <div class="history-intro">
+        <div>
+          <h2>Traçabilité des ventes inter-dépôts</h2>
+          <p>Chaque ligne conserve l'origine de la vente, le dépôt de retrait, le point d'encaissement et la remise au client. Aucun solde interne n'est créé : tous les encaissements appartiennent à la même société.</p>
+        </div>
+        <AppButton variant="secondary" size="sm" :loading="salesHistoryLoading" @click="fetchInterWarehouseSales">Actualiser</AppButton>
+      </div>
+
+      <div class="filter-bar">
+        <div class="search-box">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <input v-model="salesHistorySearch" type="text" placeholder="Facture, bon de retrait, client, article ou dépôt..." class="search-input" @input="onSalesHistorySearchInput" />
+        </div>
+        <div class="status-filter">
+          <select v-model="salesHistoryStatus" class="filter-select">
+            <option value="">Tous les retraits</option>
+            <option value="PENDING_PICKUP">En attente de retrait</option>
+            <option value="FULFILLED">Retirés / livrés</option>
+            <option value="CANCELLED">Annulés</option>
+          </select>
+        </div>
+        <div class="count-badge text-muted font-mono">{{ salesHistoryTotal }} {{ salesHistoryTotal > 1 ? 'lignes enregistrées' : 'ligne enregistrée' }}</div>
+      </div>
+
+      <AppTable :loading="salesHistoryLoading" :empty="!interWarehouseSales.length" empty-text="Aucune vente inter-dépôts enregistrée" :columns-count="8">
+        <template #header>
+          <th>Facture / Bon</th>
+          <th>Client</th>
+          <th>Parcours</th>
+          <th>Article</th>
+          <th>Encaissement</th>
+          <th>Montant</th>
+          <th>Statut retrait</th>
+          <th>Date / remise</th>
+        </template>
+        <template #body>
+          <tr v-for="item in interWarehouseSales" :key="item.id">
+            <td><strong class="font-mono">{{ item.invoiceNumber }}</strong><span class="text-caption font-mono" style="display:block">{{ item.pickupVoucherCode }}</span></td>
+            <td>{{ item.customerName }}</td>
+            <td><strong>{{ item.originWarehouseName }}</strong><span class="route-arrow">→</span><strong>{{ item.fulfillmentWarehouseName }}</strong></td>
+            <td><strong>{{ item.productName }}</strong><span class="text-caption font-mono" style="display:block">{{ item.productReference }} · Qté {{ formatNumber(item.quantity) }}</span></td>
+            <td><span class="text-caption">{{ item.paymentStatus === 'PAID' ? 'Réglée à' : 'À encaisser à' }}</span><strong style="display:block">{{ item.paymentWarehouseName }}</strong></td>
+            <td class="font-mono font-bold">{{ formatCurrency(item.subtotal) }}</td>
+            <td><AppBadge :variant="item.fulfillmentStatus === 'FULFILLED' ? 'success' : item.fulfillmentStatus === 'CANCELLED' ? 'neutral' : 'warning'" size="sm">{{ item.fulfillmentStatus === 'FULFILLED' ? 'Retiré' : item.fulfillmentStatus === 'CANCELLED' ? 'Annulé' : 'En attente' }}</AppBadge></td>
+            <td class="text-caption"><span>{{ formatDateTime(item.createdAt) }}</span><span v-if="item.fulfilledAt" style="display:block">Remis : {{ formatDateTime(item.fulfilledAt) }}</span></td>
+          </tr>
+        </template>
+      </AppTable>
+
+      <AppPagination v-model:page="salesHistoryPage" v-model:limit="salesHistoryLimit" :total="salesHistoryTotal" :total-pages="salesHistoryTotalPages" :loading="salesHistoryLoading" @change="onSalesHistoryPageChange" />
+    </div>
 
     <!-- Create Transfer Modal -->
     <AppModal
@@ -876,62 +865,6 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
       @relocated="fetchTransfers"
     />
 
-    <!-- Settlement Confirmation Modal -->
-    <AppModal
-      v-model="showSettlementModal"
-      title="Régularisation du Solde Inter-Dépôts"
-      max-width="520px"
-    >
-      <div v-if="settlementError" class="modal-error mb-3">
-        {{ settlementError }}
-      </div>
-
-      <div v-if="selectedBalance" class="settlement-modal-content">
-        <p class="text-caption text-muted mb-3">
-          Cette opération régularise la compensation financière entre les deux dépôts pour les ventes déportées spécifiées.
-        </p>
-
-        <div class="settle-summary-box">
-          <div class="settle-summary-row">
-            <span class="label">Dépôt Débiteur (A encaissé) :</span>
-            <strong class="val">{{ selectedBalance.debtorWarehouseName }}</strong>
-          </div>
-          <div class="settle-summary-row">
-            <span class="label">Dépôt Créancier (A livré) :</span>
-            <strong class="val">{{ selectedBalance.creditorWarehouseName }}</strong>
-          </div>
-          <div class="settle-summary-row highlight">
-            <span class="label">Montant à régulariser :</span>
-            <strong class="val font-mono">{{ formatCurrency(selectedBalance.pendingAmount) }}</strong>
-          </div>
-          <div class="settle-summary-row">
-            <span class="label">Opérations incluses :</span>
-            <span class="val font-mono">{{ selectedBalance.count }} vente(s) déportée(s)</span>
-          </div>
-        </div>
-
-        <div class="app-input-group mt-3">
-          <label class="input-label">Notes ou référence de compensation (optionnel)</label>
-          <input
-            v-model="settlementNotes"
-            type="text"
-            class="app-input"
-            placeholder="Ex: Virement interne TR-2026-0045 ou Espèces régularisées"
-          />
-        </div>
-      </div>
-
-      <template #footer>
-        <AppButton variant="secondary" @click="showSettlementModal = false">Annuler</AppButton>
-        <AppButton
-          variant="primary"
-          :loading="clearingSettlement"
-          @click="handleConfirmClearSettlement"
-        >
-          Confirmer la Régularisation
-        </AppButton>
-      </template>
-    </AppModal>
   </div>
 </template>
 
@@ -1185,183 +1118,49 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
 .mt-3 { margin-top: 12px; }
 .mb-2 { margin-bottom: 8px; }
 
-/* Inter-Warehouse Settlements Card */
-.settlements-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 16px 20px;
+/* Main navigation mirrors the Sales module so operational lists stay distinct. */
+.tabs-header {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.settlements-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid var(--color-border-subtle, var(--color-border));
-  padding-bottom: 12px;
+.main-tab-btn {
+  appearance: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.header-left {
+.main-tab-btn:hover { color: var(--color-text-primary); background: var(--color-bg-subtle); }
+.main-tab-btn.active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+.tab-pane { display: flex; flex-direction: column; gap: 20px; }
+
+.history-intro {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  color: var(--color-primary);
-}
-
-.card-title {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--color-text-primary);
-}
-
-.card-subtitle {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  margin: 2px 0 0 0;
-}
-
-.balances-loading,
-.balances-empty {
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  padding: 12px 0;
-}
-
-.balances-empty {
-  color: #10b981;
-  font-weight: 500;
-}
-
-.balances-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 14px;
-}
-
-.balance-card-item {
-  background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.balance-flow {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-}
-
-.wh-party {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-}
-
-.wh-party.debtor-box {
-  text-align: left;
-}
-
-.wh-party.creditor-box {
-  text-align: right;
-}
-
-.role-tag {
-  display: inline-block;
-  font-size: 10px;
-  text-transform: uppercase;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-
-.role-tag.debtor {
-  color: #ef4444;
-}
-
-.role-tag.creditor {
-  color: #10b981;
-}
-
-.arrow-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  color: var(--color-text-muted);
-}
-
-.arrow-label {
-  font-size: 10px;
-  color: var(--color-text-secondary);
-}
-
-.balance-amount-box {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
 }
 
-.amount-val {
-  font-size: 16px;
-  color: var(--color-text-primary);
-}
+.history-intro h2 { margin: 0 0 4px; font-size: 15px; color: var(--color-text-primary); }
+.history-intro p { margin: 0; max-width: 850px; font-size: 13px; line-height: 1.5; color: var(--color-text-secondary); }
+.route-arrow { margin: 0 7px; color: var(--color-primary); }
 
-.count-tag {
-  font-size: 11px;
-  color: var(--color-text-secondary);
-}
-
-.balance-action {
-  display: flex;
-  justify-content: flex-end;
-}
-
-/* Settle Modal */
-.settlement-modal-content {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.settle-summary-box {
-  background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.settle-summary-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-}
-
-.settle-summary-row.highlight {
-  border-top: 1px dashed var(--color-border);
-  border-bottom: 1px dashed var(--color-border);
-  padding: 8px 0;
-  margin: 4px 0;
-}
-
-.settle-summary-row.highlight .val {
-  font-size: 15px;
-  color: var(--color-primary);
+@media (max-width: 700px) {
+  .history-intro { flex-direction: column; }
+  .tabs-header { overflow-x: auto; }
+  .main-tab-btn { white-space: nowrap; }
 }
 </style>

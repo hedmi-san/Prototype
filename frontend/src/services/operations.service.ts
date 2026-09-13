@@ -11,8 +11,7 @@ import type {
   CrossWarehouseStockAvailability,
   SaleFulfillmentLine,
   FulfillmentAllocationInput,
-  InterWarehouseSettlementBalance,
-  InterWarehouseSettlement,
+  InterWarehouseSaleHistoryItem,
 } from '../types';
 import { downloadCsvResponse } from '../utils/export';
 
@@ -195,18 +194,9 @@ export const transferService = {
     const response = await api.post<ApiResponse<Transfer>>(`/transfers/${id}/cancel`);
     return response.data.data;
   },
-  async getSettlementBalances(): Promise<{ balances: InterWarehouseSettlementBalance[]; settlements: InterWarehouseSettlement[] }> {
-    const response = await api.get<ApiResponse<{ balances: InterWarehouseSettlementBalance[]; settlements: InterWarehouseSettlement[] }>>('/transfers/settlements/balances');
-    return response.data.data || { balances: [], settlements: [] };
-  },
-  async clearSettlement(data: {
-    debtorWarehouseId?: number;
-    creditorWarehouseId?: number;
-    settlementIds?: number[];
-    notes?: string;
-  }): Promise<{ clearedCount: number; totalClearedAmount: number }> {
-    const response = await api.post<ApiResponse<{ clearedCount: number; totalClearedAmount: number }>>('/transfers/settlements/clear', data);
-    return response.data.data;
+  async getInterWarehouseSales(params?: PaginationParams & { status?: string }): Promise<PaginatedData<InterWarehouseSaleHistoryItem>> {
+    const response = await api.get<ApiResponse<any>>('/transfers/inter-warehouse-sales', { params: normalizeParams(params) });
+    return normalizePaginatedResponse<InterWarehouseSaleHistoryItem>(response.data.data);
   },
   async bulkRelocateStock(data: {
     sourceWarehouseId: number;

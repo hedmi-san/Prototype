@@ -161,22 +161,6 @@ export interface StockReservation {
   created_at: string;
 }
 
-export interface InterWarehouseSettlement {
-  id: number;
-  settlement_number: string;
-  debtor_warehouse_id: number;
-  debtor_warehouse_name?: string;
-  creditor_warehouse_id: number;
-  creditor_warehouse_name?: string;
-  amount: number;
-  status: 'PENDING' | 'SETTLED';
-  settlement_date?: string | null;
-  settled_by_user_id?: number | null;
-  settled_by_user_name?: string;
-  notes?: string;
-  created_at: string;
-}
-
 export interface FulfillmentAllocationInput {
   productId: number;
   originWarehouseId: number;

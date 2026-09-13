@@ -157,107 +157,97 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/settlements/balances', authenticate, async (req: AuthRequest, res) => {
+/**
+ * Read-only operational history for customer orders fulfilled from a different
+ * warehouse. This is deliberately based on fulfillment lines, not a treasury
+ * ledger: the warehouses belong to one company, so there is no inter-branch
+ * receivable to settle.
+ */
+router.get('/inter-warehouse-sales', authenticate, async (req: AuthRequest, res) => {
   try {
-    const balancesRes = await query(`
-      SELECT 
-        s.debtor_warehouse_id, dw.name as debtor_warehouse_name, dw.code as debtor_warehouse_code,
-        s.creditor_warehouse_id, cw.name as creditor_warehouse_name, cw.code as creditor_warehouse_code,
-        SUM(s.amount) as pending_amount,
-        COUNT(*) as count,
-        ARRAY_AGG(s.id) as settlement_ids
-      FROM inter_warehouse_settlements s
-      JOIN warehouses dw ON s.debtor_warehouse_id = dw.id
-      JOIN warehouses cw ON s.creditor_warehouse_id = cw.id
-      WHERE s.status = 'PENDING'
-      GROUP BY s.debtor_warehouse_id, dw.name, dw.code, s.creditor_warehouse_id, cw.name, cw.code
-      ORDER BY dw.name, cw.name
-    `);
+    const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
+    const status = req.query.status as string | undefined;
+    const search = (req.query.search as string | undefined)?.trim();
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
+    const offset = (page - 1) * limit;
 
-    const recentSettlementsRes = await query(`
-      SELECT s.id, s.settlement_number, s.debtor_warehouse_id, dw.name as debtor_warehouse_name,
-             s.creditor_warehouse_id, cw.name as creditor_warehouse_name,
-             s.amount, s.status, s.settlement_date, s.settled_by_user_id, u.full_name as settled_by_name,
-             s.notes, s.created_at
-      FROM inter_warehouse_settlements s
-      JOIN warehouses dw ON s.debtor_warehouse_id = dw.id
-      JOIN warehouses cw ON s.creditor_warehouse_id = cw.id
-      LEFT JOIN users u ON s.settled_by_user_id = u.id
-      ORDER BY s.created_at DESC
-      LIMIT 100
-    `);
+    const params: any[] = [];
+    const whereClauses = ['fl.origin_warehouse_id <> fl.fulfillment_warehouse_id'];
+    const scopedWarehouseId = req.user?.role !== 'ADMIN' && req.user?.warehouseId
+      ? req.user.warehouseId
+      : requestedWarehouseId;
 
-    const balances = balancesRes.rows.map((b: any) => ({
-      debtorWarehouseId: b.debtor_warehouse_id,
-      debtorWarehouseName: b.debtor_warehouse_name,
-      debtorWarehouseCode: b.debtor_warehouse_code,
-      creditorWarehouseId: b.creditor_warehouse_id,
-      creditorWarehouseName: b.creditor_warehouse_name,
-      creditorWarehouseCode: b.creditor_warehouse_code,
-      pendingAmount: Number(b.pending_amount || 0),
-      count: Number(b.count || 0),
-      settlementIds: b.settlement_ids || [],
+    if (scopedWarehouseId) {
+      const p1 = params.length + 1;
+      const p2 = params.length + 2;
+      const p3 = params.length + 3;
+      whereClauses.push(`(fl.origin_warehouse_id = $${p1} OR fl.fulfillment_warehouse_id = $${p2} OR fl.payment_warehouse_id = $${p3})`);
+      params.push(scopedWarehouseId, scopedWarehouseId, scopedWarehouseId);
+    }
+    if (status) {
+      params.push(status);
+      whereClauses.push(`fl.fulfillment_status = $${params.length}`);
+    }
+    if (startDate) {
+      params.push(startDate.length === 10 ? `${startDate} 00:00:00` : startDate);
+      whereClauses.push(`fl.created_at >= $${params.length}`);
+    }
+    if (endDate) {
+      params.push(endDate.length === 10 ? `${endDate} 23:59:59` : endDate);
+      whereClauses.push(`fl.created_at <= $${params.length}`);
+    }
+    if (search) {
+      const pattern = `%${search}%`;
+      const fields = ['s.invoice_number', 'fl.pickup_voucher_code', 'COALESCE(c.name, s.customer_name)', 'p.name', 'p.reference', 'ow.name', 'fw.name'];
+      const conditions = fields.map((field) => {
+        params.push(pattern);
+        return `${field} ILIKE $${params.length}`;
+      });
+      whereClauses.push(`(${conditions.join(' OR ')})`);
+    }
+
+    const baseFrom = `
+      FROM sale_fulfillment_lines fl
+      JOIN sales s ON fl.sale_id = s.id
+      JOIN products p ON fl.product_id = p.id
+      JOIN warehouses ow ON fl.origin_warehouse_id = ow.id
+      JOIN warehouses fw ON fl.fulfillment_warehouse_id = fw.id
+      JOIN warehouses pw ON fl.payment_warehouse_id = pw.id
+      LEFT JOIN clients c ON s.client_id = c.id
+      LEFT JOIN users fu ON fl.fulfilled_by_user_id = fu.id
+      WHERE ${whereClauses.join(' AND ')}
+    `;
+    const countRes = await query(`SELECT COUNT(*) AS count ${baseFrom}`, params);
+    const total = Number(countRes.rows[0]?.count || 0);
+    const result = await query(`
+      SELECT fl.id, fl.sale_id, s.invoice_number, COALESCE(c.name, s.customer_name, 'Client comptoir') AS customer_name,
+             fl.pickup_voucher_code, p.name AS product_name, p.reference AS product_reference,
+             fl.quantity, fl.unit_price, fl.subtotal, fl.fulfillment_status, fl.payment_status,
+             ow.name AS origin_warehouse_name, ow.code AS origin_warehouse_code,
+             fw.name AS fulfillment_warehouse_name, fw.code AS fulfillment_warehouse_code,
+             pw.name AS payment_warehouse_name, pw.code AS payment_warehouse_code,
+             fl.created_at, fl.fulfilled_at, fu.full_name AS fulfilled_by_name
+      ${baseFrom}
+      ORDER BY fl.created_at DESC, fl.id DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `, [...params, limit, offset]);
+
+    const items = result.rows.map((row: any) => ({
+      id: row.id, saleId: row.sale_id, invoiceNumber: row.invoice_number, customerName: row.customer_name,
+      pickupVoucherCode: row.pickup_voucher_code, productName: row.product_name, productReference: row.product_reference,
+      quantity: Number(row.quantity), unitPrice: Number(row.unit_price), subtotal: Number(row.subtotal),
+      fulfillmentStatus: row.fulfillment_status, paymentStatus: row.payment_status,
+      originWarehouseName: row.origin_warehouse_name, originWarehouseCode: row.origin_warehouse_code,
+      fulfillmentWarehouseName: row.fulfillment_warehouse_name, fulfillmentWarehouseCode: row.fulfillment_warehouse_code,
+      paymentWarehouseName: row.payment_warehouse_name, paymentWarehouseCode: row.payment_warehouse_code,
+      createdAt: row.created_at, fulfilledAt: row.fulfilled_at, fulfilledByName: row.fulfilled_by_name,
     }));
-
-    const settlements = recentSettlementsRes.rows.map((s: any) => ({
-      id: s.id,
-      settlementNumber: s.settlement_number,
-      debtorWarehouseId: s.debtor_warehouse_id,
-      debtorWarehouseName: s.debtor_warehouse_name,
-      creditorWarehouseId: s.creditor_warehouse_id,
-      creditorWarehouseName: s.creditor_warehouse_name,
-      amount: Number(s.amount),
-      status: s.status,
-      settlementDate: s.settlement_date,
-      settledByUserId: s.settled_by_user_id,
-      settledByName: s.settled_by_name,
-      notes: s.notes,
-      createdAt: s.created_at,
-    }));
-
-    return sendSuccess(res, { balances, settlements });
+    return sendSuccess(res, { items, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 } });
   } catch (err: any) {
     return sendError(res, err.message, 500);
-  }
-});
-
-router.post('/settlements/clear', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'ACCOUNTANT'), async (req: AuthRequest, res) => {
-  try {
-    const { debtorWarehouseId, creditorWarehouseId, settlementIds, notes } = req.body;
-
-    const result = await runTransaction(async (client) => {
-      let updatedRows: any[] = [];
-      if (Array.isArray(settlementIds) && settlementIds.length > 0) {
-        const updateRes = await client.query(`
-          UPDATE inter_warehouse_settlements
-          SET status = 'SETTLED', settlement_date = NOW(), settled_by_user_id = $1, notes = COALESCE($2, notes)
-          WHERE id = ANY($3::int[]) AND status = 'PENDING'
-          RETURNING id, amount
-        `, [req.user?.id || 1, notes || 'Règlement de compensation inter-dépôts validé', settlementIds]);
-        updatedRows = updateRes.rows;
-      } else if (debtorWarehouseId && creditorWarehouseId) {
-        const updateRes = await client.query(`
-          UPDATE inter_warehouse_settlements
-          SET status = 'SETTLED', settlement_date = NOW(), settled_by_user_id = $1, notes = COALESCE($2, notes)
-          WHERE debtor_warehouse_id = $3 AND creditor_warehouse_id = $4 AND status = 'PENDING'
-          RETURNING id, amount
-        `, [req.user?.id || 1, notes || 'Règlement de compensation inter-dépôts validé', debtorWarehouseId, creditorWarehouseId]);
-        updatedRows = updateRes.rows;
-      } else {
-        throw new Error('debtorWarehouseId and creditorWarehouseId or settlementIds array is required');
-      }
-
-      const totalCleared = updatedRows.reduce((acc, r) => acc + Number(r.amount), 0);
-      return {
-        clearedCount: updatedRows.length,
-        totalClearedAmount: totalCleared,
-      };
-    });
-
-    await logAudit(req.user, 'SETTLEMENT_CLEARED', 'INTER_WAREHOUSE_SETTLEMENT', 0, `Cleared ${result.clearedCount} settlements totaling ${result.totalClearedAmount} DZD`);
-    return sendSuccess(res, result, 'Règlement inter-dépôts compensé avec succès');
-  } catch (err: any) {
-    return sendError(res, err.message, 400);
   }
 });
 

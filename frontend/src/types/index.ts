@@ -162,32 +162,30 @@ export interface FulfillmentAllocationInput {
   ttlHours?: number;
 }
 
-export interface InterWarehouseSettlementBalance {
-  debtorWarehouseId: number;
-  debtorWarehouseName: string;
-  debtorWarehouseCode: string;
-  creditorWarehouseId: number;
-  creditorWarehouseName: string;
-  creditorWarehouseCode: string;
-  pendingAmount: number;
-  count: number;
-  settlementIds: number[];
-}
-
-export interface InterWarehouseSettlement {
+/** Immutable operational record of a sale collected in one warehouse and
+ * physically released from another warehouse. */
+export interface InterWarehouseSaleHistoryItem {
   id: number;
-  settlementNumber: string;
-  debtorWarehouseId: number;
-  debtorWarehouseName: string;
-  creditorWarehouseId: number;
-  creditorWarehouseName: string;
-  amount: number;
-  status: 'PENDING' | 'SETTLED' | 'CANCELLED';
-  settlementDate?: string | null;
-  settledByUserId?: number | null;
-  settledByName?: string | null;
-  notes?: string;
+  saleId: number;
+  invoiceNumber: string;
+  customerName: string;
+  pickupVoucherCode: string;
+  productName: string;
+  productReference: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  fulfillmentStatus: 'PENDING_PICKUP' | 'FULFILLED' | 'CANCELLED';
+  paymentStatus: 'PAID' | 'COLLECT_ON_PICKUP';
+  originWarehouseName: string;
+  originWarehouseCode: string;
+  fulfillmentWarehouseName: string;
+  fulfillmentWarehouseCode: string;
+  paymentWarehouseName: string;
+  paymentWarehouseCode: string;
   createdAt: string;
+  fulfilledAt?: string | null;
+  fulfilledByName?: string | null;
 }
 
 export interface CrossWarehouseStockAvailability {

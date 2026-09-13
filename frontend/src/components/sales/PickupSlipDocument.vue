@@ -39,36 +39,38 @@ function printSlip() {
   <div class="pickup-slip-wrapper">
     <div class="no-print print-actions">
       <AppButton variant="primary" @click="printSlip">
-        🖨️ Imprimer le Bon de Retrait
+        Imprimer le bon de retrait
       </AppButton>
     </div>
 
     <div class="pickup-slip">
-      <!-- Top Header -->
       <div class="slip-header">
         <div class="company-brand">
+          <div class="brand-mark">GB</div>
+          <div>
           <h2 class="company-name">{{ companyName }}</h2>
           <p class="company-sub">IMPORTATION & DISTRIBUTION OUTILLAGE & QUINCAILLERIE</p>
+          <p class="company-doc-line">DOCUMENT LOGISTIQUE · ORIGINAL CLIENT</p>
+          </div>
         </div>
         <div class="slip-title-box">
-          <h3 class="slip-title">BON DE RETRAIT</h3>
-          <span class="slip-sub">TRANSFERT INTER-DÉPÔTS</span>
+          <h3 class="slip-title">BON DE MISE À DISPOSITION</h3>
+          <span class="slip-sub">RETRAIT CLIENT · INTER-DÉPÔTS</span>
         </div>
       </div>
 
-      <!-- Voucher Code & Barcode -->
       <div class="voucher-barcode-section">
         <div class="voucher-info">
           <div class="info-row">
-            <span class="label">N° Bon de Retrait :</span>
+            <span class="label">N° de bon</span>
             <span class="value font-mono font-bold text-primary">{{ line.pickupVoucherCode }}</span>
           </div>
           <div class="info-row" v-if="line.invoiceNumber || sale?.invoiceNumber">
-            <span class="label">Réf. Facture Origine :</span>
+            <span class="label">Facture associée</span>
             <span class="value font-mono font-semibold">{{ line.invoiceNumber || sale?.invoiceNumber }}</span>
           </div>
           <div class="info-row">
-            <span class="label">Date d'émission :</span>
+            <span class="label">Émis le</span>
             <span class="value">{{ formatInvoiceDate(line.createdAt) }}</span>
           </div>
         </div>
@@ -78,55 +80,48 @@ function printSlip() {
         </div>
       </div>
 
-      <!-- PAYMENT STATUS BANNER (CRITICAL) -->
       <div
         class="payment-banner"
         :class="isPrepaid ? 'banner-prepaid' : 'banner-collect'"
       >
-        <div class="banner-icon">
-          <span v-if="isPrepaid">✓</span>
-          <span v-else>⚠️</span>
-        </div>
         <div class="banner-text">
           <h4 v-if="isPrepaid" class="banner-heading">
-            COMMANDE PRÉPAYÉE AU DÉPÔT D'ORIGINE
+            STATUT DE RÈGLEMENT : DÉJÀ RÉGLÉE
           </h4>
           <h4 v-else class="banner-heading">
-            À ENCAISSER AU RETRAIT : {{ formatCurrency(line.subtotal) }}
+            STATUT DE RÈGLEMENT : À ENCAISSER AU RETRAIT — {{ formatCurrency(line.subtotal) }}
           </h4>
           <p v-if="isPrepaid" class="banner-desc">
-            Ne pas encaisser de paiement. Les articles ont déjà été réglés par le client lors de l'achat à l'origine.
+            Aucune somme ne doit être encaissée au dépôt de retrait. La commande a été réglée au point de vente d'origine.
           </p>
           <p v-else class="banner-desc">
-            Veuillez encaisser le montant exact de <strong>{{ formatCurrency(line.subtotal) }}</strong> au comptoir avant de délivrer la marchandise.
+            Encaisser le montant indiqué avant remise de la marchandise, puis valider le retrait dans le système.
           </p>
         </div>
       </div>
 
-      <!-- Warehouses Routing Grid -->
       <div class="routing-grid">
         <div class="routing-card origin-card">
-          <div class="card-tag">DÉPÔT D'ORIGINE (ÉMETTEUR)</div>
+          <div class="card-tag">POINT DE VENTE ÉMETTEUR</div>
           <div class="wh-title">{{ line.originWarehouseName || 'Dépôt Origine' }}</div>
-          <div class="wh-meta text-muted">Point de vente initial où la commande a été passée</div>
+          <div class="wh-meta text-muted">Lieu d'enregistrement de la commande</div>
         </div>
         <div class="routing-arrow">
-          <span>➔</span>
+          <span>→</span>
         </div>
         <div class="routing-card destination-card">
-          <div class="card-tag dest-tag">DÉPÔT DE RETRAIT (LIVREUR)</div>
+          <div class="card-tag dest-tag">DÉPÔT DE RETRAIT AUTORISÉ</div>
           <div class="wh-title">{{ line.fulfillmentWarehouseName || 'Dépôt Retrait' }}</div>
-          <div class="wh-meta text-muted">Lieu physique où le client doit retirer la marchandise</div>
+          <div class="wh-meta text-muted">Remise exclusivement contre présentation de ce bon</div>
         </div>
       </div>
 
-      <!-- Customer Information -->
       <div class="customer-section">
-        <div class="customer-title">Bénéficiaire / Client :</div>
+        <div class="customer-title">BÉNÉFICIAIRE AUTORISÉ</div>
         <div class="customer-details">
           <span class="cust-name font-bold">{{ line.customerName || line.clientName || sale?.customerName || 'Client' }}</span>
           <span v-if="line.customerPhone || sale?.customerPhone" class="cust-phone">
-            📞 {{ line.customerPhone || sale?.customerPhone }}
+            Tél. {{ line.customerPhone || sale?.customerPhone }}
           </span>
           <span v-if="line.clientCode" class="cust-code font-mono">
             Code: {{ line.clientCode }}
@@ -134,13 +129,12 @@ function printSlip() {
         </div>
       </div>
 
-      <!-- Products to Deliver Table -->
       <table class="slip-items-table">
         <thead>
           <tr>
             <th>Réf. Produit</th>
-            <th>Désignation de l'Article</th>
-            <th class="text-right">Qté à Délivrer</th>
+            <th>Désignation</th>
+            <th class="text-right">Qté autorisée</th>
             <th class="text-right">P.U.</th>
             <th class="text-right">Montant</th>
           </tr>
@@ -156,28 +150,26 @@ function printSlip() {
         </tbody>
       </table>
 
-      <!-- TTL Expiration Warning Notice -->
       <div class="ttl-warning-box" v-if="line.reservationExpiresAt">
-        <div class="ttl-title">⏳ VALIDITÉ DE LA RÉSERVATION DE STOCK :</div>
+        <div class="ttl-title">VALIDITÉ DE LA MISE À DISPOSITION</div>
         <div class="ttl-desc">
-          Ce bon de retrait est valide jusqu'au <strong>{{ formatInvoiceDate(line.reservationExpiresAt) }}</strong> (Délai de garde : 120 heures).
-          Passé ce délai sans retrait, la réservation sera automatiquement révoquée et remise en vente.
+          Ce bon est valable jusqu'au <strong>{{ formatInvoiceDate(line.reservationExpiresAt) }}</strong>. Après cette date, la réservation est libérée automatiquement et la remise nécessite une nouvelle validation.
         </div>
       </div>
 
-      <!-- Signatures Block -->
       <div class="signatures-grid">
         <div class="sig-box">
-          <span class="sig-label">Le Client / Porteur du Bon</span>
+          <span class="sig-label">BÉNÉFICIAIRE / PORTEUR</span>
           <div class="sig-space"></div>
-          <span class="sig-hint">« Bon pour réception de la marchandise »</span>
+          <span class="sig-hint">Nom, signature et mention « Bon pour réception »</span>
         </div>
         <div class="sig-box">
-          <span class="sig-label">Le Responsable du Dépôt de Retrait</span>
+          <span class="sig-label">RESPONSABLE DU DÉPÔT</span>
           <div class="sig-space"></div>
-          <span class="sig-hint">Signature et Cachet lors de la remise</span>
+          <span class="sig-hint">Date, signature et cachet lors de la remise</span>
         </div>
       </div>
+      <div class="slip-footer">Ce document autorise la remise des articles ci-dessus. Toute modification manuscrite doit être validée par le responsable du dépôt.</div>
     </div>
   </div>
 </template>
@@ -196,12 +188,12 @@ function printSlip() {
 
 .pickup-slip {
   background: white;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
+  border: 1px solid #94a3b8;
+  border-radius: 2px;
   padding: 1.5rem 2rem;
   color: #0f172a;
-  font-family: inherit;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  font-family: Arial, Helvetica, sans-serif;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
 }
 
 .slip-header {
@@ -218,7 +210,22 @@ function printSlip() {
   font-size: 1.15rem;
   font-weight: 800;
   letter-spacing: 0.03em;
-  color: #1e3a8a;
+  color: #172554;
+}
+
+.company-brand { display: flex; align-items: center; gap: 10px; }
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: #fff;
+  background: #172554;
+  border: 2px solid #334155;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .company-sub {
@@ -228,13 +235,15 @@ function printSlip() {
   font-weight: 600;
 }
 
+.company-doc-line { margin: 0.25rem 0 0; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; color: #475569; }
+
 .slip-title-box {
   text-align: right;
 }
 
 .slip-title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.05rem;
   font-weight: 800;
   color: #0f172a;
   letter-spacing: 0.05em;
@@ -243,7 +252,7 @@ function printSlip() {
 .slip-sub {
   font-size: 0.7rem;
   font-weight: 700;
-  color: #2563eb;
+  color: #334155;
   letter-spacing: 0.08em;
 }
 
@@ -253,7 +262,7 @@ function printSlip() {
   align-items: center;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: 0;
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
 }
@@ -268,6 +277,11 @@ function printSlip() {
 .info-row .label {
   color: #64748b;
   margin-right: 0.5rem;
+  display: inline-block;
+  min-width: 118px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .barcode-container {
@@ -284,34 +298,28 @@ function printSlip() {
 
 /* Big Banner */
 .payment-banner {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  padding: 1rem 1.25rem;
-  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  border-radius: 0;
   margin-bottom: 1.25rem;
 }
 
 .banner-prepaid {
-  background: #ecfdf5;
-  border: 2px solid #10b981;
-  color: #065f46;
+  background: #f0fdf4;
+  border: 1px solid #15803d;
+  border-left: 5px solid #15803d;
+  color: #14532d;
 }
 
 .banner-collect {
   background: #fffbeb;
-  border: 2px solid #f59e0b;
-  color: #92400e;
-}
-
-.banner-icon {
-  font-size: 2rem;
-  line-height: 1;
+  border: 1px solid #b45309;
+  border-left: 5px solid #b45309;
+  color: #78350f;
 }
 
 .banner-heading {
   margin: 0 0 0.25rem 0;
-  font-size: 1.15rem;
+  font-size: 0.85rem;
   font-weight: 800;
   letter-spacing: 0.02em;
 }
@@ -333,7 +341,7 @@ function printSlip() {
 .routing-card {
   flex: 1;
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  border-radius: 0;
   padding: 0.75rem 1rem;
   background: #ffffff;
 }
@@ -385,12 +393,15 @@ function printSlip() {
   margin-bottom: 1rem;
   padding: 0.5rem 0.75rem;
   background: #f8fafc;
-  border-radius: 6px;
+  border-radius: 0;
+  border: 1px solid #e2e8f0;
 }
 
 .customer-title {
   color: #64748b;
   font-weight: 600;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
 }
 
 .customer-details {
@@ -406,7 +417,7 @@ function printSlip() {
 }
 
 .slip-items-table th {
-  background: #0f172a;
+  background: #1e293b;
   color: white;
   padding: 0.5rem 0.75rem;
   font-size: 0.8rem;
@@ -431,8 +442,9 @@ function printSlip() {
 
 /* TTL */
 .ttl-warning-box {
-  background: #fef2f2;
-  border-left: 4px solid #ef4444;
+  background: #fffaf0;
+  border: 1px solid #d97706;
+  border-left: 5px solid #d97706;
   padding: 0.65rem 0.85rem;
   margin-bottom: 1.5rem;
   font-size: 0.8rem;
@@ -455,7 +467,7 @@ function printSlip() {
 .sig-box {
   flex: 1;
   border: 1px dashed #94a3b8;
-  border-radius: 6px;
+  border-radius: 0;
   padding: 0.75rem;
   text-align: center;
 }
@@ -476,6 +488,16 @@ function printSlip() {
   font-size: 0.7rem;
   color: #94a3b8;
   font-style: italic;
+}
+
+.slip-footer {
+  margin-top: 1rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #cbd5e1;
+  text-align: center;
+  font-size: 0.65rem;
+  line-height: 1.4;
+  color: #64748b;
 }
 
 @media print {

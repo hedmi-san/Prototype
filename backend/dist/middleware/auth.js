@@ -62,6 +62,19 @@ export function validateWarehouseScope(user, requestedWarehouseId) {
     }
 }
 /**
+ * Validates that an inter-warehouse transfer can only be initiated from the user's assigned warehouse
+ * (unless the user is ADMIN or SUPER_MANAGER).
+ */
+export function validateOriginWarehouseScope(user, originWarehouseId) {
+    if (!user)
+        return;
+    if (user.role === 'ADMIN' || user.role === 'SUPER_MANAGER')
+        return;
+    if (Number(user.warehouseId) !== Number(originWarehouseId)) {
+        throw new Error(`Access denied: You can only initiate inter-warehouse transfers from your assigned warehouse (ID ${user.warehouseId})`);
+    }
+}
+/**
  * Resolves and validates the effective warehouse scope for list queries.
  * - ADMIN / SUPER_MANAGER: returns requestedWarehouseId or undefined (all).
  * - Scoped roles (MANAGER, ACCOUNTANT, etc.): verifies that requestedWarehouseId matches user's warehouse,
