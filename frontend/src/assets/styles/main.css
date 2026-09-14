@@ -173,11 +173,6 @@ p, .text-body {
     margin: 8mm 10mm;
   }
 
-  @page valuation-landscape {
-    size: A4 landscape;
-    margin: 8mm 10mm;
-  }
-
   html, body {
     height: auto !important;
     min-height: auto !important;
@@ -212,7 +207,10 @@ p, .text-body {
   .pagination-container,
   button,
   .app-button,
-  .document-modal-toolbar {
+  .document-modal-toolbar,
+  .fulfillment-breakdown-card,
+  .vouchers-alert-success,
+  .voucher-tabs {
     display: none !important;
   }
 
@@ -258,6 +256,11 @@ p, .text-body {
     z-index: auto !important;
   }
 
+  /* In case multiple modals are teleported to body, only print the topmost (last) active modal */
+  .modal-backdrop:not(:last-of-type) {
+    display: none !important;
+  }
+
   .modal-card {
     position: static !important;
     display: block !important;
@@ -283,7 +286,11 @@ p, .text-body {
   }
 
   .invoice-preview-wrapper,
-  .document-preview-container {
+  .document-preview-container,
+  .voucher-preview-area,
+  .slip-preview-container,
+  .invoice-modal-content,
+  .vouchers-modal-body {
     background: transparent !important;
     padding: 0 !important;
     margin: 0 !important;
@@ -296,7 +303,9 @@ p, .text-body {
   /* Printable invoice & commercial document sheet */
   .a4-invoice-sheet,
   .printable-invoice-target,
-  .a4-document-sheet {
+  .a4-document-sheet,
+  .pickup-slip-wrapper,
+  .pickup-slip {
     position: static !important;
     display: block !important;
     width: 100% !important;
@@ -309,6 +318,8 @@ p, .text-body {
     background: #ffffff !important;
     color: #000000 !important;
     overflow: visible !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   thead {

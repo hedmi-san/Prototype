@@ -824,11 +824,11 @@ function closeVouchersAndNavigate() {
       @close="closeVouchersAndNavigate"
     >
       <div class="vouchers-modal-body">
-        <div class="vouchers-alert-success">
+        <div class="vouchers-alert-success no-print">
           🎉 <strong>Vente validée avec succès !</strong> Des articles doivent être retirés dans d'autres dépôts. Veuillez imprimer le(s) Bon(s) de Retrait à remettre au client.
         </div>
 
-        <div v-if="remoteVoucherLines.length > 1" class="voucher-tabs">
+        <div v-if="remoteVoucherLines.length > 1" class="voucher-tabs no-print">
           <button
             v-for="(line, idx) in remoteVoucherLines"
             :key="line.id"

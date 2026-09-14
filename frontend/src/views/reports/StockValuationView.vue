@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { reportService } from '../../services/admin-reports.service';
 import { inventoryService } from '../../services/operations.service';
@@ -15,8 +15,29 @@ const exporting = ref(false);
 
 const printTimestamp = computed(() => formatDateTime(new Date(), false));
 
+function injectLandscapeStyle() {
+  if (document.getElementById('stock-valuation-landscape-print')) return;
+  const styleEl = document.createElement('style');
+  styleEl.id = 'stock-valuation-landscape-print';
+  styleEl.textContent = '@media print { @page { size: A4 landscape !important; margin: 8mm 10mm !important; } }';
+  document.head.appendChild(styleEl);
+}
+
+function removeLandscapeStyle() {
+  const el = document.getElementById('stock-valuation-landscape-print');
+  if (el) el.remove();
+}
+
 onMounted(async () => {
+  window.addEventListener('beforeprint', injectLandscapeStyle);
+  window.addEventListener('afterprint', removeLandscapeStyle);
   await fetchReport();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('beforeprint', injectLandscapeStyle);
+  window.removeEventListener('afterprint', removeLandscapeStyle);
+  removeLandscapeStyle();
 });
 
 async function fetchReport() {
@@ -42,6 +63,12 @@ async function handleExportCsv() {
 }
 
 function handlePrint() {
+  injectLandscapeStyle();
+  const cleanup = () => {
+    window.removeEventListener('afterprint', cleanup);
+    removeLandscapeStyle();
+  };
+  window.addEventListener('afterprint', cleanup);
   window.print();
 }
 </script>
@@ -224,7 +251,6 @@ function handlePrint() {
    ========================================================== */
 @media print {
   .valuation-view {
-    page: valuation-landscape;
     display: block !important;
     width: 100% !important;
     gap: 0 !important;

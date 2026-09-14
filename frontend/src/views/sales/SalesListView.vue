@@ -100,6 +100,7 @@ const fulfillError = ref('');
 
 const showSlipModal = ref(false);
 const selectedSlipLine = ref<SaleFulfillmentLine | null>(null);
+const returnToInvoiceOnSlipClose = ref(false);
 
 const showReassignModal = ref(false);
 const selectedReassignLine = ref<SaleFulfillmentLine | null>(null);
@@ -482,7 +483,19 @@ async function handleConfirmFulfill() {
 
 function openSlipModal(line: SaleFulfillmentLine) {
   selectedSlipLine.value = line;
+  if (showInvoiceModal.value) {
+    showInvoiceModal.value = false;
+    returnToInvoiceOnSlipClose.value = true;
+  }
   showSlipModal.value = true;
+}
+
+function handleCloseSlipModal() {
+  showSlipModal.value = false;
+  if (returnToInvoiceOnSlipClose.value) {
+    returnToInvoiceOnSlipClose.value = false;
+    showInvoiceModal.value = true;
+  }
 }
 
 function openReassignModal(line: SaleFulfillmentLine) {
@@ -926,7 +939,7 @@ async function handleConfirmCancelLine() {
         </div>
 
         <!-- Inter-warehouse fulfillment lines breakdown -->
-        <div v-if="selectedSale.fulfillmentLines && selectedSale.fulfillmentLines.length > 0" class="fulfillment-breakdown-card">
+        <div v-if="selectedSale.fulfillmentLines && selectedSale.fulfillmentLines.length > 0" class="fulfillment-breakdown-card no-print">
           <div class="breakdown-header">
             <h4>📦 Bons de Retrait Inter-Dépôts Associés</h4>
             <span class="breakdown-count">{{ selectedSale.fulfillmentLines.length }} ligne(s) déportée(s)</span>
@@ -1152,12 +1165,13 @@ async function handleConfirmCancelLine() {
       v-model="showSlipModal"
       :title="`Bon de Retrait : ${selectedSlipLine?.pickupVoucherCode || selectedSlipLine?.voucherCode || ''}`"
       max-width="840px"
+      @close="handleCloseSlipModal"
     >
       <div v-if="selectedSlipLine" class="slip-preview-container">
         <PickupSlipDocument :line="selectedSlipLine" />
       </div>
       <template #footer>
-        <AppButton variant="secondary" @click="showSlipModal = false">Fermer</AppButton>
+        <AppButton variant="secondary" @click="handleCloseSlipModal">Fermer</AppButton>
         <AppButton variant="primary" onclick="window.print()">Imprimer le Bon</AppButton>
       </template>
     </AppModal>

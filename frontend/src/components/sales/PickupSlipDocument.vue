@@ -501,10 +501,18 @@ function printSlip() {
   .no-print {
     display: none !important;
   }
+  .pickup-slip-wrapper {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
   .pickup-slip {
     border: none !important;
     box-shadow: none !important;
     padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 }
 </style>
