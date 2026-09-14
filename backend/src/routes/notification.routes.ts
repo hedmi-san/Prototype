@@ -31,7 +31,7 @@ function mapNotificationRow(n: any) {
 /**
  * Resolves the effective target warehouseId based on user role and scoping rules.
  * - Admin: returns null (no notifications)
- * - Super Manager: returns query.warehouseId if provided, or user.warehouseId
+ * - Super Manager: returns warehouseId from query or body if provided, or user.warehouseId
  * - Staff: strictly user.warehouseId
  */
 function resolveTargetWarehouseId(req: AuthRequest): number | null {
@@ -41,8 +41,15 @@ function resolveTargetWarehouseId(req: AuthRequest): number | null {
     return null;
   }
   if (user.role === 'SUPER_MANAGER') {
-    const qWh = req.query.warehouseId ? Number(req.query.warehouseId) : null;
-    return qWh || user.warehouseId || null;
+    const rawWh =
+      req.query.warehouseId !== undefined && req.query.warehouseId !== ''
+        ? req.query.warehouseId
+        : req.body?.warehouseId;
+    const parsed = rawWh != null ? Number(rawWh) : null;
+    if (parsed && !isNaN(parsed)) {
+      return parsed;
+    }
+    return user.warehouseId || null;
   }
   return user.warehouseId || null;
 }
@@ -112,10 +119,22 @@ router.get('/counts', authenticate, async (req: AuthRequest, res: Response) => {
  */
 router.patch('/:id/read', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const id = Number(req.params.id);
-    const warehouseId = resolveTargetWarehouseId(req);
+    const user = req.user;
+    if (!user || user.role === 'ADMIN') {
+      return sendError(res, 'Admins cannot modify warehouse notifications', 403);
+    }
 
-    const updated = await markNotificationRead(id, warehouseId || undefined);
+    const id = Number(req.params.id);
+    if (!id || isNaN(id)) {
+      return sendError(res, 'Invalid notification ID', 400);
+    }
+
+    const warehouseId = resolveTargetWarehouseId(req);
+    if (!warehouseId) {
+      return sendSuccess(res, { success: false });
+    }
+
+    const updated = await markNotificationRead(id, warehouseId);
     return sendSuccess(res, { success: updated });
   } catch (err: any) {
     return sendError(res, err.message, 500);
@@ -128,6 +147,11 @@ router.patch('/:id/read', authenticate, async (req: AuthRequest, res: Response) 
  */
 router.post('/read-all', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    const user = req.user;
+    if (!user || user.role === 'ADMIN') {
+      return sendError(res, 'Admins cannot modify warehouse notifications', 403);
+    }
+
     const warehouseId = resolveTargetWarehouseId(req);
     if (!warehouseId) {
       return sendSuccess(res, { count: 0 });

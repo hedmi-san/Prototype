@@ -152,18 +152,18 @@ export async function getWarehouseNotificationCounts(
 }
 
 /**
- * Marks a notification as read.
+ * Marks a notification as read within a specific warehouse scope.
  */
 export async function markNotificationRead(
   id: number,
-  warehouseId?: number
+  warehouseId: number
 ): Promise<boolean> {
-  const sql = warehouseId
-    ? 'UPDATE notifications SET is_read = TRUE, read_at = NOW() WHERE id = $1 AND warehouse_id = $2'
-    : 'UPDATE notifications SET is_read = TRUE, read_at = NOW() WHERE id = $1';
-  const params = warehouseId ? [id, warehouseId] : [id];
-
-  const res = await query(sql, params);
+  if (!warehouseId || isNaN(warehouseId)) {
+    return false;
+  }
+  const sql =
+    'UPDATE notifications SET is_read = TRUE, read_at = NOW() WHERE id = $1 AND warehouse_id = $2';
+  const res = await query(sql, [id, warehouseId]);
   return (res.rowCount || 0) > 0;
 }
 

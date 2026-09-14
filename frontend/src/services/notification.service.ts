@@ -28,13 +28,21 @@ export const notificationService = {
     return res.data.data;
   },
 
-  async markAsRead(id: number): Promise<boolean> {
-    const res = await api.patch<ApiResponse<{ success: boolean }>>(`/notifications/${id}/read`);
+  async markAsRead(id: number, warehouseId?: number): Promise<boolean> {
+    const res = await api.patch<ApiResponse<{ success: boolean }>>(
+      `/notifications/${id}/read`,
+      warehouseId ? { warehouseId } : {},
+      { params: warehouseId ? { warehouseId } : undefined }
+    );
     return res.data.data.success;
   },
 
-  async markAllAsRead(): Promise<number> {
-    const res = await api.post<ApiResponse<{ count: number }>>('/notifications/read-all');
+  async markAllAsRead(warehouseId?: number): Promise<number> {
+    const res = await api.post<ApiResponse<{ count: number }>>(
+      '/notifications/read-all',
+      warehouseId ? { warehouseId } : {},
+      { params: warehouseId ? { warehouseId } : undefined }
+    );
     return res.data.data.count;
   },
 };
