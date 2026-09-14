@@ -344,11 +344,6 @@ function handlePrint() {
    PRINT MEDIA STYLES - A4 PORTRAIT FINANCIAL STATEMENT
    ========================================================== */
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 10mm;
-  }
-
   .financial-view {
     display: block !important;
     width: 100% !important;

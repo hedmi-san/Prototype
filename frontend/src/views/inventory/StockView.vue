@@ -881,6 +881,7 @@ async function handleSaveReceipt() {
 .header-actions {
   display: flex;
   align-items: center;
+  margin-left: auto;
   gap: 10px;
   flex-wrap: wrap;
 }

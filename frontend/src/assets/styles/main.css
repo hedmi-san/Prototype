@@ -173,6 +173,11 @@ p, .text-body {
     margin: 8mm 10mm;
   }
 
+  @page valuation-landscape {
+    size: A4 landscape;
+    margin: 8mm 10mm;
+  }
+
   html, body {
     height: auto !important;
     min-height: auto !important;
@@ -206,7 +211,12 @@ p, .text-body {
   .filter-bar,
   .pagination-container,
   button,
-  .app-button {
+  .app-button,
+  .document-modal-toolbar {
+    display: none !important;
+  }
+
+  .no-print {
     display: none !important;
   }
 
@@ -272,7 +282,8 @@ p, .text-body {
     display: block !important;
   }
 
-  .invoice-preview-wrapper {
+  .invoice-preview-wrapper,
+  .document-preview-container {
     background: transparent !important;
     padding: 0 !important;
     margin: 0 !important;
@@ -282,9 +293,10 @@ p, .text-body {
     display: block !important;
   }
 
-  /* Printable invoice sheet */
+  /* Printable invoice & commercial document sheet */
   .a4-invoice-sheet,
-  .printable-invoice-target {
+  .printable-invoice-target,
+  .a4-document-sheet {
     position: static !important;
     display: block !important;
     width: 100% !important;
@@ -297,6 +309,14 @@ p, .text-body {
     background: #ffffff !important;
     color: #000000 !important;
     overflow: visible !important;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
   }
 
   .invoice-table {

@@ -584,11 +584,6 @@ const computedCartonCount = computed(() => {
    PRINT ISOLATION & A4 GEOMETRY RULES
    ========================================================== */
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 8mm 10mm;
-  }
-
   body {
     margin: 0 !important;
     padding: 0 !important;

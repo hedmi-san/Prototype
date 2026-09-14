@@ -223,12 +223,8 @@ function handlePrint() {
    PRINT MEDIA STYLES - A4 LANDSCAPE VALUATION STATEMENT
    ========================================================== */
 @media print {
-  @page {
-    size: A4 landscape;
-    margin: 8mm 10mm;
-  }
-
   .valuation-view {
+    page: valuation-landscape;
     display: block !important;
     width: 100% !important;
     gap: 0 !important;
