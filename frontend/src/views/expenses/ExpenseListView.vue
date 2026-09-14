@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { expenseService } from '../../services/admin-reports.service';
 import type { Expense, ExpenseCategory } from '../../types';
+import type { ComputedPeriodRange } from '../../utils/periodNavigator';
 import { formatCurrency, formatDate, formatExpenseCategory } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
 import AppInput from '../../components/common/AppInput.vue';
+import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
+import AppPagination from '../../components/common/AppPagination.vue';
 
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
@@ -18,6 +21,14 @@ const expenses = ref<Expense[]>([]);
 const loading = ref(true);
 const searchQuery = ref('');
 const categoryFilter = ref('');
+
+// Period & Pagination state
+const activeRange = ref<ComputedPeriodRange | null>(null);
+const page = ref(1);
+const limit = ref(25);
+const total = ref(0);
+const totalPages = ref(1);
+const totalExpensesAmount = ref(0);
 
 // Success alert
 const successMessage = ref('');
@@ -50,38 +61,69 @@ const deleteLoading = ref(false);
 const deleteErrorMessage = ref('');
 
 onMounted(async () => {
+  if (activeRange.value) {
+    await fetchExpenses();
+  }
+});
+
+watch(
+  () => authStore.activeWarehouseId,
+  async () => {
+    page.value = 1;
+    await fetchExpenses();
+  }
+);
+
+watch(categoryFilter, async () => {
+  page.value = 1;
   await fetchExpenses();
 });
+
+let searchTimeout: any = null;
+function onSearchInput() {
+  if (searchTimeout) clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    page.value = 1;
+    await fetchExpenses();
+  }, 300);
+}
+
+async function onPeriodChange(range: ComputedPeriodRange) {
+  activeRange.value = range;
+  page.value = 1;
+  await fetchExpenses();
+}
+
+function onPageChange(payload: { page: number; limit: number }) {
+  page.value = payload.page;
+  limit.value = payload.limit;
+  fetchExpenses();
+}
 
 async function fetchExpenses() {
   loading.value = true;
   try {
-    expenses.value = await expenseService.getExpenses(authStore.activeWarehouseId || undefined);
+    const res = await expenseService.getExpenses({
+      warehouseId: authStore.activeWarehouseId || undefined,
+      startDate: activeRange.value?.startDate,
+      endDate: activeRange.value?.endDate,
+      category: categoryFilter.value || undefined,
+      search: searchQuery.value.trim() || undefined,
+      page: page.value,
+      limit: limit.value,
+    });
+    expenses.value = res.items;
+    total.value = res.pagination.total;
+    totalPages.value = res.pagination.totalPages;
+    totalExpensesAmount.value =
+      res.summary?.totalAmount ??
+      res.items.reduce((sum, e) => sum + e.amount, 0);
   } catch (err) {
     console.error('Failed to load expenses', err);
   } finally {
     loading.value = false;
   }
 }
-
-const filteredExpenses = computed(() => {
-  return expenses.value.filter((e) => {
-    const matchesCat = !categoryFilter.value || e.category === categoryFilter.value;
-    if (!matchesCat) return false;
-
-    if (!searchQuery.value.trim()) return true;
-    const q = searchQuery.value.toLowerCase();
-    return (
-      e.description.toLowerCase().includes(q) ||
-      e.warehouseName.toLowerCase().includes(q) ||
-      (e.createdByName && e.createdByName.toLowerCase().includes(q))
-    );
-  });
-});
-
-const totalExpensesAmount = computed(() => {
-  return filteredExpenses.value.reduce((sum, e) => sum + e.amount, 0);
-});
 
 function canModifyExpense(e: Expense): boolean {
   if (authStore.isAdmin || authStore.isSuperManager) return true;
@@ -198,6 +240,12 @@ async function handleDeleteConfirm() {
       </div>
     </div>
 
+    <!-- Reusable Period Navigator -->
+    <AppPeriodNavigator
+      initial-granularity="month"
+      @change="onPeriodChange"
+    />
+
     <!-- Filter Bar -->
     <div class="filter-bar">
       <div class="search-box">
@@ -210,6 +258,7 @@ async function handleDeleteConfirm() {
           type="text"
           placeholder="Rechercher par description, entrepôt..."
           class="search-input"
+          @input="onSearchInput"
         />
       </div>
 
@@ -231,7 +280,7 @@ async function handleDeleteConfirm() {
     </div>
 
     <!-- Expenses Table -->
-    <AppTable :loading="loading" :empty="!filteredExpenses.length" empty-text="Aucune dépense enregistrée" :columns-count="7">
+    <AppTable :loading="loading" :empty="!expenses.length" empty-text="Aucune dépense enregistrée pour cette période" :columns-count="7">
       <template #header>
         <th>Date</th>
         <th>Entrepôt</th>
@@ -242,7 +291,7 @@ async function handleDeleteConfirm() {
         <th>Actions</th>
       </template>
       <template #body>
-        <tr v-for="e in filteredExpenses" :key="e.id">
+        <tr v-for="e in expenses" :key="e.id">
           <td class="font-mono text-caption">{{ formatDate(e.expenseDate) }}</td>
           <td><strong>{{ e.warehouseName }}</strong></td>
           <td>
@@ -275,6 +324,16 @@ async function handleDeleteConfirm() {
         </tr>
       </template>
     </AppTable>
+
+    <!-- Standard Reusable Pagination Component -->
+    <AppPagination
+      v-model:page="page"
+      v-model:limit="limit"
+      :total="total"
+      :total-pages="totalPages"
+      :loading="loading"
+      @change="onPageChange"
+    />
 
     <!-- Create / Edit Modal -->
     <AppModal

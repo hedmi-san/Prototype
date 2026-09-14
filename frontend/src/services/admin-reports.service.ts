@@ -1,11 +1,44 @@
 import api from './api';
 import type { ApiResponse, Expense, Employee, EmployeeStatus, EmployeePerformanceMetrics, SalaryRecord, DashboardMetrics, PeriodPreset, StockValuationReport, FinancialReport, AuditLog, User, Sale, RoleType, PaginationParams, PaginatedData } from '../types';
 
+export interface ExpenseQueryParams {
+  warehouseId?: number;
+  startDate?: string;
+  endDate?: string;
+  category?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedExpenses extends PaginatedData<Expense> {
+  summary?: {
+    totalAmount: number;
+  };
+}
+
 export const expenseService = {
-  async getExpenses(warehouseId?: number): Promise<Expense[]> {
-    const params = warehouseId ? { warehouseId } : {};
-    const response = await api.get<ApiResponse<Expense[]>>('/expenses', { params });
-    return response.data.data;
+  async getExpenses(params?: ExpenseQueryParams | number): Promise<PaginatedExpenses> {
+    const queryParams = typeof params === 'number' ? { warehouseId: params } : (params || {});
+    const response = await api.get<ApiResponse<any>>('/expenses', { params: queryParams });
+    const data = response.data.data;
+    if (data && typeof data === 'object' && Array.isArray(data.items) && data.pagination) {
+      return data as PaginatedExpenses;
+    }
+    const items = Array.isArray(data) ? data : [];
+    const totalAmount = items.reduce((sum: number, e: any) => sum + (Number(e.amount) || 0), 0);
+    return {
+      items,
+      pagination: {
+        page: 1,
+        limit: items.length || 25,
+        total: items.length,
+        totalPages: 1,
+      },
+      summary: {
+        totalAmount,
+      },
+    };
   },
   async createExpense(data: Partial<Expense>): Promise<Expense> {
     const response = await api.post<ApiResponse<Expense>>('/expenses', data);

@@ -7,19 +7,72 @@ router.get('/', authenticate, async (req, res) => {
     try {
         const requestedWarehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
         const warehouseId = enforceWarehouseScope(req.user, requestedWarehouseId);
-        let sql = `
-      SELECT e.id, e.warehouse_id, w.name as warehouse_name,
-             e.category, e.amount, e.description, e.expense_date, e.created_at
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate;
+        const category = req.query.category;
+        const search = req.query.search?.trim();
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 25));
+        const offset = (page - 1) * limit;
+        let baseFromWhere = `
       FROM expenses e
       JOIN warehouses w ON e.warehouse_id = w.id
     `;
         const params = [];
+        const conditions = [];
         if (warehouseId) {
             params.push(warehouseId);
-            sql += ` WHERE e.warehouse_id = $${params.length}`;
+            conditions.push(`e.warehouse_id = $${params.length}`);
         }
-        sql += ' ORDER BY e.expense_date DESC, e.id DESC';
-        const result = await query(sql, params);
+        if (startDate && endDate) {
+            params.push(startDate);
+            const pStart = params.length;
+            params.push(endDate);
+            const pEnd = params.length;
+            conditions.push(`(e.expense_date::date >= $${pStart}::date AND e.expense_date::date <= $${pEnd}::date)`);
+        }
+        else if (startDate) {
+            params.push(startDate);
+            conditions.push(`e.expense_date::date >= $${params.length}::date`);
+        }
+        else if (endDate) {
+            params.push(endDate);
+            conditions.push(`e.expense_date::date <= $${params.length}::date`);
+        }
+        if (category && category.trim()) {
+            params.push(category.trim());
+            conditions.push(`e.category = $${params.length}`);
+        }
+        if (search) {
+            const p1 = params.length + 1;
+            const p2 = params.length + 2;
+            conditions.push(`(e.description ILIKE $${p1} OR w.name ILIKE $${p2})`);
+            const searchPattern = `%${search}%`;
+            params.push(searchPattern, searchPattern);
+        }
+        if (conditions.length > 0) {
+            baseFromWhere += ' WHERE ' + conditions.join(' AND ');
+        }
+        // Count and total summary
+        const countQuery = `
+      SELECT COUNT(*) as count, COALESCE(SUM(e.amount), 0) as total_amount
+      ${baseFromWhere}
+    `;
+        const countRes = await query(countQuery, params);
+        const total = Number(countRes.rows[0]?.count || 0);
+        const totalAmount = Number(countRes.rows[0]?.total_amount || 0);
+        // Paginated rows query
+        const selectParams = [...params, limit, offset];
+        const limitIdx = selectParams.length - 1;
+        const offsetIdx = selectParams.length;
+        const selectQuery = `
+      SELECT e.id, e.warehouse_id, w.name as warehouse_name,
+             e.category, e.amount, e.description, e.expense_date, e.created_at
+      ${baseFromWhere}
+      ORDER BY e.expense_date DESC, e.id DESC
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `;
+        const result = await query(selectQuery, selectParams);
         const expenses = result.rows.map((e) => ({
             id: e.id,
             warehouseId: e.warehouse_id,
@@ -30,7 +83,18 @@ router.get('/', authenticate, async (req, res) => {
             expenseDate: e.expense_date,
             createdAt: e.created_at,
         }));
-        return sendSuccess(res, expenses);
+        return sendSuccess(res, {
+            items: expenses,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit) || 1,
+            },
+            summary: {
+                totalAmount,
+            },
+        });
     }
     catch (err) {
         const isAccessDenied = err.message?.includes('Access denied');
