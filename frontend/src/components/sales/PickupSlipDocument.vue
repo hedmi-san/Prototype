@@ -46,7 +46,6 @@ function printSlip() {
     <div class="pickup-slip">
       <div class="slip-header">
         <div class="company-brand">
-          <div class="brand-mark">GB</div>
           <div>
           <h2 class="company-name">{{ companyName }}</h2>
           <p class="company-sub">IMPORTATION & DISTRIBUTION OUTILLAGE & QUINCAILLERIE</p>
@@ -158,11 +157,7 @@ function printSlip() {
       </div>
 
       <div class="signatures-grid">
-        <div class="sig-box">
-          <span class="sig-label">BÉNÉFICIAIRE / PORTEUR</span>
-          <div class="sig-space"></div>
-          <span class="sig-hint">Nom, signature et mention « Bon pour réception »</span>
-        </div>
+        <div class="sig-box emptybox"></div>
         <div class="sig-box">
           <span class="sig-label">RESPONSABLE DU DÉPÔT</span>
           <div class="sig-space"></div>
@@ -471,7 +466,9 @@ function printSlip() {
   padding: 0.75rem;
   text-align: center;
 }
-
+.emptybox {
+  visibility: hidden;
+}
 .sig-label {
   display: block;
   font-size: 0.8rem;
