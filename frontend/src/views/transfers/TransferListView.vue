@@ -16,6 +16,7 @@ import AppPeriodNavigator from '../../components/common/AppPeriodNavigator.vue';
 import AppPagination from '../../components/common/AppPagination.vue';
 import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
 import StockRelocationModal from '../../components/transfers/StockRelocationModal.vue';
+import TransportSlipModal from '../../components/transfers/TransportSlipModal.vue';
 import type { Transfer, Stock, InterWarehouseSaleHistoryItem } from '../../types';
 
 const authStore = useAuthStore();
@@ -122,6 +123,15 @@ const approveForm = ref<{ productId: number; approvedQuantity: number }[]>([]);
 // Transfer Details Modal
 const showDetailsModal = ref(false);
 const selectedTransfer = ref<Transfer | null>(null);
+
+// Transport Slip Modal
+const showTransportSlipModal = ref(false);
+const transportSlipTransfer = ref<Transfer | null>(null);
+
+function openTransportSlip(t: Transfer) {
+  transportSlipTransfer.value = t;
+  showTransportSlipModal.value = true;
+}
 
 // Cancel Confirm Dialog
 const showCancelDialog = ref(false);
@@ -397,6 +407,14 @@ function canDecline(t: Transfer): boolean {
   return (authStore.isManager || authStore.isSuperManager) && userWhId === Number(t.sourceWarehouseId);
 }
 
+function canPrintTransportSlip(t: Transfer): boolean {
+  if (t.status !== 'APPROVED') return false;
+  if (authStore.isAdmin) return true;
+  if (authStore.isSuperManager && !authStore.user?.warehouseId) return true;
+  const userWhId = Number(authStore.user?.warehouseId || authStore.activeWarehouseId);
+  return (authStore.isManager || authStore.isSuperManager) && userWhId === Number(t.sourceWarehouseId);
+}
+
 function canConfirm(t: Transfer): boolean {
   if (t.status !== 'APPROVED') return false;
   if (authStore.isAdmin) return true;
@@ -564,6 +582,11 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
                 <template v-if="canConfirm(t)">
                   <button class="icon-action-btn btn-success-action" title="Confirmer la réception physique des articles" @click="handleConfirm(t)">
                     Confirmer Réception
+                  </button>
+                </template>
+                <template v-if="canPrintTransportSlip(t)">
+                  <button class="icon-action-btn btn-primary-action" title="Imprimer le bon de transport pour le chauffeur" @click="openTransportSlip(t)">
+                  Bon
                   </button>
                 </template>
                 <template v-if="canCancel(t)">
@@ -843,7 +866,17 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
         </table>
       </div>
       <template #footer>
-        <AppButton variant="secondary" @click="showDetailsModal = false">Fermer</AppButton>
+        <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+          <AppButton
+            v-if="selectedTransfer && canPrintTransportSlip(selectedTransfer)"
+            variant="primary"
+            @click="openTransportSlip(selectedTransfer)"
+          >
+            📄 Imprimer Bon de Transport
+          </AppButton>
+          <div v-else></div>
+          <AppButton variant="secondary" @click="showDetailsModal = false">Fermer</AppButton>
+        </div>
       </template>
     </AppModal>
 
@@ -863,6 +896,12 @@ function getStatusBadgeVariant(status: string): 'neutral' | 'success' | 'danger'
     <StockRelocationModal
       v-model="showRelocationModal"
       @relocated="fetchTransfers"
+    />
+
+    <!-- Transport Slip Modal -->
+    <TransportSlipModal
+      v-model="showTransportSlipModal"
+      :transfer="transportSlipTransfer"
     />
 
   </div>

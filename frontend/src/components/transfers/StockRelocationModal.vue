@@ -7,6 +7,7 @@ import AppModal from '../common/AppModal.vue';
 import AppButton from '../common/AppButton.vue';
 import AppBadge from '../common/AppBadge.vue';
 import AppInput from '../common/AppInput.vue';
+import TransportSlipModal from './TransportSlipModal.vue';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -28,7 +29,13 @@ const loadingStock = ref(false);
 const submitting = ref(false);
 const errorMessage = ref('');
 const notes = ref('Relocalisation et redistribution de stock inter-dépôts');
-const immediateExecution = ref(true);
+const showTransportSlipModal = ref(false);
+const transportSlipTransfer = ref<any | null>(null);
+
+function printTransferSlip(t: any) {
+  transportSlipTransfer.value = t;
+  showTransportSlipModal.value = true;
+}
 const searchQuery = ref('');
 
 // Success summary state
@@ -293,7 +300,6 @@ async function handleSubmit() {
     const payload = {
       sourceWarehouseId: sourceWarehouseId.value,
       distributions,
-      immediateExecution: immediateExecution.value,
       notes: notes.value.trim(),
     };
 
@@ -355,7 +361,12 @@ function handleDeactivateRequest() {
           <div class="transfer-dest">
             Destination : <strong>{{ warehouseStore.warehouses.find(w => w.id === t.destinationWarehouseId)?.name || `Dépôt ID ${t.destinationWarehouseId}` }}</strong>
           </div>
-          <div class="transfer-meta">{{ t.itemsCount }} article(s) transférés</div>
+          <div class="transfer-meta">{{ t.itemsCount }} article(s) expédiés</div>
+          <div class="transfer-slip-btn mt-2">
+            <AppButton variant="secondary" size="sm" @click="printTransferSlip(t)">
+              📄 Imprimer Bon de Transport
+            </AppButton>
+          </div>
         </div>
       </div>
 
@@ -538,15 +549,12 @@ function handleDeactivateRequest() {
 
       <!-- Execution Options & Notes -->
       <div class="execution-options mt-3">
-        <div class="options-radio">
-          <label class="radio-label">
-            <input v-model="immediateExecution" type="radio" :value="true" />
-            <span><strong>Exécution Immédiate</strong> (Transfère le stock et confirme directement en base)</span>
-          </label>
-          <label class="radio-label">
-            <input v-model="immediateExecution" type="radio" :value="false" />
-            <span><strong>Demandes de Transfert</strong> (Génère des ordres en attente d'approbation)</span>
-          </label>
+        <div class="relocation-dispatch-notice mb-3">
+          <span class="notice-icon">🚚</span>
+          <div class="notice-text">
+            <strong>Expédition Directe pour Confirmation d'Arrivée :</strong>
+            <span>Les ordres de transfert générés sont automatiquement validés et prêts à l'expédition. Le stock est réservé à la source et le transfert ne nécessite que la confirmation d'arrivée par le dépôt destinataire.</span>
+          </div>
         </div>
 
         <AppInput
@@ -576,9 +584,42 @@ function handleDeactivateRequest() {
       </div>
     </div>
   </AppModal>
+
+  <!-- Transport Slip Modal -->
+  <TransportSlipModal
+    v-model="showTransportSlipModal"
+    :transfer="transportSlipTransfer"
+  />
 </template>
 
 <style scoped>
+.relocation-dispatch-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background-color: var(--color-surface-hover);
+  border: 1px solid var(--color-primary-light, #3b82f633);
+  border-left: 4px solid var(--color-primary, #3b82f6);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.relocation-dispatch-notice .notice-icon {
+  font-size: 18px;
+}
+
+.relocation-dispatch-notice .notice-text strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--color-text);
+}
+
+.relocation-dispatch-notice .notice-text span {
+  color: var(--color-text-muted);
+}
+
 .relocation-matrix {
   display: flex;
   flex-direction: column;

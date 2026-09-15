@@ -204,11 +204,9 @@ export const transferService = {
       destinationWarehouseId: number;
       items: { productId: number; quantity: number }[];
     }[];
-    immediateExecution?: boolean;
     notes?: string;
   }): Promise<{
     transfers: any[];
-    immediateExecution: boolean;
     sourceWarehouseId: number;
     totalRemainingStock: number;
     sourceIsEmpty: boolean;
