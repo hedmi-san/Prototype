@@ -23,8 +23,8 @@ const formattedDate = computed(() => {
   return formatDateTime(dateVal);
 });
 
-const items = computed(() => {
-  const rawItems = props.transfer.items || [];
+const items = computed<any[]>(() => {
+  const rawItems = props.transfer?.items || [];
   return rawItems.filter((i: any) => (i.approvedQuantity !== undefined ? Number(i.approvedQuantity) : Number(i.quantity || 0)) > 0);
 });
 

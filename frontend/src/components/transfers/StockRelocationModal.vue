@@ -187,7 +187,9 @@ function fillAllTo(destId: number) {
 function splitEqually() {
   if (selectedDestIds.value.length === 0) return;
   const count = selectedDestIds.value.length;
-  for (const item of sourceStock.value) {
+  // Apply the shortcut only to rows currently shown in the matrix. This lets
+  // operators safely redistribute a searched subset without changing hidden rows.
+  for (const item of filteredStock.value) {
     const maxAvailable = item.availableQuantity !== undefined ? item.availableQuantity : item.physicalQuantity;
     const baseShare = Math.floor(maxAvailable / count);
     const remainder = maxAvailable % count;
@@ -364,7 +366,7 @@ function handleDeactivateRequest() {
           <div class="transfer-meta">{{ t.itemsCount }} article(s) expédiés</div>
           <div class="transfer-slip-btn mt-2">
             <AppButton variant="secondary" size="sm" @click="printTransferSlip(t)">
-              📄 Imprimer Bon de Transport
+              Imprimer Bon de Transport
             </AppButton>
           </div>
         </div>
@@ -431,26 +433,10 @@ function handleDeactivateRequest() {
         <div class="helpers-actions">
           <span class="helpers-label">Raccourcis :</span>
           <button type="button" class="helper-btn" @click="splitEqually">
-            ⚖️ Répartir Équitablement
-          </button>
-          <button
-            v-if="selectedDestIds.length > 0"
-            type="button"
-            class="helper-btn"
-            @click="fillAllTo(selectedDestIds[0])"
-          >
-            ➡️ Tout vers {{ warehouseStore.warehouses.find(w => w.id === selectedDestIds[0])?.name }}
-          </button>
-          <button
-            v-if="selectedDestIds.length > 0"
-            type="button"
-            class="helper-btn"
-            @click="sweepRemaindersTo(selectedDestIds[0])"
-          >
-            🧹 Vider les Restes sur {{ warehouseStore.warehouses.find(w => w.id === selectedDestIds[0])?.name }}
+            Répartir Équitablement
           </button>
           <button type="button" class="helper-btn text-danger" @click="resetAllocations">
-            ✕ Réinitialiser
+            Réinitialiser
           </button>
         </div>
 

@@ -712,7 +712,6 @@ async function handleSaveProduct() {
           <td>
             <div class="action-buttons">
               <button
-                v-if="authStore.isAdmin"
                 class="icon-action-btn"
                 title="Modifier la fiche produit"
                 @click="openEditModal(product)"
