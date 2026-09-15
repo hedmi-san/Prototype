@@ -319,6 +319,7 @@ router.post('/', authenticate, async (req, res) => {
             const transferNumber = `TRF-${Date.now().toString().slice(-8)}`;
             const insertRes = await client.query(`
         INSERT INTO transfers (transfer_number, source_warehouse_id, destination_warehouse_id, requested_by_user_id, status, notes)
+        VALUES ($1, $2, $3, $4, 'REQUESTED', $5)
         RETURNING id
       `, [transferNumber, sourceWarehouseId, destinationWarehouseId, req.user?.id || 1, notes || '']);
             const transferId = insertRes.rows[0].id;
