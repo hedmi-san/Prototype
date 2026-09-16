@@ -173,6 +173,11 @@ export async function initSchema() {
       phone VARCHAR(50),
       email VARCHAR(100),
       address TEXT,
+      rc VARCHAR(100),
+      nif VARCHAR(100),
+      art VARCHAR(100),
+      activite TEXT,
+      nis VARCHAR(100),
       opening_balance NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       current_balance NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       is_default BOOLEAN NOT NULL DEFAULT FALSE,
@@ -279,6 +284,50 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS factures (
+      id SERIAL PRIMARY KEY,
+      sale_id INTEGER NOT NULL REFERENCES sales(id) ON DELETE RESTRICT,
+      facture_number VARCHAR(50) NOT NULL UNIQUE,
+      facture_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+      client_name VARCHAR(255) NOT NULL,
+      client_address TEXT,
+      client_rc VARCHAR(100),
+      client_nif VARCHAR(100),
+      client_art VARCHAR(100),
+      client_activite TEXT,
+      client_nis VARCHAR(100),
+      reglement VARCHAR(50) NOT NULL DEFAULT 'Espèce',
+      total_ht NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      total_tva NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      timbre NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      total_remise NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      total_ttc NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
+      situation VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+      situation_notes TEXT,
+      situation_date TIMESTAMPTZ,
+      moyen_transport VARCHAR(100),
+      camion_numero VARCHAR(50),
+      chauffeur VARCHAR(100),
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS facture_items (
+      id SERIAL PRIMARY KEY,
+      facture_id INTEGER NOT NULL REFERENCES factures(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      code VARCHAR(50) NOT NULL,
+      designation VARCHAR(255) NOT NULL,
+      um VARCHAR(50) NOT NULL DEFAULT 'PCS',
+      tva_rate NUMERIC(5, 2) NOT NULL DEFAULT 19.00,
+      quantity INTEGER NOT NULL CHECK(quantity > 0),
+      unit_price NUMERIC(14, 2) NOT NULL,
+      remise_pct NUMERIC(5, 2) NOT NULL DEFAULT 0.00,
+      total NUMERIC(14, 2) NOT NULL
+    );
+
   `);
     // Migrations for existing databases
     await query(`
@@ -296,6 +345,13 @@ export async function initSchema() {
     ALTER TABLE products ADD COLUMN IF NOT EXISTS tva NUMERIC(5, 2) NOT NULL DEFAULT 19.00;
     ALTER TABLE products DROP COLUMN IF EXISTS category;
     ALTER TABLE products ALTER COLUMN min_stock_alert SET DEFAULT 1;
+    ALTER TABLE products ADD COLUMN IF NOT EXISTS facture_price NUMERIC(14, 2) DEFAULT NULL;
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS rc VARCHAR(100);
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS nif VARCHAR(100);
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS art VARCHAR(100);
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS activite TEXT;
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS nis VARCHAR(100);
+    ALTER TABLE factures ADD COLUMN IF NOT EXISTS client_nis VARCHAR(100);
   `);
     // Ensure default walk-in client exists
     await query(`
@@ -315,6 +371,8 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_clients_code ON clients(code);
     CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(name);
     CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(active);
+    CREATE INDEX IF NOT EXISTS idx_clients_rc ON clients(rc);
+    CREATE INDEX IF NOT EXISTS idx_clients_art ON clients(art);
     CREATE INDEX IF NOT EXISTS idx_client_transactions_client_date ON client_transactions(client_id, transaction_date);
     CREATE INDEX IF NOT EXISTS idx_client_transactions_wh ON client_transactions(warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_client_transactions_ref ON client_transactions(reference_type, reference_id);
@@ -347,5 +405,11 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_products_purchase_price ON products(purchase_price);
     CREATE INDEX IF NOT EXISTS idx_products_search ON products(reference, name, brand);
     CREATE INDEX IF NOT EXISTS idx_notifications_wh_read_created ON notifications(warehouse_id, is_read, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_factures_sale_id ON factures(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_factures_client_id ON factures(client_id);
+    CREATE INDEX IF NOT EXISTS idx_factures_number ON factures(facture_number);
+    CREATE INDEX IF NOT EXISTS idx_factures_date ON factures(facture_date);
+    CREATE INDEX IF NOT EXISTS idx_factures_situation ON factures(situation);
+    CREATE INDEX IF NOT EXISTS idx_facture_items_facture_id ON facture_items(facture_id);
   `);
 }

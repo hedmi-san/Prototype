@@ -12,6 +12,9 @@ import type {
   SaleFulfillmentLine,
   FulfillmentAllocationInput,
   InterWarehouseSaleHistoryItem,
+  Facture,
+  SaleWithoutFacture,
+  FactureSituation,
 } from '../types';
 import { downloadCsvResponse } from '../utils/export';
 
@@ -219,4 +222,73 @@ export const transferService = {
 export const refundClientAdvance = clientService.refundClientAdvance;
 export const getClientRefunds = clientService.getClientRefunds;
 export const getClientRefundById = clientService.getClientRefundById;
+
+export const factureService = {
+  async getFactures(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    situation?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<PaginatedData<Facture>> {
+    const response = await api.get<ApiResponse<any>>('/factures', { params });
+    return normalizePaginatedResponse<Facture>(response.data.data);
+  },
+  async getFactureById(id: number): Promise<Facture> {
+    const response = await api.get<ApiResponse<Facture>>(`/factures/${id}`);
+    return response.data.data;
+  },
+  async createFacture(data: {
+    saleId: number;
+    clientName?: string;
+    clientAddress?: string;
+    clientRc?: string;
+    clientNif?: string;
+    clientArt?: string;
+    clientActivite?: string;
+    clientNis?: string;
+    reglement?: string;
+    moyenTransport?: string;
+    camionNumero?: string;
+    chauffeur?: string;
+    itemOverrides?: { productId: number; unitPrice: number }[];
+  }): Promise<Facture> {
+    const response = await api.post<ApiResponse<Facture>>('/factures', data);
+    return response.data.data;
+  },
+  async updateFacture(id: number, data: {
+    clientName?: string;
+    clientAddress?: string;
+    clientRc?: string;
+    clientNif?: string;
+    clientArt?: string;
+    clientActivite?: string;
+    clientNis?: string;
+    reglement?: string;
+    moyenTransport?: string;
+    camionNumero?: string;
+    chauffeur?: string;
+    items?: { id: number; unitPrice: number; remisePct?: number }[];
+  }): Promise<Facture> {
+    const response = await api.put<ApiResponse<Facture>>(`/factures/${id}`, data);
+    return response.data.data;
+  },
+  async updateSituation(id: number, data: {
+    situation: FactureSituation;
+    situationNotes?: string;
+  }): Promise<Facture> {
+    const response = await api.patch<ApiResponse<Facture>>(`/factures/${id}/situation`, data);
+    return response.data.data;
+  },
+  async deleteFacture(id: number): Promise<void> {
+    await api.delete(`/factures/${id}`);
+  },
+  async getSalesWithoutFacture(search?: string): Promise<SaleWithoutFacture[]> {
+    const response = await api.get<ApiResponse<SaleWithoutFacture[]>>('/factures/sales-without-facture', {
+      params: search ? { search } : {},
+    });
+    return response.data.data || [];
+  },
+};
 

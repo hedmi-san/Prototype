@@ -19,6 +19,7 @@ import reportRoutes from './routes/report.routes.js';
 import auditRoutes from './routes/audit.routes.js';
 import userRoutes from './routes/user.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import factureRoutes from './routes/facture.routes.js';
 const app = express();
 const PORT = Number(process.env.PORT) || 10000;
 app.set('trust proxy', 1);
@@ -124,6 +125,8 @@ app.use('/admin/users', userRoutes);
 app.use('/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/notifications', notificationRoutes);
+app.use('/api/factures', factureRoutes);
+app.use('/factures', factureRoutes);
 // 404 Fallback
 app.use((req, res) => {
     res.status(404).json({

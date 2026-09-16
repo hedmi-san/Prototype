@@ -79,6 +79,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
         description: p.description,
         purchasePrice: Number(p.purchase_price),
         salePrice: Number(p.sale_price),
+        facturePrice: p.facture_price !== null && p.facture_price !== undefined ? Number(p.facture_price) : null,
         minStockAlert: p.min_stock_alert,
         unit: p.unit,
         boxSize: Number(p.box_size || 0),
@@ -131,6 +132,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       description: p.description,
       purchasePrice: Number(p.purchase_price),
       salePrice: Number(p.sale_price),
+      facturePrice: p.facture_price !== null && p.facture_price !== undefined ? Number(p.facture_price) : null,
       minStockAlert: p.min_stock_alert,
       unit: p.unit,
       boxSize: Number(p.box_size || 0),
@@ -242,6 +244,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
       description: p.description,
       purchasePrice: Number(p.purchase_price),
       salePrice: Number(p.sale_price),
+      facturePrice: p.facture_price !== null && p.facture_price !== undefined ? Number(p.facture_price) : null,
       minStockAlert: p.min_stock_alert,
       unit: p.unit,
       boxSize: Number(p.box_size || 0),
@@ -257,7 +260,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
 
 router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res) => {
   try {
-    const { reference, name, brand, description, purchasePrice, salePrice, minStockAlert, unit, boxSize, tva } = req.body;
+    const { reference, name, brand, description, purchasePrice, salePrice, facturePrice, minStockAlert, unit, boxSize, tva } = req.body;
     if (!reference || !name || purchasePrice === undefined || salePrice === undefined) {
       return sendError(res, 'Reference, name, purchasePrice, and salePrice are required', 400);
     }
@@ -273,9 +276,11 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
     const validMinStockAlert = minStockAlert !== undefined ? Math.max(0, parseInt(minStockAlert, 10) || 0) : 1;
     const validTva = tva !== undefined ? Math.max(0, Number(tva) || 0) : 19.0;
 
+    const validFacturePrice = facturePrice !== undefined && facturePrice !== null && facturePrice !== '' ? Number(facturePrice) : null;
+
     const insertRes = await query(`
-      INSERT INTO products (reference, name, brand, description, purchase_price, sale_price, min_stock_alert, unit, box_size, tva, active)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+      INSERT INTO products (reference, name, brand, description, purchase_price, sale_price, facture_price, min_stock_alert, unit, box_size, tva, active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE)
       RETURNING *
     `, [
       reference,
@@ -284,6 +289,7 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
       description || '',
       Number(purchasePrice),
       Number(salePrice),
+      validFacturePrice,
       validMinStockAlert,
       unit || 'PIECE',
       validBoxSize,
@@ -301,6 +307,7 @@ router.post('/', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: Auth
       description: p.description,
       purchasePrice: Number(p.purchase_price),
       salePrice: Number(p.sale_price),
+      facturePrice: p.facture_price !== null && p.facture_price !== undefined ? Number(p.facture_price) : null,
       minStockAlert: p.min_stock_alert,
       unit: p.unit,
       boxSize: Number(p.box_size || 0),
@@ -356,7 +363,7 @@ router.patch('/:id/price', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUN
 router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: AuthRequest, res) => {
   try {
     const id = Number(req.params.id);
-    const { name, brand, description, purchasePrice, salePrice, minStockAlert, unit, boxSize, tva, active } = req.body;
+    const { name, brand, description, purchasePrice, salePrice, facturePrice, minStockAlert, unit, boxSize, tva, active } = req.body;
 
     const currentRes = await query('SELECT * FROM products WHERE id = $1', [id]);
     const current = currentRes.rows[0];
@@ -374,14 +381,15 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
     const updatedBoxSize = boxSize !== undefined ? Math.max(0, Number(boxSize) || 0) : current.box_size;
     const updatedTva = tva !== undefined ? Math.max(0, Number(tva) || 0) : Number(current.tva !== undefined && current.tva !== null ? current.tva : 19);
     const updatedActive = active !== undefined ? Boolean(active) : Boolean(current.active);
+    const updatedFacturePrice = facturePrice !== undefined ? (facturePrice !== null && facturePrice !== '' ? Number(facturePrice) : null) : (current.facture_price !== null && current.facture_price !== undefined ? Number(current.facture_price) : null);
 
     const updateRes = await query(`
       UPDATE products
       SET name = $1, brand = $2, description = $3, purchase_price = $4, sale_price = $5,
-          min_stock_alert = $6, unit = $7, box_size = $8, tva = $9, active = $10, updated_at = NOW()
-      WHERE id = $11
+          min_stock_alert = $6, unit = $7, box_size = $8, tva = $9, active = $10, facture_price = $11, updated_at = NOW()
+      WHERE id = $12
       RETURNING *
-    `, [updatedName, updatedBrand, updatedDesc, updatedPurchase, updatedSale, updatedAlert, updatedUnit, updatedBoxSize, updatedTva, updatedActive, id]);
+    `, [updatedName, updatedBrand, updatedDesc, updatedPurchase, updatedSale, updatedAlert, updatedUnit, updatedBoxSize, updatedTva, updatedActive, updatedFacturePrice, id]);
 
     const p = updateRes.rows[0];
     await logAudit(req.user, 'PRODUCT_UPDATED', 'PRODUCT', id, `Updated product ${updatedName} (Purchase: ${updatedPurchase} DZD, Sale: ${updatedSale} DZD)`);
@@ -394,6 +402,7 @@ router.put('/:id', authenticate, requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), 
       description: p.description,
       purchasePrice: Number(p.purchase_price),
       salePrice: Number(p.sale_price),
+      facturePrice: p.facture_price !== null && p.facture_price !== undefined ? Number(p.facture_price) : null,
       minStockAlert: p.min_stock_alert,
       unit: p.unit,
       boxSize: Number(p.box_size || 0),

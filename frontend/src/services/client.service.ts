@@ -37,6 +37,11 @@ export interface CreateClientDto {
   phone?: string;
   email?: string;
   address?: string;
+  rc?: string;
+  nif?: string;
+  art?: string;
+  activite?: string;
+  nis?: string;
   openingBalance?: number;
   warehouseId?: number;
 }
@@ -46,6 +51,11 @@ export interface UpdateClientDto {
   phone?: string;
   email?: string;
   address?: string;
+  rc?: string;
+  nif?: string;
+  art?: string;
+  activite?: string;
+  nis?: string;
   active?: boolean;
 }
 

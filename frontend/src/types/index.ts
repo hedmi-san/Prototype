@@ -43,6 +43,7 @@ export interface Product {
   description?: string;
   purchasePrice: number;
   salePrice: number;
+  facturePrice?: number | null;
   minStockAlert?: number;
   unit: string;
   boxSize?: number;
@@ -214,6 +215,11 @@ export interface Sale {
   clientName?: string | null;
   clientCode?: string | null;
   clientAddress?: string | null;
+  clientRc?: string | null;
+  clientNif?: string | null;
+  clientArt?: string | null;
+  clientActivite?: string | null;
+  clientNis?: string | null;
   customerName: string | null;
   customerPhone: string | null;
   totalAmount: number;
@@ -242,6 +248,11 @@ export interface Client {
   phone?: string;
   email?: string;
   address?: string;
+  rc?: string | null;
+  nif?: string | null;
+  art?: string | null;
+  activite?: string | null;
+  nis?: string | null;
   openingBalance: number;
   currentBalance: number;
   isDefault: boolean;
@@ -709,3 +720,72 @@ export interface NotificationCounts {
   pendingTransfersCount: number;
   pendingPickupsCount: number;
 }
+
+// ─── Facture (Invoice) Types ───────────────────────────────
+
+export type FactureSituation = 'ACTIVE' | 'DETAINED' | 'DESTROYED';
+
+export interface FactureItem {
+  id: number;
+  factureId: number;
+  productId: number;
+  code: string;
+  designation: string;
+  um: string;
+  tvaRate: number;
+  quantity: number;
+  unitPrice: number;
+  remisePct: number;
+  total: number;
+}
+
+export interface Facture {
+  id: number;
+  saleId: number;
+  invoiceNumber?: string;
+  factureNumber: string;
+  factureDate: string;
+  clientId?: number | null;
+  clientName: string;
+  clientAddress?: string;
+  clientRc?: string;
+  clientNif?: string;
+  clientArt?: string;
+  clientActivite?: string;
+  clientNis?: string;
+  reglement: string;
+  totalHt: number;
+  totalTva: number;
+  timbre: number;
+  totalRemise: number;
+  totalTtc: number;
+  situation: FactureSituation;
+  situationNotes?: string;
+  situationDate?: string;
+  moyenTransport?: string;
+  camionNumero?: string;
+  chauffeur?: string;
+  createdBy: number;
+  createdByName?: string;
+  items: FactureItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaleWithoutFacture {
+  id: number;
+  invoiceNumber?: string | null;
+  customerName?: string | null;
+  clientId?: number | null;
+  clientName?: string | null;
+  clientCode?: string | null;
+  clientAddress?: string | null;
+  clientRc?: string | null;
+  clientNif?: string | null;
+  clientArt?: string | null;
+  clientActivite?: string | null;
+  clientNis?: string | null;
+  totalAmount: number;
+  saleDate?: string | null;
+}
+

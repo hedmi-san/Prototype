@@ -14,6 +14,11 @@ function mapClientRow(c: any) {
     phone: c.phone || '',
     email: c.email || '',
     address: c.address || '',
+    rc: c.rc || '',
+    nif: c.nif || '',
+    art: c.art || '',
+    activite: c.activite || '',
+    nis: c.nis || '',
     openingBalance: Number(c.opening_balance || 0),
     currentBalance: Number(c.current_balance || 0),
     isDefault: Boolean(c.is_default),
@@ -52,9 +57,12 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
       const p1 = params.length + 1;
       const p2 = params.length + 2;
       const p3 = params.length + 3;
-      whereClauses.push(`(code ILIKE $${p1} OR name ILIKE $${p2} OR phone ILIKE $${p3})`);
+      const p4 = params.length + 4;
+      const p5 = params.length + 5;
+      const p6 = params.length + 6;
+      whereClauses.push(`(code ILIKE $${p1} OR name ILIKE $${p2} OR phone ILIKE $${p3} OR rc ILIKE $${p4} OR nif ILIKE $${p5} OR art ILIKE $${p6})`);
       const pattern = `%${search}%`;
-      params.push(pattern, pattern, pattern);
+      params.push(pattern, pattern, pattern, pattern, pattern, pattern);
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -173,10 +181,22 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
 // POST /api/clients - Create new client
 router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { code, name, phone, email, address, openingBalance, warehouseId } = req.body;
+    const { code, name, phone, email, address, rc, nif, art, activite, nis, openingBalance, warehouseId } = req.body;
     if (!name || typeof name !== 'string' || !name.trim()) {
       return sendError(res, 'Le nom du client est obligatoire', 400);
     }
+    if (!rc || typeof rc !== 'string' || !rc.trim()) {
+      return sendError(res, 'Le Registre de Commerce (RC) est obligatoire', 400);
+    }
+    if (!art || typeof art !== 'string' || !art.trim()) {
+      return sendError(res, 'Le Numéro d\'Article d\'imposition (ART) est obligatoire', 400);
+    }
+
+    const cleanRc = rc.trim();
+    const cleanArt = art.trim();
+    const cleanNif = nif ? String(nif).trim() : null;
+    const cleanActivite = activite ? String(activite).trim() : null;
+    const cleanNis = nis ? String(nis).trim() : null;
 
     const opBal = Number(openingBalance) || 0.0;
     const targetWhId = warehouseId || req.user?.warehouseId || 1;
@@ -189,10 +209,13 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
         clientCode = `CLT-${String(nextId).padStart(4, '0')}`;
 
         const insertRes = await dbClient.query(`
-          INSERT INTO clients (id, code, name, phone, email, address, opening_balance, current_balance, is_default, active)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $7, FALSE, TRUE)
+          INSERT INTO clients (
+            id, code, name, phone, email, address, rc, nif, art, activite, nis,
+            opening_balance, current_balance, is_default, active
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, FALSE, TRUE)
           RETURNING *
-        `, [nextId, clientCode, name.trim(), phone || '', email || '', address || '', opBal]);
+        `, [nextId, clientCode, name.trim(), phone || '', email || '', address || '', cleanRc, cleanNif, cleanArt, cleanActivite, cleanNis, opBal]);
         const newClient = insertRes.rows[0];
 
         if (opBal !== 0) {
@@ -214,10 +237,13 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
         }
 
         const insertRes = await dbClient.query(`
-          INSERT INTO clients (code, name, phone, email, address, opening_balance, current_balance, is_default, active)
-          VALUES ($1, $2, $3, $4, $5, $6, $6, FALSE, TRUE)
+          INSERT INTO clients (
+            code, name, phone, email, address, rc, nif, art, activite, nis,
+            opening_balance, current_balance, is_default, active
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, FALSE, TRUE)
           RETURNING *
-        `, [clientCode, name.trim(), phone || '', email || '', address || '', opBal]);
+        `, [clientCode, name.trim(), phone || '', email || '', address || '', cleanRc, cleanNif, cleanArt, cleanActivite, cleanNis, opBal]);
         const newClient = insertRes.rows[0];
 
         if (opBal !== 0) {
@@ -235,7 +261,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
       }
     });
 
-    await logAudit(req.user, 'CLIENT_CREATED', 'CLIENT', result.id, `Création client ${result.name} (${result.code})`);
+    await logAudit(req.user, 'CLIENT_CREATED', 'CLIENT', result.id, `Création client ${result.name} (${result.code}) - RC: ${cleanRc}, ART: ${cleanArt}`);
     return sendSuccess(res, mapClientRow(result), 'Client créé avec succès', 201);
   } catch (err: any) {
     return sendError(res, err.message, 400);
@@ -246,7 +272,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
-    const { name, phone, email, address, active } = req.body;
+    const { name, phone, email, address, rc, nif, art, activite, nis, active } = req.body;
 
     const currentRes = await query('SELECT * FROM clients WHERE id = $1', [id]);
     const current = currentRes.rows[0];
@@ -258,14 +284,19 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
     const updatedPhone = phone !== undefined ? phone : current.phone;
     const updatedEmail = email !== undefined ? email : current.email;
     const updatedAddress = address !== undefined ? address : current.address;
+    const updatedRc = rc !== undefined ? (rc ? String(rc).trim() : null) : current.rc;
+    const updatedNif = nif !== undefined ? (nif ? String(nif).trim() : null) : current.nif;
+    const updatedArt = art !== undefined ? (art ? String(art).trim() : null) : current.art;
+    const updatedActivite = activite !== undefined ? (activite ? String(activite).trim() : null) : current.activite;
+    const updatedNis = nis !== undefined ? (nis ? String(nis).trim() : null) : current.nis;
     const updatedActive = active !== undefined ? Boolean(active) : Boolean(current.active);
 
     const updateRes = await query(`
       UPDATE clients
-      SET name = $1, phone = $2, email = $3, address = $4, active = $5, updated_at = NOW()
-      WHERE id = $6
+      SET name = $1, phone = $2, email = $3, address = $4, rc = $5, nif = $6, art = $7, activite = $8, nis = $9, active = $10, updated_at = NOW()
+      WHERE id = $11
       RETURNING *
-    `, [updatedName, updatedPhone, updatedEmail, updatedAddress, updatedActive, id]);
+    `, [updatedName, updatedPhone, updatedEmail, updatedAddress, updatedRc, updatedNif, updatedArt, updatedActivite, updatedNis, updatedActive, id]);
 
     const updated = updateRes.rows[0];
     await logAudit(req.user, 'CLIENT_UPDATED', 'CLIENT', id, `Mise à jour client ${updatedName} (${current.code})`);

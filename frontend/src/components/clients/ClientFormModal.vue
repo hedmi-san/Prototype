@@ -24,6 +24,11 @@ const name = ref('');
 const phone = ref('');
 const email = ref('');
 const address = ref('');
+const rc = ref('');
+const nif = ref('');
+const art = ref('');
+const activite = ref('');
+const nis = ref('');
 const openingBalance = ref<number>(0);
 const selectedWarehouseId = ref<number>(warehouseStore.warehouses[0]?.id || 1);
 const active = ref(true);
@@ -43,6 +48,11 @@ watch(
         phone.value = props.client.phone || '';
         email.value = props.client.email || '';
         address.value = props.client.address || '';
+        rc.value = props.client.rc || '';
+        nif.value = props.client.nif || '';
+        art.value = props.client.art || '';
+        activite.value = props.client.activite || '';
+        nis.value = props.client.nis || '';
         openingBalance.value = props.client.openingBalance;
         active.value = props.client.active;
       } else {
@@ -51,6 +61,11 @@ watch(
         phone.value = '';
         email.value = '';
         address.value = '';
+        rc.value = '';
+        nif.value = '';
+        art.value = '';
+        activite.value = '';
+        nis.value = '';
         openingBalance.value = 0;
         active.value = true;
       }
@@ -64,6 +79,14 @@ async function submitForm() {
     errorMessage.value = 'Le nom du client ou de l’entreprise est obligatoire.';
     return;
   }
+  if (!rc.value.trim()) {
+    errorMessage.value = 'Le Registre de Commerce (RC) est obligatoire pour les factures.';
+    return;
+  }
+  if (!art.value.trim()) {
+    errorMessage.value = "Le Numéro d'Article d'Imposition (ART) est obligatoire pour les factures.";
+    return;
+  }
 
   submitting.value = true;
   try {
@@ -73,6 +96,11 @@ async function submitForm() {
         phone: phone.value.trim() || undefined,
         email: email.value.trim() || undefined,
         address: address.value.trim() || undefined,
+        rc: rc.value.trim(),
+        nif: nif.value.trim() || undefined,
+        art: art.value.trim(),
+        activite: activite.value.trim() || undefined,
+        nis: nis.value.trim() || undefined,
         active: active.value,
       };
       const updated = await clientService.updateClient(props.client.id, updateData);
@@ -84,6 +112,11 @@ async function submitForm() {
         phone: phone.value.trim() || undefined,
         email: email.value.trim() || undefined,
         address: address.value.trim() || undefined,
+        rc: rc.value.trim(),
+        nif: nif.value.trim() || undefined,
+        art: art.value.trim(),
+        activite: activite.value.trim() || undefined,
+        nis: nis.value.trim() || undefined,
         openingBalance: Number(openingBalance.value) || 0,
         warehouseId: selectedWarehouseId.value,
       };
@@ -171,6 +204,72 @@ async function submitForm() {
         ></textarea>
       </div>
 
+      <!-- Fiscal identifiers section (Required for invoicing) -->
+      <div class="fiscal-section">
+        <div class="section-title">
+          <span>Identifiants Fiscaux & Facturation</span>
+          <span class="fiscal-badge-req">RC & ART obligatoires</span>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">
+              Registre de Commerce (RC) <span class="required-star">*</span>
+            </label>
+            <input
+              v-model="rc"
+              type="text"
+              placeholder="Ex: 16/00-0123456B19"
+              class="form-input"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">
+              Article d'Imposition (ART) <span class="required-star">*</span>
+            </label>
+            <input
+              v-model="art"
+              type="text"
+              placeholder="Ex: 16012345678"
+              class="form-input"
+            />
+          </div>
+        </div>
+
+        <div class="form-grid-3">
+          <div class="form-group">
+            <label class="form-label">NIF (Identifiant Fiscal)</label>
+            <input
+              v-model="nif"
+              type="text"
+              placeholder="Ex: 000116012345678"
+              class="form-input"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">NIS (Statistique)</label>
+            <input
+              v-model="nis"
+              type="text"
+              placeholder="Ex: 0001160123456"
+              class="form-input"
+            />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Activité / Secteur</label>
+            <input
+              v-model="activite"
+              type="text"
+              placeholder="Ex: Commerce de gros..."
+              class="form-input"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- Opening balance (only on create) -->
       <div v-if="!props.client" class="form-grid-2 opening-section">
         <div class="form-group">
@@ -239,6 +338,18 @@ async function submitForm() {
   gap: 12px;
 }
 
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  .form-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -249,6 +360,11 @@ async function submitForm() {
   font-size: 13px;
   font-weight: 500;
   color: var(--color-text-secondary);
+}
+
+.required-star {
+  color: var(--color-danger, #ef4444);
+  font-weight: bold;
 }
 
 .form-input,
@@ -280,6 +396,40 @@ async function submitForm() {
 .help-text {
   font-size: 11px;
   color: var(--color-text-secondary);
+}
+
+.fiscal-section {
+  background: var(--color-bg-subtle, rgba(0, 0, 0, 0.02));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+.fiscal-badge-req {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-warning-text, #d97706);
+  background: var(--color-warning-subtle, rgba(245, 158, 11, 0.1));
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: none;
 }
 
 .opening-section {

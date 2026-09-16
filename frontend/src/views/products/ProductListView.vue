@@ -50,6 +50,7 @@ const productForm = ref({
   brand: 'WEHAND',
   purchasePrice: 0,
   salePrice: 0,
+  facturePrice: null as number | null,
   unit: 'PIECE',
   boxSize: 0,
   minStockAlert: 1,
@@ -333,6 +334,7 @@ function openCreateModal() {
     brand: 'WEHAND',
     purchasePrice: 0,
     salePrice: 0,
+    facturePrice: null,
     unit: 'PIECE',
     boxSize: 0,
     minStockAlert: 1,
@@ -348,6 +350,7 @@ function openEditModal(product: Product) {
     brand: product.brand,
     purchasePrice: product.purchasePrice,
     salePrice: product.salePrice,
+    facturePrice: product.facturePrice ?? null,
     unit: product.unit,
     boxSize: product.boxSize || 0,
     minStockAlert: product.minStockAlert !== undefined ? product.minStockAlert : 1,
@@ -790,6 +793,13 @@ async function handleSaveProduct() {
             required
           />
         </div>
+        <AppInput
+          v-model="productForm.facturePrice"
+          type="number"
+          label="Prix Facture (DA)"
+          :placeholder="productForm.purchasePrice ? String(Math.round(Number(productForm.purchasePrice) * 0.30 * 100) / 100) : '0.00'"
+          hint="Défaut: Prix d'Achat × 0.30. Laisser vide pour le calcul auto."
+        />
         <div class="form-row">
           <AppInput
             v-model="productForm.unit"

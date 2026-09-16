@@ -2,12 +2,12 @@
 import { ref, onMounted, watch, computed } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
-import { saleService } from '../../services/operations.service';
+import { saleService, factureService } from '../../services/operations.service';
 import { productService } from '../../services/catalog.service';
 import { employeeService } from '../../services/admin-reports.service';
-import type { Sale, Product, Employee, SaleFulfillmentLine } from '../../types';
+import type { Sale, Product, Employee, SaleFulfillmentLine, Facture, SaleWithoutFacture, FactureSituation } from '../../types';
 import type { ComputedPeriodRange } from '../../utils/periodNavigator';
-import { formatCurrency, formatDateTime, formatNumber, formatSaleStatus } from '../../utils/formatters';
+import { formatCurrency, formatDate, formatDateTime, formatNumber, formatSaleStatus } from '../../utils/formatters';
 import AppTable from '../../components/common/AppTable.vue';
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
@@ -18,6 +18,7 @@ import AppPagination from '../../components/common/AppPagination.vue';
 import ConfirmDialog from '../../components/common/ConfirmDialog.vue';
 import InvoiceDocument from '../../components/sales/InvoiceDocument.vue';
 import PickupSlipDocument from '../../components/sales/PickupSlipDocument.vue';
+import FactureDocument from '../../components/sales/FactureDocument.vue';
 
 const authStore = useAuthStore();
 const warehouseStore = useWarehouseStore();
@@ -78,7 +79,7 @@ const cancelling = ref(false);
 const exporting = ref(false);
 
 // Tabs state
-const activeMainTab = ref<'sales' | 'pickups'>('sales');
+const activeMainTab = ref<'sales' | 'pickups' | 'factures'>('sales');
 
 // Pending pickups queue state
 const pendingPickups = ref<SaleFulfillmentLine[]>([]);
@@ -113,6 +114,48 @@ const reassignError = ref('');
 const showCancelLineDialog = ref(false);
 const cancellingLine = ref<SaleFulfillmentLine | null>(null);
 const cancellingLineLoading = ref(false);
+
+// Factures tab state
+const factures = ref<Facture[]>([]);
+const facturesLoading = ref(false);
+const facturesPage = ref(1);
+const facturesLimit = ref(25);
+const facturesTotal = ref(0);
+const facturesTotalPages = ref(1);
+const facturesSearch = ref('');
+const facturesSituationFilter = ref<'all' | 'ACTIVE' | 'DETAINED' | 'DESTROYED'>('all');
+const facturesDateRange = ref<{ startDate?: string; endDate?: string }>({});
+
+// Create Facture Modal
+const showCreateFactureModal = ref(false);
+const salesWithoutFacture = ref<SaleWithoutFacture[]>([]);
+const salesWithoutFactureLoading = ref(false);
+const selectedSaleForFacture = ref<SaleWithoutFacture | null>(null);
+const createFactureForm = ref({
+  clientName: '',
+  clientAddress: '',
+  clientRc: '',
+  clientNif: '',
+  clientArt: '',
+  clientActivite: '',
+  clientNis: '',
+  reglement: 'Espèce',
+  moyenTransport: '',
+  camionNumero: '',
+  chauffeur: '',
+});
+const creatingFacture = ref(false);
+const createFactureError = ref('');
+
+// Facture Preview Modal
+const showFacturePreviewModal = ref(false);
+const selectedFacture = ref<Facture | null>(null);
+
+// Facture Situation Modal
+const showSituationModal = ref(false);
+const situationFacture = ref<Facture | null>(null);
+const situationForm = ref({ situation: 'ACTIVE' as FactureSituation, situationNotes: '' });
+const updatingSituation = ref(false);
 
 const cancelDialogMessage = computed(() => {
   if (!cancellingSale.value) return '';
@@ -408,14 +451,193 @@ async function fetchPickupsCount() {
   }
 }
 
-function switchMainTab(tab: 'sales' | 'pickups') {
+function switchMainTab(tab: 'sales' | 'pickups' | 'factures') {
   activeMainTab.value = tab;
   if (tab === 'pickups') {
     pickupsPage.value = 1;
     fetchPendingPickups();
+  } else if (tab === 'factures') {
+    facturesPage.value = 1;
+    fetchFactures();
   } else {
     fetchSales();
   }
+}
+
+// ─── Facture Methods ─────────────────────────
+async function fetchFactures() {
+  facturesLoading.value = true;
+  try {
+    const res = await factureService.getFactures({
+      page: facturesPage.value,
+      limit: facturesLimit.value,
+      search: facturesSearch.value.trim() || undefined,
+      situation: facturesSituationFilter.value !== 'all' ? facturesSituationFilter.value : undefined,
+      startDate: facturesDateRange.value.startDate,
+      endDate: facturesDateRange.value.endDate,
+    });
+    factures.value = res.items;
+    facturesTotal.value = res.pagination.total;
+    facturesTotalPages.value = res.pagination.totalPages;
+  } catch (err) {
+    console.error('Failed to load factures', err);
+  } finally {
+    facturesLoading.value = false;
+  }
+}
+
+let facturesSearchTimeout: any = null;
+function onFacturesSearchInput() {
+  clearTimeout(facturesSearchTimeout);
+  facturesSearchTimeout = setTimeout(async () => {
+    facturesPage.value = 1;
+    await fetchFactures();
+  }, 300);
+}
+
+function onFacturesPageChange(payload: { page: number; limit: number }) {
+  facturesPage.value = payload.page;
+  facturesLimit.value = payload.limit;
+  fetchFactures();
+}
+
+function onFacturesPeriodChange(range: { startDate?: string; endDate?: string }) {
+  facturesDateRange.value = range;
+  facturesPage.value = 1;
+  fetchFactures();
+}
+
+async function openCreateFactureModal() {
+  showCreateFactureModal.value = true;
+  createFactureError.value = '';
+  selectedSaleForFacture.value = null;
+  createFactureForm.value = {
+    clientName: '', clientAddress: '', clientRc: '', clientNif: '',
+    clientArt: '', clientActivite: '', clientNis: '', reglement: 'Espèce',
+    moyenTransport: '', camionNumero: '', chauffeur: '',
+  };
+  salesWithoutFactureLoading.value = true;
+  try {
+    salesWithoutFacture.value = await factureService.getSalesWithoutFacture();
+  } catch (err) {
+    console.error('Failed to load sales', err);
+  } finally {
+    salesWithoutFactureLoading.value = false;
+  }
+}
+
+function openCreateFactureForSale(sale: Sale) {
+  showCreateFactureModal.value = true;
+  createFactureError.value = '';
+  selectedSaleForFacture.value = {
+    id: sale.id,
+    invoiceNumber: sale.invoiceNumber || `#${sale.id}`,
+    customerName: sale.customerName || sale.clientName || 'Client',
+    clientId: sale.clientId || null,
+    clientName: sale.clientName || null,
+    clientCode: sale.clientCode || null,
+    clientAddress: sale.clientAddress || null,
+    clientRc: sale.clientRc || null,
+    clientNif: sale.clientNif || null,
+    clientArt: sale.clientArt || null,
+    clientActivite: sale.clientActivite || null,
+    clientNis: sale.clientNis || null,
+    totalAmount: sale.totalAmount,
+    saleDate: sale.saleDate || sale.createdAt || '',
+  };
+  createFactureForm.value = {
+    clientName: sale.clientName || sale.customerName || '',
+    clientAddress: sale.clientAddress || '',
+    clientRc: sale.clientRc || '',
+    clientNif: sale.clientNif || '',
+    clientArt: sale.clientArt || '',
+    clientActivite: sale.clientActivite || '',
+    clientNis: sale.clientNis || '',
+    reglement: 'Espèce',
+    moyenTransport: '',
+    camionNumero: '',
+    chauffeur: '',
+  };
+}
+
+function onSaleForFactureSelected(sale: SaleWithoutFacture) {
+  selectedSaleForFacture.value = sale;
+  createFactureForm.value.clientName = sale.clientName || sale.customerName || '';
+  createFactureForm.value.clientAddress = sale.clientAddress || '';
+  createFactureForm.value.clientRc = sale.clientRc || '';
+  createFactureForm.value.clientNif = sale.clientNif || '';
+  createFactureForm.value.clientArt = sale.clientArt || '';
+  createFactureForm.value.clientActivite = sale.clientActivite || '';
+  createFactureForm.value.clientNis = sale.clientNis || '';
+}
+
+async function handleCreateFacture() {
+  if (!selectedSaleForFacture.value) {
+    createFactureError.value = 'Veuillez sélectionner une vente.';
+    return;
+  }
+  creatingFacture.value = true;
+  createFactureError.value = '';
+  try {
+    await factureService.createFacture({
+      saleId: selectedSaleForFacture.value.id,
+      ...createFactureForm.value,
+    });
+    showCreateFactureModal.value = false;
+    fetchFactures();
+  } catch (err: any) {
+    createFactureError.value = err.response?.data?.message || err.message || 'Erreur lors de la création';
+  } finally {
+    creatingFacture.value = false;
+  }
+}
+
+async function viewFacture(facture: Facture) {
+  try {
+    const full = await factureService.getFactureById(facture.id);
+    selectedFacture.value = full;
+    showFacturePreviewModal.value = true;
+  } catch (err) {
+    console.error('Failed to load facture', err);
+  }
+}
+
+function openSituationModal(facture: Facture) {
+  situationFacture.value = facture;
+  situationForm.value = {
+    situation: facture.situation,
+    situationNotes: facture.situationNotes || '',
+  };
+  showSituationModal.value = true;
+}
+
+async function handleUpdateSituation() {
+  if (!situationFacture.value) return;
+  updatingSituation.value = true;
+  try {
+    await factureService.updateSituation(situationFacture.value.id, situationForm.value);
+    showSituationModal.value = false;
+    fetchFactures();
+  } catch (err: any) {
+    console.error('Failed to update situation', err);
+  } finally {
+    updatingSituation.value = false;
+  }
+}
+
+function formatFactureSituation(sit: string): string {
+  const map: Record<string, string> = {
+    ACTIVE: 'Active',
+    DETAINED: 'Saisie (Gendarmerie)',
+    DESTROYED: 'Détruite',
+  };
+  return map[sit] || sit;
+}
+
+function situationBadgeVariant(sit: string): 'success' | 'warning' | 'danger' {
+  if (sit === 'ACTIVE') return 'success';
+  if (sit === 'DETAINED') return 'warning';
+  return 'danger';
 }
 
 let pickupsSearchTimeout: any = null;
@@ -600,6 +822,19 @@ async function handleConfirmCancelLine() {
         Retraits en Attente (Inter-Dépôts)
         <span v-if="pendingPickupsCount > 0" class="tab-badge">{{ pendingPickupsCount }}</span>
       </button>
+      <button
+        :class="['main-tab-btn', { active: activeMainTab === 'factures' }]"
+        @click="switchMainTab('factures')"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+          <polyline points="10 9 9 9 8 9" />
+        </svg>
+        Gestion des Factures
+      </button>
     </div>
 
     <!-- TAB 1: ALL SALES -->
@@ -661,7 +896,7 @@ async function handleConfirmCancelLine() {
       <!-- Table -->
       <AppTable :loading="loading" :empty="!sales.length" empty-text="Aucune vente enregistrée pour cette période" :columns-count="8">
         <template #header>
-          <th>N° Facture</th>
+          <th>N° Bon</th>
           <th>Entrepôt</th>
           <th>Client</th>
           <th>Agent de suivi</th>
@@ -741,7 +976,7 @@ async function handleConfirmCancelLine() {
                     <line x1="16" y1="17" x2="8" y2="17" />
                     <polyline points="10 9 9 9 8 9" />
                   </svg>
-                  Facture
+                  Bon 
                 </button>
 
                 <template v-if="(sale.status === 'COMPLETED' || sale.status === 'PENDING_PICKUP') && !authStore.isReadOnly">
@@ -805,7 +1040,7 @@ async function handleConfirmCancelLine() {
       <AppTable :loading="pendingPickupsLoading" :empty="!pendingPickups.length" empty-text="Aucun retrait en attente pour cet entrepôt" :columns-count="8">
         <template #header>
           <th>N° Bon de Retrait</th>
-          <th>Facture Parente</th>
+          <th>Bon Parente</th>
           <th>Client</th>
           <th>Dépôt Vendeur</th>
           <th>Article & Quantité</th>
@@ -848,7 +1083,7 @@ async function handleConfirmCancelLine() {
                 class="badge-payment collect"
                 title="À encaisser obligatoirement avant remise du matériel"
               >
-                ⚠️ À encaisser au retrait
+                À encaisser au retrait
               </span>
             </td>
             <td>
@@ -927,6 +1162,145 @@ async function handleConfirmCancelLine() {
       />
     </div>
 
+    <!-- TAB 3: FACTURES (INVOICE MANAGEMENT) -->
+    <div v-else-if="activeMainTab === 'factures'" class="tab-pane">
+      <!-- Factures Filter Bar -->
+      <div class="filter-bar">
+        <div class="search-box">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            v-model="facturesSearch"
+            type="text"
+            placeholder="Rechercher par n° facture, client, n° bon..."
+            class="search-input"
+            @input="onFacturesSearchInput"
+          />
+        </div>
+
+        <div class="payment-filter-pills">
+          <button
+            :class="['status-pill', { active: facturesSituationFilter === 'all' }]"
+            @click="() => { facturesSituationFilter = 'all'; facturesPage = 1; fetchFactures(); }"
+          >
+            Toutes
+          </button>
+          <button
+            :class="['status-pill', { active: facturesSituationFilter === 'ACTIVE' }]"
+            @click="() => { facturesSituationFilter = 'ACTIVE'; facturesPage = 1; fetchFactures(); }"
+          >
+            Actives
+          </button>
+          <button
+            :class="['status-pill', { active: facturesSituationFilter === 'DETAINED' }]"
+            @click="() => { facturesSituationFilter = 'DETAINED'; facturesPage = 1; fetchFactures(); }"
+          >
+            Saisies (Gendarmerie)
+          </button>
+          <button
+            :class="['status-pill', { active: facturesSituationFilter === 'DESTROYED' }]"
+            @click="() => { facturesSituationFilter = 'DESTROYED'; facturesPage = 1; fetchFactures(); }"
+          >
+            Détruites
+          </button>
+        </div>
+
+        <div class="header-actions">
+          <AppButton v-if="!authStore.isReadOnly" variant="primary" @click="openCreateFactureModal">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Émettre une Facture
+          </AppButton>
+          <div class="count-badge text-muted font-mono">
+            {{ facturesTotal }} {{ facturesTotal > 1 ? 'factures' : 'facture' }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Factures Table -->
+      <AppTable :loading="facturesLoading" :empty="!factures.length" empty-text="Aucune facture émise pour le moment" :columns-count="10">
+        <template #header>
+          <th>N° Facture</th>
+          <th>Date</th>
+          <th>Bon Vente Associé</th>
+          <th>Client</th>
+          <th>Total HT</th>
+          <th>Total TVA (19%)</th>
+          <th>Timbre (1%)</th>
+          <th>Total TTC</th>
+          <th>Situation</th>
+          <th>Actions</th>
+        </template>
+        <template #body>
+          <tr v-for="facture in factures" :key="facture.id">
+            <td>
+              <span class="font-mono font-bold">{{ facture.factureNumber }}</span>
+            </td>
+            <td class="font-mono text-caption">{{ formatDate(facture.factureDate) }}</td>
+            <td>
+              <span class="font-mono text-caption">{{ facture.invoiceNumber || `#${facture.saleId}` }}</span>
+            </td>
+            <td>
+              <strong>{{ facture.clientName }}</strong>
+              <div v-if="facture.clientNif || facture.clientRc" class="text-caption text-muted font-mono">
+                {{ facture.clientNif ? `NIF: ${facture.clientNif}` : '' }} {{ facture.clientRc ? `RC: ${facture.clientRc}` : '' }}
+              </div>
+            </td>
+            <td class="font-mono">{{ formatCurrency(facture.totalHt) }}</td>
+            <td class="font-mono text-muted">{{ formatCurrency(facture.totalTva) }}</td>
+            <td class="font-mono text-muted">{{ formatCurrency(facture.timbre) }}</td>
+            <td class="font-mono font-bold text-primary">{{ formatCurrency(facture.totalTtc) }}</td>
+            <td>
+              <AppBadge :variant="situationBadgeVariant(facture.situation)">
+                {{ formatFactureSituation(facture.situation) }}
+              </AppBadge>
+            </td>
+            <td>
+              <div class="action-buttons">
+                <button class="icon-action-btn" title="Afficher / Imprimer la facture fiscale" @click="viewFacture(facture)">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
+                  Facture
+                </button>
+                <button
+                  v-if="!authStore.isReadOnly"
+                  class="icon-action-btn"
+                  title="Changer la situation fiscale (Active, Saisie, Détruite)"
+                  @click="openSituationModal(facture)"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  Situation
+                </button>
+              </div>
+            </td>
+          </tr>
+        </template>
+      </AppTable>
+
+      <!-- Factures Pagination -->
+      <AppPagination
+        v-model:page="facturesPage"
+        v-model:limit="facturesLimit"
+        :total="facturesTotal"
+        :total-pages="facturesTotalPages"
+        :loading="facturesLoading"
+        @change="onFacturesPageChange"
+      />
+    </div>
+
     <!-- Invoice Viewer Modal -->
     <AppModal
       v-model="showInvoiceModal"
@@ -941,7 +1315,7 @@ async function handleConfirmCancelLine() {
         <!-- Inter-warehouse fulfillment lines breakdown -->
         <div v-if="selectedSale.fulfillmentLines && selectedSale.fulfillmentLines.length > 0" class="fulfillment-breakdown-card no-print">
           <div class="breakdown-header">
-            <h4>📦 Bons de Retrait Inter-Dépôts Associés</h4>
+            <h4>Bons de Retrait Inter-Dépôts Associés</h4>
             <span class="breakdown-count">{{ selectedSale.fulfillmentLines.length }} ligne(s) déportée(s)</span>
           </div>
 
@@ -1261,6 +1635,230 @@ async function handleConfirmCancelLine() {
       :loading="cancelling"
       @confirm="handleConfirmCancel"
     />
+
+    <!-- Facture Viewer Modal -->
+    <AppModal
+      v-model="showFacturePreviewModal"
+      :title="`Facture Fiscale : ${selectedFacture?.factureNumber || ''}`"
+      max-width="920px"
+    >
+      <div v-if="selectedFacture" class="invoice-modal-content">
+        <div class="invoice-preview-wrapper print-surface">
+          <FactureDocument :facture="selectedFacture" />
+        </div>
+      </div>
+      <template #footer>
+        <AppButton variant="secondary" @click="showFacturePreviewModal = false">Fermer</AppButton>
+        <AppButton variant="primary" onclick="window.print()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 6 2 18 2 18 9" />
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+            <rect x="6" y="14" width="12" height="8" />
+          </svg>
+          Imprimer la Facture
+        </AppButton>
+      </template>
+    </AppModal>
+
+    <!-- Create Facture Modal -->
+    <AppModal
+      v-model="showCreateFactureModal"
+      title="Émettre une Nouvelle Facture Fiscale"
+      max-width="780px"
+    >
+      <div v-if="createFactureError" class="modal-error mb-3">
+        {{ createFactureError }}
+      </div>
+
+      <div class="modal-form">
+        <!-- Step 1: Select Sale -->
+        <div class="app-input-group">
+          <label class="input-label">Sélectionner la Vente (Bon de Livraison)</label>
+          <div v-if="salesWithoutFactureLoading" class="text-caption text-muted py-2">
+            Chargement des ventes éligibles...
+          </div>
+          <div v-else-if="salesWithoutFacture.length === 0" class="text-caption text-muted py-2">
+            Toutes les ventes enregistrées ont déjà une facture émise, ou aucune vente disponible.
+          </div>
+          <select
+            v-else
+            :value="selectedSaleForFacture?.id || ''"
+            class="app-select"
+            @change="(e: any) => {
+              const s = salesWithoutFacture.find(x => x.id === Number(e.target.value));
+              if (s) onSaleForFactureSelected(s);
+            }"
+          >
+            <option value="" disabled>-- Choisir une vente sans facture --</option>
+            <option v-for="s in salesWithoutFacture" :key="s.id" :value="s.id">
+              {{ s.invoiceNumber || '#' + s.id }} — {{ s.customerName || s.clientName || 'Client' }} — {{ formatCurrency(s.totalAmount) }} ({{ formatDate(s.saleDate) }})
+            </option>
+          </select>
+        </div>
+
+        <div v-if="selectedSaleForFacture" class="selected-sale-info-box">
+          <div class="info-row">
+            <span class="info-label">Bon de Livraison associé :</span>
+            <span class="info-val font-mono font-bold">{{ selectedSaleForFacture.invoiceNumber }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Montant Réel Vente :</span>
+            <span class="info-val font-mono">{{ formatCurrency(selectedSaleForFacture.totalAmount) }}</span>
+          </div>
+          <div class="info-note">
+            💡 <em>La facture fiscale utilisera automatiquement le prix facture (30% du prix d'achat) de chaque produit pour générer des totaux HT et TVA conformes et réduits.</em>
+          </div>
+        </div>
+
+        <!-- Step 2: Client Info -->
+        <h4 class="section-subtitle mt-2">Coordonnées du Client (Sur la Facture)</h4>
+        <div class="form-row">
+          <AppInput
+            v-model="createFactureForm.clientName"
+            label="Nom / Raison Sociale Client"
+            placeholder="Nom du client"
+            required
+          />
+          <AppInput
+            v-model="createFactureForm.clientAddress"
+            label="Adresse Client"
+            placeholder="Ville, Wilaya..."
+          />
+        </div>
+
+        <div class="form-row">
+          <AppInput
+            v-model="createFactureForm.clientRc"
+            label="N° Registre de Commerce (RC)"
+            placeholder="Ex: 19 B 123456"
+          />
+          <AppInput
+            v-model="createFactureForm.clientNif"
+            label="NIF / Identifiant Fiscal"
+            placeholder="NIF / IF"
+          />
+        </div>
+
+        <div class="form-row">
+          <AppInput
+            v-model="createFactureForm.clientArt"
+            label="N° Article d'Imposition (ART)"
+            placeholder="Ex: 19204502299"
+          />
+          <AppInput
+            v-model="createFactureForm.clientNis"
+            label="NIS (Statistique)"
+            placeholder="Ex: 0001160123456"
+          />
+        </div>
+
+        <div class="form-row">
+          <AppInput
+            v-model="createFactureForm.clientActivite"
+            label="Activité Client"
+            placeholder="Ex: Commerce de détail"
+          />
+        </div>
+
+        <!-- Step 3: Transport & Reglement -->
+        <h4 class="section-subtitle mt-2">Transport & Règlement</h4>
+        <div class="form-row">
+          <div class="app-input-group">
+            <label class="input-label">Mode de Règlement</label>
+            <select v-model="createFactureForm.reglement" class="app-select">
+              <option value="Espèce">Espèce</option>
+              <option value="Chèque">Chèque</option>
+              <option value="Virement">Virement</option>
+              <option value="Traite">Traite</option>
+            </select>
+          </div>
+          <AppInput
+            v-model="createFactureForm.moyenTransport"
+            label="Moyen de Transport"
+            placeholder="Ex: CAMION HYUNDAI"
+          />
+        </div>
+
+        <div class="form-row">
+          <AppInput
+            v-model="createFactureForm.camionNumero"
+            label="N° Camion / Matricule"
+            placeholder="Ex: 12345 119 19"
+          />
+          <AppInput
+            v-model="createFactureForm.chauffeur"
+            label="Nom du Chauffeur"
+            placeholder="Nom & Prénom"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <AppButton variant="secondary" @click="showCreateFactureModal = false">Annuler</AppButton>
+        <AppButton
+          variant="primary"
+          :loading="creatingFacture"
+          :disabled="!selectedSaleForFacture"
+          @click="handleCreateFacture"
+        >
+          Émettre la Facture Fiscale
+        </AppButton>
+      </template>
+    </AppModal>
+
+    <!-- Facture Situation Modal -->
+    <AppModal
+      v-model="showSituationModal"
+      :title="`Situation Fiscale : ${situationFacture?.factureNumber || ''}`"
+      max-width="500px"
+    >
+      <div v-if="situationFacture" class="modal-form">
+        <div class="fulfill-info-box mb-2">
+          <div class="info-row">
+            <span class="info-label">N° Facture :</span>
+            <span class="info-val font-mono font-bold">{{ situationFacture.factureNumber }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Client :</span>
+            <span class="info-val font-bold">{{ situationFacture.clientName }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Total TTC :</span>
+            <span class="info-val font-mono">{{ formatCurrency(situationFacture.totalTtc) }}</span>
+          </div>
+        </div>
+
+        <div class="app-input-group">
+          <label class="input-label">Situation Actuelle</label>
+          <select v-model="situationForm.situation" class="app-select">
+            <option value="ACTIVE">Active (En circulation normale)</option>
+            <option value="DETAINED">Saisie par la Gendarmerie</option>
+            <option value="DESTROYED">Détruite par le client</option>
+          </select>
+        </div>
+
+        <div class="app-input-group">
+          <label class="input-label">Notes & Justificatifs</label>
+          <textarea
+            v-model="situationForm.situationNotes"
+            class="app-textarea"
+            rows="3"
+            placeholder="Préciser les circonstances (ex: N° PV de saisie, date et lieu du contrôle...)"
+          ></textarea>
+        </div>
+      </div>
+
+      <template #footer>
+        <AppButton variant="secondary" @click="showSituationModal = false">Annuler</AppButton>
+        <AppButton
+          variant="primary"
+          :loading="updatingSituation"
+          @click="handleUpdateSituation"
+        >
+          Enregistrer la Situation
+        </AppButton>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -1871,4 +2469,51 @@ async function handleConfirmCancelLine() {
   justify-content: center;
   padding: 10px 0;
 }
+
+.selected-sale-info-box {
+  background: var(--color-bg-subtle, #f8fafc);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-note {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: rgba(59, 130, 246, 0.08);
+  border-left: 3px solid #3b82f6;
+  padding: 6px 10px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin-top: 4px;
+}
+
+.section-subtitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 2px;
+}
+
+.app-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  outline: none;
+  resize: vertical;
+  transition: all var(--transition-fast);
+}
+
+.app-textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
 </style>
+

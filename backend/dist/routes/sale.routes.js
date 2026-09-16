@@ -75,7 +75,8 @@ router.get('/', authenticate, async (req, res) => {
       SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.code as warehouse_code,
              w.location as warehouse_address, w.contact_number as warehouse_phone,
              s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
-             s.client_id, cl.name as client_name, cl.code as client_code,
+             s.client_id, cl.name as client_name, cl.code as client_code, cl.address as client_address,
+             cl.rc as client_rc, cl.nif as client_nif, cl.art as client_art, cl.activite as client_activite, cl.nis as client_nis,
              s.customer_name, s.customer_phone,
              s.total_amount, s.paid_amount, s.advance_deducted, s.payment_status, s.status,
              COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
@@ -96,6 +97,7 @@ router.get('/', authenticate, async (req, res) => {
         FROM sale_items si
         JOIN products p ON si.product_id = p.id
         WHERE si.sale_id = ANY($1::int[])
+        ORDER BY si.id ASC
       `, [saleIds]);
             for (const item of itemsRes.rows) {
                 if (!itemsBySaleId[item.sale_id]) {
@@ -130,6 +132,12 @@ router.get('/', authenticate, async (req, res) => {
             clientId: s.client_id,
             clientName: s.client_name,
             clientCode: s.client_code,
+            clientAddress: s.client_address,
+            clientRc: s.client_rc,
+            clientNif: s.client_nif,
+            clientArt: s.client_art,
+            clientActivite: s.client_activite,
+            clientNis: s.client_nis,
             customerName: s.customer_name || s.client_name || 'Client',
             customerPhone: s.customer_phone,
             totalAmount: Number(s.total_amount),
@@ -659,6 +667,7 @@ router.get('/:id', authenticate, async (req, res) => {
              s.has_inter_warehouse_fulfillment,
              s.user_id, u.full_name as user_name, s.employee_id, e.full_name as employee_name,
              s.client_id, cl.name as client_name, cl.code as client_code, cl.address as client_address,
+             cl.rc as client_rc, cl.nif as client_nif, cl.art as client_art, cl.activite as client_activite, cl.nis as client_nis,
              s.customer_name, s.customer_phone,
              s.total_amount, s.paid_amount, s.advance_deducted, s.payment_status, s.status,
              COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
@@ -760,6 +769,11 @@ router.get('/:id', authenticate, async (req, res) => {
             clientName: s.client_name,
             clientCode: s.client_code,
             clientAddress: s.client_address,
+            clientRc: s.client_rc,
+            clientNif: s.client_nif,
+            clientArt: s.client_art,
+            clientActivite: s.client_activite,
+            clientNis: s.client_nis,
             customerName: s.customer_name || s.client_name || 'Client',
             customerPhone: s.customer_phone,
             totalAmount: Number(s.total_amount),

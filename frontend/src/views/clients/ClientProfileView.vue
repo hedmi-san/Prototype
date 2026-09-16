@@ -229,6 +229,13 @@ async function submitAdjustment() {
         <div><strong>Client :</strong> {{ client?.name }} ({{ client?.code }})</div>
         <div v-if="client?.phone"><strong>Tél :</strong> {{ client.phone }}</div>
         <div v-if="client?.address"><strong>Adresse :</strong> {{ client.address }}</div>
+        <div v-if="client?.rc || client?.art" class="print-fiscal-row">
+          <span v-if="client?.rc"><strong>RC:</strong> {{ client.rc }}</span>
+          <span v-if="client?.art" style="margin-left: 12px;"><strong>ART:</strong> {{ client.art }}</span>
+          <span v-if="client?.nif" style="margin-left: 12px;"><strong>NIF:</strong> {{ client.nif }}</span>
+          <span v-if="client?.nis" style="margin-left: 12px;"><strong>NIS:</strong> {{ client.nis }}</span>
+        </div>
+        <div v-if="client?.activite"><strong>Activité :</strong> {{ client.activite }}</div>
         <div>
           <strong>Solde Actuel :</strong>
           <span :class="['print-balance', (client?.currentBalance || 0) > 0 ? 'debt' : 'credit']">
@@ -308,6 +315,21 @@ async function submitAdjustment() {
             <span v-if="client.address" class="meta-item">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
               {{ client.address }}
+            </span>
+            <span v-if="client.rc" class="meta-badge-item" title="Registre de Commerce">
+              <strong>RC:</strong> {{ client.rc }}
+            </span>
+            <span v-if="client.art" class="meta-badge-item" title="Article d'Imposition">
+              <strong>ART:</strong> {{ client.art }}
+            </span>
+            <span v-if="client.nif" class="meta-badge-item" title="Identifiant Fiscal">
+              <strong>NIF:</strong> {{ client.nif }}
+            </span>
+            <span v-if="client.nis" class="meta-badge-item" title="Numéro Statistique">
+              <strong>NIS:</strong> {{ client.nis }}
+            </span>
+            <span v-if="client.activite" class="meta-item">
+              <span class="meta-label-sm">Activité:</span> {{ client.activite }}
             </span>
           </div>
         </div>
@@ -807,6 +829,28 @@ async function submitAdjustment() {
   align-items: center;
   gap: 5px;
   font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.meta-badge-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  background: var(--color-bg-subtle, rgba(0, 0, 0, 0.04));
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.meta-badge-item strong {
+  color: var(--color-text-primary);
+}
+
+.meta-label-sm {
+  font-weight: 600;
   color: var(--color-text-secondary);
 }
 

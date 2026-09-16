@@ -261,8 +261,14 @@ function onPaymentSaved() {
               </td>
               <td>
                 <div class="client-cell">
-                  <strong class="client-name">{{ c.name }}</strong>
-                  <span v-if="c.isDefault" class="default-tag">Comptoir / Passager</span>
+                  <div class="client-cell-main">
+                    <strong class="client-name">{{ c.name }}</strong>
+                    <div class="client-meta-line">
+                      <span v-if="c.isDefault" class="default-tag">Comptoir / Passager</span>
+                      <span v-if="c.rc" class="fiscal-badge" title="Registre de Commerce">RC: {{ c.rc }}</span>
+                      <span v-if="c.art" class="fiscal-badge" title="Article d'Imposition">ART: {{ c.art }}</span>
+                    </div>
+                  </div>
                 </div>
               </td>
               <td>{{ c.phone || '-' }}</td>
@@ -583,6 +589,30 @@ function onPaymentSaved() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.client-cell-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.client-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fiscal-badge {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  background: var(--color-bg-subtle, rgba(0, 0, 0, 0.05));
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 500;
 }
 
 .client-name {
