@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue';
 import { useAuthStore } from '../../stores/auth.store';
 import { useWarehouseStore } from '../../stores/warehouse.store';
 import { saleService, factureService } from '../../services/operations.service';
@@ -133,6 +133,7 @@ const salesWithoutFactureLoading = ref(false);
 const selectedSaleForFacture = ref<SaleWithoutFacture | null>(null);
 const saleSearchQuery = ref('');
 const saleDropdownOpen = ref(false);
+const saleComboboxRef = ref<HTMLElement | null>(null);
 let saleSearchDebounceTimer: any = null;
 const createFactureForm = ref({
   clientName: '',
@@ -178,13 +179,26 @@ const cancelDialogMessage = computed(() => {
   return `Êtes-vous sûr de vouloir annuler la vente ${cancellingSale.value.invoiceNumber} ? Le stock physique sera réintégré et les écritures financières compensées.`;
 });
 
+function handleSaleComboboxClickOutside(event: MouseEvent) {
+  if (!saleDropdownOpen.value) return;
+  const target = event.target as Node;
+  if (saleComboboxRef.value && !saleComboboxRef.value.contains(target)) {
+    saleDropdownOpen.value = false;
+  }
+}
+
 onMounted(async () => {
+  document.addEventListener('click', handleSaleComboboxClickOutside);
   await Promise.all([
     fetchProducts(),
     fetchEmployees(),
     fetchPickupsCount(),
     warehouseStore.fetchWarehouses(),
   ]);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleSaleComboboxClickOutside);
 });
 
 // Watch warehouse changes to refresh sales
@@ -1780,7 +1794,7 @@ async function handleConfirmCancelLine() {
           </div>
 
           <!-- State B: Searching / Selecting Sale -->
-          <div v-else class="sale-combobox-wrapper">
+          <div v-else ref="saleComboboxRef" class="sale-combobox-wrapper">
             <div class="combobox-input-wrapper">
               <svg class="combobox-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="11" cy="11" r="8" />
@@ -1793,12 +1807,48 @@ async function handleConfirmCancelLine() {
                 placeholder="Rechercher par N° Bon (ex: INV-...), client ou code..."
                 @focus="saleDropdownOpen = true"
                 @input="onSaleSearchInput"
+                @keydown.esc="saleDropdownOpen = false"
               />
-              <span v-if="salesWithoutFactureLoading" class="combobox-loading-spinner" />
+              <div class="combobox-input-actions">
+                <span v-if="salesWithoutFactureLoading" class="combobox-loading-spinner" />
+                <button
+                  v-if="saleSearchQuery"
+                  type="button"
+                  class="combobox-action-btn"
+                  title="Effacer la recherche"
+                  @click.stop="saleSearchQuery = ''; searchSalesForFacture('')"
+                >
+                  ✕
+                </button>
+                <button
+                  type="button"
+                  class="combobox-action-btn"
+                  :title="saleDropdownOpen ? 'Fermer les suggestions' : 'Afficher les suggestions'"
+                  @click.stop="saleDropdownOpen = !saleDropdownOpen"
+                >
+                  <svg :class="['chevron-icon', { 'is-open': saleDropdownOpen }]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <!-- Floating suggestion list -->
             <div v-if="saleDropdownOpen" class="sale-combobox-dropdown">
+              <div class="combobox-section-title">
+                <span>
+                  {{ saleSearchQuery.trim() ? 'Résultats correspondants' : 'Ventes récentes éligibles' }}
+                  <span class="text-caption text-muted font-mono">({{ salesWithoutFacture.length }})</span>
+                </span>
+                <button
+                  type="button"
+                  class="btn-close-dropdown"
+                  title="Fermer la liste"
+                  @click.stop="saleDropdownOpen = false"
+                >
+                  Fermer ✕
+                </button>
+              </div>
               <div v-if="salesWithoutFactureLoading && !salesWithoutFacture.length" class="combobox-empty-message">
                 Recherche des ventes en cours...
               </div>
@@ -1806,10 +1856,6 @@ async function handleConfirmCancelLine() {
                 {{ saleSearchQuery.trim() ? `Aucune vente trouvée pour "${saleSearchQuery}"` : 'Aucune vente sans facture disponible.' }}
               </div>
               <div v-else class="sale-suggestions-list">
-                <div class="combobox-section-title">
-                  {{ saleSearchQuery.trim() ? 'Résultats correspondants' : 'Ventes récentes éligibles' }}
-                  <span class="text-caption text-muted font-mono">({{ salesWithoutFacture.length }})</span>
-                </div>
                 <div
                   v-for="s in salesWithoutFacture"
                   :key="s.id"
@@ -2771,7 +2817,7 @@ async function handleConfirmCancelLine() {
 .combobox-search-input {
   width: 100%;
   height: 38px;
-  padding: 8px 36px 8px 34px;
+  padding: 8px 68px 8px 34px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background-color: var(--color-bg);
@@ -2786,11 +2832,63 @@ async function handleConfirmCancelLine() {
   box-shadow: 0 0 0 1px var(--color-primary);
 }
 
-.combobox-loading-spinner {
+.combobox-input-actions {
   position: absolute;
-  right: 12px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.combobox-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm, 4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  transition: all var(--transition-fast);
+}
+
+.combobox-action-btn:hover {
+  background-color: var(--color-surface-hover, #f1f5f9);
+  color: var(--color-text-primary);
+}
+
+.chevron-icon {
+  transition: transform 0.2s ease;
+}
+
+.chevron-icon.is-open {
+  transform: rotate(180deg);
+}
+
+.btn-close-dropdown {
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 3px;
+  transition: all var(--transition-fast);
+}
+
+.btn-close-dropdown:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--color-text-primary);
+}
+
+.combobox-loading-spinner {
   width: 14px;
   height: 14px;
+  margin-right: 4px;
   border: 2px solid var(--color-border);
   border-top-color: var(--color-primary);
   border-radius: 50%;
