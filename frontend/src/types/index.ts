@@ -229,6 +229,8 @@ export interface Sale {
   paymentStatus?: PaymentStatus;
   saleDate: string;
   status: SaleStatus;
+  factureId?: number | null;
+  factureNumber?: string | null;
   createdById: number | null;
   createdByName: string;
   userId?: number | null;

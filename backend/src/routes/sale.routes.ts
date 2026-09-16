@@ -33,6 +33,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       JOIN users u ON s.user_id = u.id
       LEFT JOIN employees e ON s.employee_id = e.id
       LEFT JOIN clients cl ON s.client_id = cl.id
+      LEFT JOIN factures f ON f.sale_id = s.id
     `;
     const whereClauses: string[] = [];
     const params: any[] = [];
@@ -98,6 +99,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
              cl.rc as client_rc, cl.nif as client_nif, cl.art as client_art, cl.activite as client_activite, cl.nis as client_nis,
              s.customer_name, s.customer_phone,
              s.total_amount, s.paid_amount, s.advance_deducted, s.payment_status, s.status,
+             f.id as facture_id, f.facture_number,
              COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at, s.updated_at
       ${baseFromWhere}
       ORDER BY COALESCE(s.sale_date, s.created_at) DESC, s.id DESC
@@ -170,6 +172,8 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
       remainingAmount: Math.max(0, Number(s.total_amount) - Number(s.paid_amount || 0)),
       paymentStatus: s.payment_status || (Number(s.paid_amount) >= Number(s.total_amount) ? 'PAID' : 'UNPAID'),
       status: s.status,
+      factureId: s.facture_id || null,
+      factureNumber: s.facture_number || null,
       saleDate: s.sale_date || s.created_at,
       createdAt: s.created_at,
       updatedAt: s.updated_at,

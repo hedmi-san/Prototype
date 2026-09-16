@@ -284,9 +284,10 @@ export const factureService = {
   async deleteFacture(id: number): Promise<void> {
     await api.delete(`/factures/${id}`);
   },
-  async getSalesWithoutFacture(search?: string): Promise<SaleWithoutFacture[]> {
+  async getSalesWithoutFacture(params?: { search?: string; limit?: number } | string): Promise<SaleWithoutFacture[]> {
+    const queryParams = typeof params === 'string' ? { search: params } : params || {};
     const response = await api.get<ApiResponse<SaleWithoutFacture[]>>('/factures/sales-without-facture', {
-      params: search ? { search } : {},
+      params: queryParams,
     });
     return response.data.data || [];
   },

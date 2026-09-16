@@ -170,16 +170,19 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 router.get('/sales-without-facture', authenticate, async (req: AuthRequest, res) => {
   try {
     const search = (req.query.search as string | undefined)?.trim();
-    const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 50));
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 15));
 
     let whereSql = `WHERE s.status != 'CANCELLED' AND NOT EXISTS (SELECT 1 FROM factures f WHERE f.sale_id = s.id)`;
     const params: any[] = [];
 
     if (search) {
-      params.push(`%${search}%`);
-      params.push(`%${search}%`);
-      params.push(`%${search}%`);
-      whereSql += ` AND (s.invoice_number ILIKE $1 OR s.customer_name ILIKE $2 OR cl.name ILIKE $3)`;
+      const p1 = params.length + 1;
+      const p2 = params.length + 2;
+      const p3 = params.length + 3;
+      const p4 = params.length + 4;
+      const term = `%${search}%`;
+      params.push(term, term, term, term);
+      whereSql += ` AND (s.invoice_number ILIKE $${p1} OR s.customer_name ILIKE $${p2} OR cl.name ILIKE $${p3} OR cl.code ILIKE $${p4})`;
     }
 
     params.push(limit);

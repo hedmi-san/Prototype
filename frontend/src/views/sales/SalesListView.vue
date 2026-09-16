@@ -131,6 +131,9 @@ const showCreateFactureModal = ref(false);
 const salesWithoutFacture = ref<SaleWithoutFacture[]>([]);
 const salesWithoutFactureLoading = ref(false);
 const selectedSaleForFacture = ref<SaleWithoutFacture | null>(null);
+const saleSearchQuery = ref('');
+const saleDropdownOpen = ref(false);
+let saleSearchDebounceTimer: any = null;
 const createFactureForm = ref({
   clientName: '',
   clientAddress: '',
@@ -507,28 +510,54 @@ function onFacturesPeriodChange(range: { startDate?: string; endDate?: string })
   fetchFactures();
 }
 
-async function openCreateFactureModal() {
-  showCreateFactureModal.value = true;
-  createFactureError.value = '';
-  selectedSaleForFacture.value = null;
-  createFactureForm.value = {
-    clientName: '', clientAddress: '', clientRc: '', clientNif: '',
-    clientArt: '', clientActivite: '', clientNis: '', reglement: 'Espèce',
-    moyenTransport: '', camionNumero: '', chauffeur: '',
-  };
+async function searchSalesForFacture(term: string = '') {
   salesWithoutFactureLoading.value = true;
   try {
-    salesWithoutFacture.value = await factureService.getSalesWithoutFacture();
+    salesWithoutFacture.value = await factureService.getSalesWithoutFacture({
+      search: term.trim() || undefined,
+      limit: 15,
+    });
   } catch (err) {
-    console.error('Failed to load sales', err);
+    console.error('Failed to load sales without facture', err);
   } finally {
     salesWithoutFactureLoading.value = false;
   }
 }
 
+function onSaleSearchInput() {
+  saleDropdownOpen.value = true;
+  clearTimeout(saleSearchDebounceTimer);
+  saleSearchDebounceTimer = setTimeout(() => {
+    searchSalesForFacture(saleSearchQuery.value);
+  }, 300);
+}
+
+function clearSelectedSaleForFacture() {
+  selectedSaleForFacture.value = null;
+  saleSearchQuery.value = '';
+  saleDropdownOpen.value = true;
+  searchSalesForFacture('');
+}
+
+async function openCreateFactureModal() {
+  showCreateFactureModal.value = true;
+  createFactureError.value = '';
+  selectedSaleForFacture.value = null;
+  saleSearchQuery.value = '';
+  saleDropdownOpen.value = false;
+  createFactureForm.value = {
+    clientName: '', clientAddress: '', clientRc: '', clientNif: '',
+    clientArt: '', clientActivite: '', clientNis: '', reglement: 'Espèce',
+    moyenTransport: '', camionNumero: '', chauffeur: '',
+  };
+  await searchSalesForFacture('');
+}
+
 function openCreateFactureForSale(sale: Sale) {
   showCreateFactureModal.value = true;
   createFactureError.value = '';
+  saleSearchQuery.value = '';
+  saleDropdownOpen.value = false;
   selectedSaleForFacture.value = {
     id: sale.id,
     invoiceNumber: sale.invoiceNumber || `#${sale.id}`,
@@ -562,6 +591,8 @@ function openCreateFactureForSale(sale: Sale) {
 
 function onSaleForFactureSelected(sale: SaleWithoutFacture) {
   selectedSaleForFacture.value = sale;
+  saleSearchQuery.value = '';
+  saleDropdownOpen.value = false;
   createFactureForm.value.clientName = sale.clientName || sale.customerName || '';
   createFactureForm.value.clientAddress = sale.clientAddress || '';
   createFactureForm.value.clientRc = sale.clientRc || '';
@@ -584,7 +615,10 @@ async function handleCreateFacture() {
       ...createFactureForm.value,
     });
     showCreateFactureModal.value = false;
-    fetchFactures();
+    await Promise.all([
+      fetchFactures(),
+      fetchSales(),
+    ]);
   } catch (err: any) {
     createFactureError.value = err.response?.data?.message || err.message || 'Erreur lors de la création';
   } finally {
@@ -599,6 +633,16 @@ async function viewFacture(facture: Facture) {
     showFacturePreviewModal.value = true;
   } catch (err) {
     console.error('Failed to load facture', err);
+  }
+}
+
+async function viewFactureById(factureId: number) {
+  try {
+    const full = await factureService.getFactureById(factureId);
+    selectedFacture.value = full;
+    showFacturePreviewModal.value = true;
+  } catch (err) {
+    console.error('Failed to load facture preview', err);
   }
 }
 
@@ -968,7 +1012,7 @@ async function handleConfirmCancelLine() {
             <td class="font-mono text-caption">{{ formatDateTime(sale.saleDate || sale.createdAt) }}</td>
             <td>
               <div class="action-buttons">
-                <button class="icon-action-btn" title="Afficher / Imprimer la facture" @click="viewInvoice(sale)">
+                <button class="icon-action-btn" title="Afficher / Imprimer le bon de livraison" @click="viewInvoice(sale)">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                     <polyline points="14 2 14 8 20 8" />
@@ -977,6 +1021,35 @@ async function handleConfirmCancelLine() {
                     <polyline points="10 9 9 9 8 9" />
                   </svg>
                   Bon 
+                </button>
+
+                <!-- Facture Action: already invoiced vs unbilled -->
+                <button
+                  v-if="sale.factureId"
+                  class="icon-action-btn btn-facture-badge"
+                  :title="`Facture Fiscale N° ${sale.factureNumber || sale.factureId}. Cliquer pour afficher`"
+                  @click="viewFactureById(sale.factureId)"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="9" y1="15" x2="15" y2="15" />
+                  </svg>
+                  Facture {{ sale.factureNumber ? 'N° ' + sale.factureNumber : '' }}
+                </button>
+                <button
+                  v-else-if="sale.status !== 'CANCELLED' && !authStore.isReadOnly"
+                  class="icon-action-btn btn-create-facture"
+                  title="Émettre une facture fiscale pour cette vente"
+                  @click="openCreateFactureForSale(sale)"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="12" y1="11" x2="12" y2="17" />
+                    <line x1="9" y1="14" x2="15" y2="14" />
+                  </svg>
+                  Facturer
                 </button>
 
                 <template v-if="(sale.status === 'COMPLETED' || sale.status === 'PENDING_PICKUP') && !authStore.isReadOnly">
@@ -1671,29 +1744,93 @@ async function handleConfirmCancelLine() {
       </div>
 
       <div class="modal-form">
-        <!-- Step 1: Select Sale -->
+        <!-- Step 1: Select Sale via Smart Combobox -->
         <div class="app-input-group">
           <label class="input-label">Sélectionner la Vente (Bon de Livraison)</label>
-          <div v-if="salesWithoutFactureLoading" class="text-caption text-muted py-2">
-            Chargement des ventes éligibles...
+
+          <!-- State A: A sale is currently selected -->
+          <div v-if="selectedSaleForFacture" class="selected-sale-card">
+            <div class="selected-sale-card-header">
+              <div class="selected-sale-bl-title">
+                <span class="bl-tag font-mono font-bold">{{ selectedSaleForFacture.invoiceNumber }}</span>
+                <span class="sale-date text-caption text-muted font-mono">({{ formatDate(selectedSaleForFacture.saleDate) }})</span>
+              </div>
+              <button
+                type="button"
+                class="btn-change-sale"
+                title="Changer de vente ou en chercher une autre"
+                @click="clearSelectedSaleForFacture"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                Changer de vente
+              </button>
+            </div>
+            <div class="selected-sale-card-body">
+              <div class="sale-customer-name">
+                <strong>{{ selectedSaleForFacture.customerName || selectedSaleForFacture.clientName || 'Client Comptoir' }}</strong>
+                <span v-if="selectedSaleForFacture.clientCode" class="client-code-pill font-mono">{{ selectedSaleForFacture.clientCode }}</span>
+              </div>
+              <div class="sale-amount-pill font-mono font-bold">
+                {{ formatCurrency(selectedSaleForFacture.totalAmount) }}
+              </div>
+            </div>
           </div>
-          <div v-else-if="salesWithoutFacture.length === 0" class="text-caption text-muted py-2">
-            Toutes les ventes enregistrées ont déjà une facture émise, ou aucune vente disponible.
+
+          <!-- State B: Searching / Selecting Sale -->
+          <div v-else class="sale-combobox-wrapper">
+            <div class="combobox-input-wrapper">
+              <svg class="combobox-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                v-model="saleSearchQuery"
+                type="text"
+                class="combobox-search-input"
+                placeholder="Rechercher par N° Bon (ex: INV-...), client ou code..."
+                @focus="saleDropdownOpen = true"
+                @input="onSaleSearchInput"
+              />
+              <span v-if="salesWithoutFactureLoading" class="combobox-loading-spinner" />
+            </div>
+
+            <!-- Floating suggestion list -->
+            <div v-if="saleDropdownOpen" class="sale-combobox-dropdown">
+              <div v-if="salesWithoutFactureLoading && !salesWithoutFacture.length" class="combobox-empty-message">
+                Recherche des ventes en cours...
+              </div>
+              <div v-else-if="!salesWithoutFacture.length" class="combobox-empty-message">
+                {{ saleSearchQuery.trim() ? `Aucune vente trouvée pour "${saleSearchQuery}"` : 'Aucune vente sans facture disponible.' }}
+              </div>
+              <div v-else class="sale-suggestions-list">
+                <div class="combobox-section-title">
+                  {{ saleSearchQuery.trim() ? 'Résultats correspondants' : 'Ventes récentes éligibles' }}
+                  <span class="text-caption text-muted font-mono">({{ salesWithoutFacture.length }})</span>
+                </div>
+                <div
+                  v-for="s in salesWithoutFacture"
+                  :key="s.id"
+                  class="sale-suggestion-item"
+                  @click="onSaleForFactureSelected(s)"
+                >
+                  <div class="suggestion-left">
+                    <div class="suggestion-bl font-mono font-bold">{{ s.invoiceNumber || '#' + s.id }}</div>
+                    <div class="suggestion-client text-muted">
+                      {{ s.customerName || s.clientName || 'Client' }}
+                      <span v-if="s.clientCode" class="client-mini-code font-mono">[{{ s.clientCode }}]</span>
+                    </div>
+                  </div>
+                  <div class="suggestion-right">
+                    <div class="suggestion-amount font-mono font-bold">{{ formatCurrency(s.totalAmount) }}</div>
+                    <div class="suggestion-date text-caption text-muted font-mono">{{ formatDate(s.saleDate) }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <select
-            v-else
-            :value="selectedSaleForFacture?.id || ''"
-            class="app-select"
-            @change="(e: any) => {
-              const s = salesWithoutFacture.find(x => x.id === Number(e.target.value));
-              if (s) onSaleForFactureSelected(s);
-            }"
-          >
-            <option value="" disabled>-- Choisir une vente sans facture --</option>
-            <option v-for="s in salesWithoutFacture" :key="s.id" :value="s.id">
-              {{ s.invoiceNumber || '#' + s.id }} — {{ s.customerName || s.clientName || 'Client' }} — {{ formatCurrency(s.totalAmount) }} ({{ formatDate(s.saleDate) }})
-            </option>
-          </select>
         </div>
 
         <div v-if="selectedSaleForFacture" class="selected-sale-info-box">
@@ -2514,6 +2651,243 @@ async function handleConfirmCancelLine() {
 .app-textarea:focus {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.btn-create-facture {
+  color: var(--color-primary, #3b82f6);
+  border-color: rgba(59, 130, 246, 0.35);
+  background-color: rgba(59, 130, 246, 0.05);
+}
+
+.btn-create-facture:hover {
+  background-color: rgba(59, 130, 246, 0.12);
+  border-color: var(--color-primary, #3b82f6);
+  color: var(--color-primary-dark, #2563eb);
+}
+
+.btn-facture-badge {
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.35);
+  background-color: rgba(16, 185, 129, 0.06);
+}
+
+.btn-facture-badge:hover {
+  background-color: rgba(16, 185, 129, 0.14);
+  border-color: #10b981;
+}
+
+/* Smart Sale Selection Card */
+.selected-sale-card {
+  background: var(--color-bg-subtle, #f8fafc);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.selected-sale-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.selected-sale-bl-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bl-tag {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm, 4px);
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.btn-change-sale {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-change-sale:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.selected-sale-card-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.client-code-pill {
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+  color: var(--color-text-muted);
+}
+
+.sale-amount-pill {
+  color: var(--color-primary);
+  font-size: 13px;
+}
+
+/* Sale Async Combobox */
+.sale-combobox-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.combobox-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.combobox-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.combobox-search-input {
+  width: 100%;
+  height: 38px;
+  padding: 8px 36px 8px 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  font-size: 13px;
+  color: var(--color-text-primary);
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.combobox-search-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.combobox-loading-spinner {
+  position: absolute;
+  right: 12px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.sale-combobox-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  z-index: 9999;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.combobox-section-title {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-subtle, #f8fafc);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+}
+
+.sale-suggestions-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.sale-suggestion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--color-border-subtle, rgba(0, 0, 0, 0.04));
+  transition: background-color var(--transition-fast);
+}
+
+.sale-suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.sale-suggestion-item:hover {
+  background-color: var(--color-surface-hover, #f1f5f9);
+}
+
+.suggestion-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suggestion-bl {
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.suggestion-client {
+  font-size: 12px;
+}
+
+.client-mini-code {
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.suggestion-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.suggestion-amount {
+  font-size: 13px;
+  color: var(--color-primary);
+}
+
+.combobox-empty-message {
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-muted);
 }
 </style>
 
