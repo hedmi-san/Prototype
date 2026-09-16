@@ -743,6 +743,10 @@ export interface Facture {
   id: number;
   saleId: number;
   invoiceNumber?: string;
+  warehouseId?: number | null;
+  warehouseName?: string | null;
+  warehouseAddress?: string | null;
+  warehousePhone?: string | null;
   factureNumber: string;
   factureDate: string;
   clientId?: number | null;

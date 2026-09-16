@@ -30,6 +30,10 @@ function mapFactureRow(r: any, items?: any[]): any {
     id: r.id,
     saleId: r.sale_id,
     invoiceNumber: r.invoice_number || null,
+    warehouseId: r.warehouse_id || null,
+    warehouseName: r.warehouse_name || null,
+    warehouseAddress: r.warehouse_address || null,
+    warehousePhone: r.warehouse_phone || null,
     factureNumber: r.facture_number,
     factureDate: r.facture_date,
     clientId: r.client_id,
@@ -92,6 +96,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
     let baseFromWhere = `
       FROM factures f
       JOIN sales s ON f.sale_id = s.id
+      LEFT JOIN warehouses w ON s.warehouse_id = w.id
       LEFT JOIN users u ON f.created_by = u.id
     `;
 
@@ -136,7 +141,7 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
     const offsetIdx = selectParams.length;
 
     const selectQuery = `
-      SELECT f.*, s.invoice_number, u.full_name as created_by_name
+      SELECT f.*, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.location as warehouse_address, w.contact_number as warehouse_phone, u.full_name as created_by_name
       ${baseFromWhere}
       ORDER BY f.facture_date DESC, f.id DESC
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
@@ -225,9 +230,10 @@ router.get('/:id', authenticate, async (req: AuthRequest, res) => {
     if (!id || isNaN(id)) return sendError(res, 'Invalid facture ID', 400);
 
     const factureRes = await query(`
-      SELECT f.*, s.invoice_number, u.full_name as created_by_name
+      SELECT f.*, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.location as warehouse_address, w.contact_number as warehouse_phone, u.full_name as created_by_name
       FROM factures f
       JOIN sales s ON f.sale_id = s.id
+      LEFT JOIN warehouses w ON s.warehouse_id = w.id
       LEFT JOIN users u ON f.created_by = u.id
       WHERE f.id = $1
     `, [id]);
@@ -405,9 +411,10 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
 
     // Re-fetch full facture with items
     const fullFactureRes = await query(`
-      SELECT f.*, s.invoice_number, u.full_name as created_by_name
+      SELECT f.*, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.location as warehouse_address, w.contact_number as warehouse_phone, u.full_name as created_by_name
       FROM factures f
       JOIN sales s ON f.sale_id = s.id
+      LEFT JOIN warehouses w ON s.warehouse_id = w.id
       LEFT JOIN users u ON f.created_by = u.id
       WHERE f.id = $1
     `, [result.id]);
@@ -515,8 +522,11 @@ router.put('/:id', authenticate, async (req: AuthRequest, res) => {
 
     // Re-fetch
     const fullRes = await query(`
-      SELECT f.*, s.invoice_number, u.full_name as created_by_name
-      FROM factures f JOIN sales s ON f.sale_id = s.id LEFT JOIN users u ON f.created_by = u.id
+      SELECT f.*, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.location as warehouse_address, w.contact_number as warehouse_phone, u.full_name as created_by_name
+      FROM factures f
+      JOIN sales s ON f.sale_id = s.id
+      LEFT JOIN warehouses w ON s.warehouse_id = w.id
+      LEFT JOIN users u ON f.created_by = u.id
       WHERE f.id = $1
     `, [id]);
     const fullItemsRes = await query(`SELECT * FROM facture_items WHERE facture_id = $1 ORDER BY id ASC`, [id]);
@@ -563,8 +573,11 @@ router.patch('/:id/situation', authenticate, async (req: AuthRequest, res) => {
 
     // Re-fetch
     const fullRes = await query(`
-      SELECT f.*, s.invoice_number, u.full_name as created_by_name
-      FROM factures f JOIN sales s ON f.sale_id = s.id LEFT JOIN users u ON f.created_by = u.id
+      SELECT f.*, s.invoice_number, s.warehouse_id, w.name as warehouse_name, w.location as warehouse_address, w.contact_number as warehouse_phone, u.full_name as created_by_name
+      FROM factures f
+      JOIN sales s ON f.sale_id = s.id
+      LEFT JOIN warehouses w ON s.warehouse_id = w.id
+      LEFT JOIN users u ON f.created_by = u.id
       WHERE f.id = $1
     `, [id]);
     const fullItemsRes = await query(`SELECT * FROM facture_items WHERE facture_id = $1 ORDER BY id ASC`, [id]);

@@ -23,13 +23,21 @@ const props = withDefaults(defineProps<Props>(), {
   companyName: 'EURL BOUSFOR Gen Trading VENTE EN GROS',
   companySubtitle: 'COMMERCE DE GROS DE QUINCAILLERIE ET FOURNITURES POUR PLOMBERIE ET CHAUFFAGE',
   companyCapital: '385 000 000.00',
-  companyAddress: 'SMARA SUD SECTION 14 GROUPE 166 EL EULMA SETIF',
-  companyPhone: '0550 38 30 49',
+  companyAddress: '',
+  companyPhone: '',
   companyEmail: 'bousfor.hosna@yahoo.fr',
   companyRc: '19 B 0093646-19/01',
   companyArt: '19204502299',
   companyIf: '00191900936463819001',
   companyNis: '',
+});
+
+const companyAddress = computed(() => {
+  return props.facture?.warehouseName || props.companyAddress || props.facture?.warehouseAddress || '';
+});
+
+const companyPhone = computed(() => {
+  return props.facture?.warehousePhone || props.companyPhone || '';
 });
 
 const formattedDate = computed(() => {
@@ -67,8 +75,11 @@ const totalItems = computed(() => props.facture?.items?.length || 0);
       <h1 class="company-name">{{ companyName }}</h1>
       <p class="company-subtitle">{{ companySubtitle }}</p>
       <p class="company-capital">AU CAPITAL DE: {{ companyCapital }}</p>
-      <p class="company-address">{{ companyAddress }}</p>
-      <p class="company-contact">Tel : {{ companyPhone }} E-MAIL {{ companyEmail }}</p>
+      <p v-if="companyAddress" class="company-address">{{ companyAddress }}</p>
+      <p class="company-contact">
+        <span v-if="companyPhone">Tel : {{ companyPhone }} </span>
+        <span>  E-MAIL {{ companyEmail }}</span>
+      </p>
     </header>
 
     <div class="header-divider" />
@@ -232,39 +243,83 @@ const totalItems = computed(() => props.facture?.items?.length || 0);
 
 /* Header */
 .facture-header {
-  text-align: center;
-  margin-bottom: 6px;
+  width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  margin: 0 auto 6px auto !important;
+  padding: 0 !important;
+}
+
+.facture-header * {
+  box-sizing: border-box;
+}
+
+.facture-header p {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  text-align: center !important;
 }
 
 .company-name {
+  width: 100% !important;
+  max-width: 100% !important;
+  text-align: center !important;
+  margin: 0 0 2px 0 !important;
   font-size: 16px;
   font-weight: 800;
-  margin: 0 0 2px 0;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  color: #000000 !important;
+  line-height: 1.25;
 }
 
 .company-subtitle {
+  width: 100% !important;
+  max-width: 100% !important;
+  text-align: center !important;
+  margin: 0 0 2px 0 !important;
   font-size: 11px;
   font-weight: 700;
-  margin: 0 0 2px 0;
   text-transform: uppercase;
+  color: #000000 !important;
+  line-height: 1.35;
 }
 
 .company-capital {
+  width: 100% !important;
+  max-width: 100% !important;
+  text-align: center !important;
+  margin: 0 0 2px 0 !important;
   font-size: 11px;
   font-weight: 600;
-  margin: 0 0 2px 0;
+  color: #000000 !important;
+  line-height: 1.35;
 }
 
 .company-address {
+  width: 100% !important;
+  max-width: 100% !important;
+  text-align: center !important;
+  margin: 0 0 1px 0 !important;
   font-size: 11px;
-  margin: 0 0 1px 0;
+  font-weight: 600;
+  color: #000000 !important;
+  line-height: 1.35;
 }
 
 .company-contact {
+  width: 100% !important;
+  max-width: 100% !important;
+  text-align: center !important;
+  margin: 0 !important;
   font-size: 11px;
-  margin: 0;
+  color: #000000 !important;
+  line-height: 1.35;
 }
 
 .header-divider {
