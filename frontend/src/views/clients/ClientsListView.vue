@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import type { Client, ClientKPIs } from '../../types';
 import { clientService, type ClientQueryParams } from '../../services/client.service';
 import { formatCurrency } from '../../utils/formatters';
@@ -10,6 +10,7 @@ import AppBadge from '../../components/common/AppBadge.vue';
 import ClientFormModal from '../../components/clients/ClientFormModal.vue';
 import ClientPaymentModal from '../../components/clients/ClientPaymentModal.vue';
 
+const route = useRoute();
 const router = useRouter();
 
 const clients = ref<Client[]>([]);
@@ -37,29 +38,53 @@ const selectedClient = ref<Client | null>(null);
 let debounceTimer: any = null;
 
 onMounted(() => {
-  fetchClients();
+  if (route.query.page) page.value = Number(route.query.page) || 1;
+  if (route.query.limit) limit.value = Number(route.query.limit) || 25;
+  if (route.query.search) search.value = String(route.query.search);
+  if (route.query.balanceFilter && ['all', 'debtors', 'advance', 'settled'].includes(String(route.query.balanceFilter))) {
+    balanceFilter.value = route.query.balanceFilter as any;
+  }
+  fetchClients(false);
 });
 
-watch([balanceFilter, page], () => {
-  fetchClients();
+watch(page, () => {
+  fetchClients(true);
+});
+
+watch(balanceFilter, () => {
+  page.value = 1;
+  fetchClients(false);
 });
 
 watch(search, () => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     page.value = 1;
-    fetchClients();
-  }, 300);
+    fetchClients(true);
+  }, 250);
 });
 
-async function fetchClients() {
+function syncUrlParams() {
+  router.replace({
+    query: {
+      ...(page.value > 1 ? { page: page.value } : {}),
+      ...(limit.value !== 25 ? { limit: limit.value } : {}),
+      ...(search.value.trim() ? { search: search.value.trim() } : {}),
+      ...(balanceFilter.value !== 'all' ? { balanceFilter: balanceFilter.value } : {}),
+    },
+  });
+}
+
+async function fetchClients(isPageOnly = false) {
   loading.value = true;
+  syncUrlParams();
   try {
     const params: ClientQueryParams = {
       page: page.value,
       limit: limit.value,
       search: search.value.trim() || undefined,
       balanceFilter: balanceFilter.value,
+      skipKpis: isPageOnly && kpis.value.totalClients > 0,
     };
     const res = await clientService.getClients(params);
     clients.value = res.items;
@@ -73,6 +98,10 @@ async function fetchClients() {
   } finally {
     loading.value = false;
   }
+}
+
+function onPaginationChange() {
+  fetchClients(true);
 }
 
 function openCreateModal() {
@@ -339,7 +368,7 @@ function onPaymentSaved() {
           :total="total"
           :total-pages="totalPages"
           :loading="loading"
-          @change="fetchClients"
+          @change="onPaginationChange"
         />
       </div>
     </div>

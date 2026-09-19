@@ -67,17 +67,28 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-    // Summary KPIs
-    const kpiRes = await query(`
-      SELECT
-        COUNT(*) as total_clients,
-        COUNT(CASE WHEN current_balance > 0 THEN 1 END) as total_debtors,
-        COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0) as total_debt,
-        COALESCE(SUM(CASE WHEN current_balance < 0 THEN ABS(current_balance) ELSE 0 END), 0) as total_advance
-      FROM clients
-      WHERE active = TRUE
-    `);
-    const kpiRow = kpiRes.rows[0];
+    const skipKpis = req.query.skipKpis === 'true';
+
+    // Summary KPIs (only computed when not skipping)
+    let kpis = undefined;
+    if (!skipKpis) {
+      const kpiRes = await query(`
+        SELECT
+          COUNT(*) as total_clients,
+          COUNT(CASE WHEN current_balance > 0 THEN 1 END) as total_debtors,
+          COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0) as total_debt,
+          COALESCE(SUM(CASE WHEN current_balance < 0 THEN ABS(current_balance) ELSE 0 END), 0) as total_advance
+        FROM clients
+        WHERE active = TRUE
+      `);
+      const kpiRow = kpiRes.rows[0];
+      kpis = {
+        totalClients: Number(kpiRow.total_clients || 0),
+        totalDebtors: Number(kpiRow.total_debtors || 0),
+        totalDebt: Number(kpiRow.total_debt || 0),
+        totalAdvance: Number(kpiRow.total_advance || 0),
+      };
+    }
 
     // Total count for current query
     const countRes = await query(`SELECT COUNT(*) as cnt FROM clients ${whereSql}`, params);
@@ -105,12 +116,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
         total,
         totalPages: Math.ceil(total / limit) || 1,
       },
-      kpis: {
-        totalClients: Number(kpiRow.total_clients || 0),
-        totalDebtors: Number(kpiRow.total_debtors || 0),
-        totalDebt: Number(kpiRow.total_debt || 0),
-        totalAdvance: Number(kpiRow.total_advance || 0),
-      },
+      kpis,
     });
   } catch (err: any) {
     return sendError(res, err.message, 500);
@@ -306,19 +312,53 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
+function getDefaultDateRange(isDefaultClient: boolean, reqStartDate?: string, reqEndDate?: string) {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+
+  let startDate = reqStartDate?.trim() || undefined;
+  let endDate = reqEndDate?.trim() || undefined;
+
+  if (!startDate && !endDate) {
+    if (isDefaultClient) {
+      startDate = todayStr;
+      endDate = todayStr;
+    } else {
+      startDate = `${yyyy}-${mm}-01`;
+      endDate = todayStr;
+    }
+  } else if (!startDate && endDate) {
+    startDate = isDefaultClient ? endDate : `${yyyy}-${mm}-01`;
+  } else if (startDate && !endDate) {
+    endDate = todayStr;
+  }
+
+  return { startDate: startDate!, endDate: endDate! };
+}
+
 // GET /api/clients/:id/statement - Statement of Account (Extrait de Compte)
 router.get('/:id/statement', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
-    const startDate = req.query.startDate as string | undefined;
-    const endDate = req.query.endDate as string | undefined;
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+    const offset = (page - 1) * limit;
 
     const clientRes = await query('SELECT * FROM clients WHERE id = $1', [id]);
     const client = clientRes.rows[0];
     if (!client) {
       return sendError(res, `Client not found with id ${id}`, 404);
     }
+
+    const { startDate, endDate } = getDefaultDateRange(
+      Boolean(client.is_default),
+      req.query.startDate as string,
+      req.query.endDate as string
+    );
 
     // 1. Calculate Period Opening Balance (transactions before startDate)
     let periodOpeningBalance = 0;
@@ -337,46 +377,67 @@ router.get('/:id/statement', authenticate, async (req: AuthRequest, res: Respons
       periodOpeningBalance = Number(priorRes.rows[0]?.prior_balance || 0);
     }
 
-    // 2. Fetch Period Transactions
-    const txParams: any[] = [id];
-    const txWhere: string[] = ['t.client_id = $1'];
-
+    // 2. Count period records and total period debit / credit
+    const periodFilterParams: any[] = [id, `${startDate} 00:00:00`, `${endDate} 23:59:59`];
+    let periodWhere = 't.client_id = $1 AND t.transaction_date >= $2 AND t.transaction_date <= $3';
     if (warehouseId) {
-      txParams.push(warehouseId);
-      txWhere.push(`t.warehouse_id = $${txParams.length}`);
+      periodFilterParams.push(warehouseId);
+      periodWhere += ` AND t.warehouse_id = $4`;
     }
 
-    if (startDate) {
-      txParams.push(`${startDate} 00:00:00`);
-      txWhere.push(`t.transaction_date >= $${txParams.length}`);
+    const periodTotalsRes = await query(`
+      SELECT
+        COUNT(*) as total_count,
+        COALESCE(SUM(t.debit), 0) as period_debit,
+        COALESCE(SUM(t.credit), 0) as period_credit
+      FROM client_transactions t
+      WHERE ${periodWhere}
+    `, periodFilterParams);
+
+    const totalRecords = Number(periodTotalsRes.rows[0]?.total_count || 0);
+    const totalDebit = Number(periodTotalsRes.rows[0]?.period_debit || 0);
+    const totalCredit = Number(periodTotalsRes.rows[0]?.period_credit || 0);
+    const closingBalance = periodOpeningBalance + totalDebit - totalCredit;
+
+    // 3. Compute starting balance for current page offset
+    let pageStartingRunning = periodOpeningBalance;
+    if (offset > 0 && totalRecords > 0) {
+      const offsetParams = [...periodFilterParams, offset];
+      const offsetParamIdx = offsetParams.length;
+      const offsetRes = await query(`
+        SELECT COALESCE(SUM(debit) - SUM(credit), 0) as offset_net
+        FROM (
+          SELECT t.debit, t.credit
+          FROM client_transactions t
+          WHERE ${periodWhere}
+          ORDER BY t.transaction_date ASC, t.id ASC
+          LIMIT $${offsetParamIdx}
+        ) prior_slice
+      `, offsetParams);
+      pageStartingRunning += Number(offsetRes.rows[0]?.offset_net || 0);
     }
 
-    if (endDate) {
-      txParams.push(`${endDate} 23:59:59`);
-      txWhere.push(`t.transaction_date <= $${txParams.length}`);
-    }
+    // 4. Fetch paginated slice of transactions
+    const sliceParams = [...periodFilterParams, limit, offset];
+    const limitIdx = sliceParams.length - 1;
+    const offsetIdx = sliceParams.length;
 
     const txSql = `
       SELECT t.*, w.name as warehouse_name, w.code as warehouse_code, u.full_name as created_by_name
       FROM client_transactions t
       JOIN warehouses w ON t.warehouse_id = w.id
       JOIN users u ON t.created_by = u.id
-      WHERE ${txWhere.join(' AND ')}
+      WHERE ${periodWhere}
       ORDER BY t.transaction_date ASC, t.id ASC
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
     `;
 
-    const txRes = await query(txSql, txParams);
+    const txRes = await query(txSql, sliceParams);
 
-    // Compute cumulative running balances for the requested period
-    let currentPeriodRunning = periodOpeningBalance;
-    let totalDebit = 0;
-    let totalCredit = 0;
-
+    let currentPeriodRunning = pageStartingRunning;
     const transactions = txRes.rows.map((row) => {
       const debit = Number(row.debit);
       const credit = Number(row.credit);
-      totalDebit += debit;
-      totalCredit += credit;
       currentPeriodRunning = currentPeriodRunning + debit - credit;
 
       return {
@@ -400,8 +461,6 @@ router.get('/:id/statement', authenticate, async (req: AuthRequest, res: Respons
       };
     });
 
-    const closingBalance = periodOpeningBalance + totalDebit - totalCredit;
-
     return sendSuccess(res, {
       client: mapClientRow(client),
       filter: {
@@ -414,6 +473,12 @@ router.get('/:id/statement', authenticate, async (req: AuthRequest, res: Respons
       totalCredit,
       closingBalance,
       currentTotalBalance: Number(client.current_balance),
+      pagination: {
+        page,
+        limit,
+        total: totalRecords,
+        totalPages: Math.ceil(totalRecords / limit) || 1,
+      },
       transactions,
     });
   } catch (err: any) {
@@ -426,8 +491,6 @@ router.get('/:id/statement/csv', authenticate, async (req: AuthRequest, res: Res
   try {
     const id = Number(req.params.id);
     const warehouseId = req.query.warehouseId ? Number(req.query.warehouseId) : undefined;
-    const startDate = req.query.startDate as string | undefined;
-    const endDate = req.query.endDate as string | undefined;
 
     const clientRes = await query('SELECT * FROM clients WHERE id = $1', [id]);
     const client = clientRes.rows[0];
@@ -435,7 +498,12 @@ router.get('/:id/statement/csv', authenticate, async (req: AuthRequest, res: Res
       return sendError(res, `Client not found with id ${id}`, 404);
     }
 
-    // Reuse statement query
+    const { startDate, endDate } = getDefaultDateRange(
+      Boolean(client.is_default),
+      req.query.startDate as string,
+      req.query.endDate as string
+    );
+
     let periodOpeningBalance = 0;
     if (startDate) {
       const priorParams: any[] = [id, `${startDate} 00:00:00`];
@@ -452,27 +520,18 @@ router.get('/:id/statement/csv', authenticate, async (req: AuthRequest, res: Res
       periodOpeningBalance = Number(priorRes.rows[0]?.prior_balance || 0);
     }
 
-    const txParams: any[] = [id];
-    const txWhere: string[] = ['t.client_id = $1'];
-
+    const txParams: any[] = [id, `${startDate} 00:00:00`, `${endDate} 23:59:59`];
+    let txWhere = 't.client_id = $1 AND t.transaction_date >= $2 AND t.transaction_date <= $3';
     if (warehouseId) {
       txParams.push(warehouseId);
-      txWhere.push(`t.warehouse_id = $${txParams.length}`);
-    }
-    if (startDate) {
-      txParams.push(`${startDate} 00:00:00`);
-      txWhere.push(`t.transaction_date >= $${txParams.length}`);
-    }
-    if (endDate) {
-      txParams.push(`${endDate} 23:59:59`);
-      txWhere.push(`t.transaction_date <= $${txParams.length}`);
+      txWhere += ` AND t.warehouse_id = $4`;
     }
 
     const txSql = `
       SELECT t.*, w.name as warehouse_name
       FROM client_transactions t
       JOIN warehouses w ON t.warehouse_id = w.id
-      WHERE ${txWhere.join(' AND ')}
+      WHERE ${txWhere}
       ORDER BY t.transaction_date ASC, t.id ASC
     `;
 
@@ -519,15 +578,43 @@ router.get('/:id/statement/csv', authenticate, async (req: AuthRequest, res: Res
 router.get('/:id/invoices', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+    const offset = (page - 1) * limit;
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+
+    const whereClauses: string[] = ['s.client_id = $1'];
+    const params: any[] = [id];
+
+    if (startDate) {
+      params.push(`${startDate} 00:00:00`);
+      whereClauses.push(`COALESCE(s.sale_date, s.created_at) >= $${params.length}`);
+    }
+    if (endDate) {
+      params.push(`${endDate} 23:59:59`);
+      whereClauses.push(`COALESCE(s.sale_date, s.created_at) <= $${params.length}`);
+    }
+
+    const whereSql = whereClauses.join(' AND ');
+
+    const countRes = await query(`SELECT COUNT(*) as count FROM sales s WHERE ${whereSql}`, params);
+    const total = Number(countRes.rows[0]?.count || 0);
+
+    const selectParams = [...params, limit, offset];
+    const limitIdx = selectParams.length - 1;
+    const offsetIdx = selectParams.length;
+
     const salesRes = await query(`
       SELECT s.id, s.invoice_number, s.warehouse_id, w.name as warehouse_name,
              s.total_amount, s.paid_amount, s.advance_deducted, s.payment_status, s.status,
              COALESCE(s.sale_date, s.created_at) as sale_date, s.created_at
       FROM sales s
       JOIN warehouses w ON s.warehouse_id = w.id
-      WHERE s.client_id = $1
+      WHERE ${whereSql}
       ORDER BY COALESCE(s.sale_date, s.created_at) DESC, s.id DESC
-    `, [id]);
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `, selectParams);
 
     const items = salesRes.rows.map((s) => ({
       id: s.id,
@@ -544,7 +631,15 @@ router.get('/:id/invoices', authenticate, async (req: AuthRequest, res: Response
       createdAt: s.created_at,
     }));
 
-    return sendSuccess(res, items);
+    return sendSuccess(res, {
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    });
   } catch (err: any) {
     return sendError(res, err.message, 500);
   }
@@ -554,14 +649,42 @@ router.get('/:id/invoices', authenticate, async (req: AuthRequest, res: Response
 router.get('/:id/payments', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+    const offset = (page - 1) * limit;
+    const startDate = req.query.startDate as string | undefined;
+    const endDate = req.query.endDate as string | undefined;
+
+    const whereClauses: string[] = ['cp.client_id = $1'];
+    const params: any[] = [id];
+
+    if (startDate) {
+      params.push(`${startDate} 00:00:00`);
+      whereClauses.push(`cp.payment_date >= $${params.length}`);
+    }
+    if (endDate) {
+      params.push(`${endDate} 23:59:59`);
+      whereClauses.push(`cp.payment_date <= $${params.length}`);
+    }
+
+    const whereSql = whereClauses.join(' AND ');
+
+    const countRes = await query(`SELECT COUNT(*) as count FROM client_payments cp WHERE ${whereSql}`, params);
+    const total = Number(countRes.rows[0]?.count || 0);
+
+    const selectParams = [...params, limit, offset];
+    const limitIdx = selectParams.length - 1;
+    const offsetIdx = selectParams.length;
+
     const paymentsRes = await query(`
       SELECT cp.*, w.name as warehouse_name, u.full_name as created_by_name
       FROM client_payments cp
       JOIN warehouses w ON cp.warehouse_id = w.id
       JOIN users u ON cp.created_by = u.id
-      WHERE cp.client_id = $1
+      WHERE ${whereSql}
       ORDER BY cp.payment_date DESC, cp.id DESC
-    `, [id]);
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `, selectParams);
 
     const paymentIds = paymentsRes.rows.map((p) => p.id);
     const allocationsByPaymentId: Record<number, any[]> = {};
@@ -606,7 +729,15 @@ router.get('/:id/payments', authenticate, async (req: AuthRequest, res: Response
       allocations: allocationsByPaymentId[p.id] || [],
     }));
 
-    return sendSuccess(res, items);
+    return sendSuccess(res, {
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    });
   } catch (err: any) {
     return sendError(res, err.message, 500);
   }

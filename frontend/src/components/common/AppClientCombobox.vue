@@ -58,22 +58,18 @@ const dropdownStyle = ref<{
 
 let debounceTimer: any = null;
 
+const defaultClient = ref<Client | null>(null);
+const resolvedClient = ref<Client | null>(null);
+
 onMounted(async () => {
-  if (!clientStore.clients.length) {
-    await clientStore.fetchClients({ limit: 100, activeOnly: true });
+  await loadInitialClients();
+
+  if (props.autoSelectDefault && !props.modelValue && defaultClient.value && !props.excludeDefault) {
+    emit('update:modelValue', defaultClient.value.id);
+    emit('select', defaultClient.value);
   }
 
-  if (props.autoSelectDefault && !props.modelValue && clientStore.clients.length) {
-    const defaultCl = props.excludeDefault
-      ? clientStore.clients.find((c) => !c.isDefault)
-      : clientStore.clients.find((c) => c.isDefault) || clientStore.clients[0];
-    if (defaultCl) {
-      emit('update:modelValue', defaultCl.id);
-      emit('select', defaultCl);
-    }
-  }
-
-  syncSearchQueryFromModel();
+  await syncSearchQueryFromModel();
   document.addEventListener('click', handleClickOutside);
   window.addEventListener('resize', handleWindowEvents);
   window.addEventListener('scroll', handleWindowEvents, true);
@@ -85,6 +81,32 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', handleWindowEvents, true);
 });
 
+async function loadInitialClients() {
+  try {
+    const res = await clientService.getClients({
+      limit: props.maxResults || 15,
+      activeOnly: true,
+      skipKpis: true,
+    });
+    searchResults.value = res.items;
+    const foundDefault = res.items.find((c) => c.isDefault);
+    if (foundDefault) {
+      defaultClient.value = foundDefault;
+    } else {
+      // Fallback fetch specifically for default client
+      try {
+        const defRes = await clientService.getClients({ search: 'COMPTOIR', limit: 5, activeOnly: true, skipKpis: true });
+        const match = defRes.items.find((c) => c.isDefault);
+        if (match) defaultClient.value = match;
+      } catch (e) {
+        // ignore
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load initial clients', err);
+  }
+}
+
 function formatClientDisplay(c: Client): string {
   if (c.isDefault) {
     return c.name;
@@ -92,14 +114,29 @@ function formatClientDisplay(c: Client): string {
   return `[${c.code}] ${c.name}`;
 }
 
-function syncSearchQueryFromModel() {
+async function syncSearchQueryFromModel() {
   if (props.modelValue) {
-    const found = clientStore.getClientById(props.modelValue) || searchResults.value.find((c) => c.id === props.modelValue);
+    const found = (defaultClient.value?.id === props.modelValue ? defaultClient.value : null) ||
+                  searchResults.value.find((c) => c.id === props.modelValue) ||
+                  clientStore.getClientById(props.modelValue) ||
+                  (resolvedClient.value?.id === props.modelValue ? resolvedClient.value : null);
     if (found) {
+      resolvedClient.value = found;
       searchQuery.value = formatClientDisplay(found);
       return;
     }
+
+    try {
+      const detail = await clientService.getClientById(props.modelValue);
+      resolvedClient.value = detail;
+      searchQuery.value = formatClientDisplay(detail);
+    } catch (err) {
+      console.error(`Failed to hydrate client #${props.modelValue}`, err);
+      searchQuery.value = `Client #${props.modelValue}`;
+    }
+    return;
   }
+  resolvedClient.value = null;
   searchQuery.value = '';
 }
 
@@ -110,16 +147,6 @@ watch(
       syncSearchQueryFromModel();
     }
   }
-);
-
-watch(
-  () => clientStore.clients,
-  () => {
-    if (!isFocused.value && props.modelValue) {
-      syncSearchQueryFromModel();
-    }
-  },
-  { deep: true }
 );
 
 watch(isOpen, (open) => {
@@ -157,49 +184,25 @@ function handleWindowEvents() {
 
 const selectedClient = computed<Client | undefined>(() => {
   if (!props.modelValue) return undefined;
-  return clientStore.getClientById(props.modelValue) || searchResults.value.find((c) => c.id === props.modelValue);
+  return (defaultClient.value?.id === props.modelValue ? defaultClient.value : undefined) ||
+         searchResults.value.find((c) => c.id === props.modelValue) ||
+         resolvedClient.value ||
+         clientStore.getClientById(props.modelValue);
 });
 
-// Local + remote filtered clients
-const displayedClients = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase();
-  let allKnown = [...clientStore.clients];
-
-  if (props.excludeDefault) {
-    allKnown = allKnown.filter((c) => !c.isDefault);
+// Pinned Passager at index 0 + remote results
+const displayedClients = computed<Client[]>(() => {
+  const list: Client[] = [];
+  if (!props.excludeDefault && defaultClient.value) {
+    list.push(defaultClient.value);
   }
-
-  // Merge any remote search results not yet in store
-  for (const r of searchResults.value) {
-    if (props.excludeDefault && r.isDefault) continue;
-    if (!allKnown.some((c) => c.id === r.id)) {
-      allKnown.push(r);
+  for (const c of searchResults.value) {
+    if (c.isDefault && !props.excludeDefault) continue;
+    if (!list.some((existing) => existing.id === c.id)) {
+      list.push(c);
     }
   }
-
-  // If query is empty or matches current selection, return initial top clients (default first)
-  if (!q || (selectedClient.value && formatClientDisplay(selectedClient.value).toLowerCase() === q)) {
-    return allKnown.slice(0, props.maxResults);
-  }
-
-  const tokens = q.split(/\s+/).filter(Boolean);
-
-  const matched = allKnown.filter((c) => {
-    const nameLower = c.name.toLowerCase();
-    const codeLower = c.code.toLowerCase();
-    const phoneLower = (c.phone || '').toLowerCase();
-    const emailLower = (c.email || '').toLowerCase();
-
-    return tokens.every(
-      (token) =>
-        nameLower.includes(token) ||
-        codeLower.includes(token) ||
-        phoneLower.includes(token) ||
-        emailLower.includes(token)
-    );
-  });
-
-  return matched.slice(0, props.maxResults);
+  return list;
 });
 
 function handleInputFocus() {
@@ -224,28 +227,31 @@ function handleInputChange() {
     emit('select', null);
   }
 
-  // Trigger debounced remote search if query is at least 2 chars
   clearTimeout(debounceTimer);
-  if (query.length >= 2) {
-    debounceTimer = setTimeout(async () => {
-      isSearchingRemote.value = true;
-      try {
-        const res = await clientService.getClients({
-          search: query,
-          limit: 15,
-          activeOnly: true,
-        });
-        searchResults.value = res.items;
-      } catch (err) {
-        console.error('Failed remote client search', err);
-      } finally {
-        isSearchingRemote.value = false;
+  debounceTimer = setTimeout(async () => {
+    isSearchingRemote.value = true;
+    try {
+      const res = await clientService.getClients({
+        search: query || undefined,
+        limit: props.maxResults || 15,
+        activeOnly: true,
+        skipKpis: true,
+      });
+      searchResults.value = res.items;
+      if (!defaultClient.value) {
+        const found = res.items.find((c) => c.isDefault);
+        if (found) defaultClient.value = found;
       }
-    }, 200);
-  }
+    } catch (err) {
+      console.error('Failed remote client search', err);
+    } finally {
+      isSearchingRemote.value = false;
+    }
+  }, 200);
 }
 
 function selectClient(c: Client) {
+  resolvedClient.value = c;
   searchQuery.value = formatClientDisplay(c);
   isOpen.value = false;
   highlightedIndex.value = -1;
@@ -411,6 +417,7 @@ function handleClickOutside(event: MouseEvent) {
           >
             <div class="item-main">
               <div class="item-header">
+                <span v-if="client.isDefault" class="pinned-tag">⭐ Épinglé</span>
                 <span class="client-code-tag">{{ client.code }}</span>
                 <strong class="client-name">{{ client.name }}</strong>
                 <span v-if="client.isDefault" class="default-badge">Comptoir</span>
@@ -621,6 +628,18 @@ function handleClickOutside(event: MouseEvent) {
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 500;
+}
+
+.client-floating-dropdown .pinned-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 
 .client-floating-dropdown .item-footer {

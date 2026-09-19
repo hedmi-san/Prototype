@@ -1,5 +1,11 @@
 import { query } from './database.js';
 export async function initSchema() {
+    try {
+        await query(`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
+    }
+    catch (err) {
+        console.warn('pg_trgm extension could not be enabled:', err);
+    }
     await query(`
     CREATE TABLE IF NOT EXISTS roles (
       id SERIAL PRIMARY KEY,
@@ -374,6 +380,8 @@ export async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_clients_rc ON clients(rc);
     CREATE INDEX IF NOT EXISTS idx_clients_art ON clients(art);
     CREATE INDEX IF NOT EXISTS idx_client_transactions_client_date ON client_transactions(client_id, transaction_date);
+    CREATE INDEX IF NOT EXISTS idx_client_transactions_client_wh_date ON client_transactions(client_id, warehouse_id, transaction_date);
+    CREATE INDEX IF NOT EXISTS idx_clients_trgm_search ON clients USING gin ((name || ' ' || code || ' ' || COALESCE(phone, '')) gin_trgm_ops);
     CREATE INDEX IF NOT EXISTS idx_client_transactions_wh ON client_transactions(warehouse_id);
     CREATE INDEX IF NOT EXISTS idx_client_transactions_ref ON client_transactions(reference_type, reference_id);
     CREATE INDEX IF NOT EXISTS idx_client_payments_client_date ON client_payments(client_id, payment_date);

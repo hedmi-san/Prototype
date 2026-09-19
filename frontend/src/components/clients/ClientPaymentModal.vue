@@ -101,8 +101,8 @@ async function fetchUnpaidInvoices(clientId: number) {
   loadingInvoices.value = true;
   allocations.value = {};
   try {
-    const res = await clientService.getClientInvoices(clientId);
-    unpaidInvoices.value = res.filter((s) => s.paymentStatus !== 'PAID' && s.status !== 'CANCELLED');
+    const res = await clientService.getClientInvoices(clientId, { limit: 100 });
+    unpaidInvoices.value = res.items.filter((s: Sale) => s.paymentStatus !== 'PAID' && s.status !== 'CANCELLED');
   } catch (err) {
     console.error('Failed to load invoices', err);
   } finally {

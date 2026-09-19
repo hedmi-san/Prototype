@@ -18,6 +18,7 @@ export interface ClientQueryParams extends PaginationParams {
   search?: string;
   balanceFilter?: 'all' | 'debtors' | 'advance' | 'settled';
   activeOnly?: boolean | string;
+  skipKpis?: boolean;
 }
 
 export interface ClientListResponse {
@@ -28,7 +29,7 @@ export interface ClientListResponse {
     total: number;
     totalPages: number;
   };
-  kpis: ClientKPIs;
+  kpis?: ClientKPIs;
 }
 
 export interface CreateClientDto {
@@ -63,6 +64,33 @@ export interface StatementQueryParams {
   warehouseId?: number;
   startDate?: string;
   endDate?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ClientHistoryQueryParams extends PaginationParams {
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface PaginatedInvoicesResponse {
+  items: Sale[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface PaginatedPaymentsResponse {
+  items: ClientPayment[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export interface CreatePaymentDto {
@@ -123,13 +151,13 @@ export const clientService = {
     downloadCsvResponse(response, `extrait_compte_${clientCode}_${dateStr}.csv`);
   },
 
-  async getClientInvoices(id: number): Promise<Sale[]> {
-    const response = await api.get<ApiResponse<Sale[]>>(`/clients/${id}/invoices`);
+  async getClientInvoices(id: number, params?: ClientHistoryQueryParams): Promise<PaginatedInvoicesResponse> {
+    const response = await api.get<ApiResponse<PaginatedInvoicesResponse>>(`/clients/${id}/invoices`, { params });
     return response.data.data;
   },
 
-  async getClientPayments(id: number): Promise<ClientPayment[]> {
-    const response = await api.get<ApiResponse<ClientPayment[]>>(`/clients/${id}/payments`);
+  async getClientPayments(id: number, params?: ClientHistoryQueryParams): Promise<PaginatedPaymentsResponse> {
+    const response = await api.get<ApiResponse<PaginatedPaymentsResponse>>(`/clients/${id}/payments`, { params });
     return response.data.data;
   },
 

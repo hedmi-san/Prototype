@@ -9,6 +9,7 @@ import { formatCurrency, formatDate, formatDateTime } from '../../utils/formatte
 import AppButton from '../../components/common/AppButton.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
 import AppModal from '../../components/common/AppModal.vue';
+import AppPagination from '../../components/common/AppPagination.vue';
 import ClientFormModal from '../../components/clients/ClientFormModal.vue';
 import ClientPaymentModal from '../../components/clients/ClientPaymentModal.vue';
 import ClientRefundModal from '../../components/clients/ClientRefundModal.vue';
@@ -29,10 +30,26 @@ const activeTab = ref<'statement' | 'invoices' | 'payments'>('statement');
 const loading = ref(true);
 const loadingTab = ref(false);
 
-// Statement Filters
+// Statement Filters & Pagination
 const filterWarehouseId = ref<number | undefined>(undefined);
 const filterStartDate = ref<string>('');
 const filterEndDate = ref<string>('');
+const statementPage = ref(1);
+const statementLimit = ref(50);
+const statementTotal = computed(() => statement.value?.pagination?.total || statement.value?.transactions?.length || 0);
+const statementTotalPages = computed(() => statement.value?.pagination?.totalPages || 1);
+
+// Invoices Pagination
+const invoicePage = ref(1);
+const invoiceLimit = ref(25);
+const invoiceTotal = ref(0);
+const invoiceTotalPages = ref(1);
+
+// Payments Pagination
+const paymentPage = ref(1);
+const paymentLimit = ref(25);
+const paymentTotal = ref(0);
+const paymentTotalPages = ref(1);
 
 // Modals
 const showEditModal = ref(false);
@@ -67,15 +84,32 @@ watch(activeTab, async (newTab) => {
   }
 });
 
+function getDefaultDateStrings(isDefault: boolean) {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+
+  if (isDefault) {
+    return { start: todayStr, end: todayStr };
+  }
+  return { start: `${yyyy}-${mm}-01`, end: todayStr };
+}
+
 async function loadClientData() {
   loading.value = true;
   try {
-    const [clientRes, statementRes] = await Promise.all([
-      clientService.getClientById(clientId.value),
-      fetchStatementData(),
-    ]);
+    const clientRes = await clientService.getClientById(clientId.value);
     client.value = clientRes;
-    statement.value = statementRes;
+
+    if (!filterStartDate.value && !filterEndDate.value) {
+      const dates = getDefaultDateStrings(Boolean(clientRes.isDefault));
+      filterStartDate.value = dates.start;
+      filterEndDate.value = dates.end;
+    }
+
+    statement.value = await fetchStatementData();
   } catch (err) {
     console.error('Failed to load client data', err);
   } finally {
@@ -88,6 +122,8 @@ async function fetchStatementData() {
     warehouseId: filterWarehouseId.value || undefined,
     startDate: filterStartDate.value || undefined,
     endDate: filterEndDate.value || undefined,
+    page: statementPage.value,
+    limit: statementLimit.value,
   };
   return await clientService.getClientStatement(clientId.value, params);
 }
@@ -103,17 +139,37 @@ async function applyStatementFilters() {
   }
 }
 
+function handleStatementFilterChange() {
+  statementPage.value = 1;
+  applyStatementFilters();
+}
+
 function resetStatementFilters() {
   filterWarehouseId.value = undefined;
-  filterStartDate.value = '';
-  filterEndDate.value = '';
+  if (client.value) {
+    const dates = getDefaultDateStrings(Boolean(client.value.isDefault));
+    filterStartDate.value = dates.start;
+    filterEndDate.value = dates.end;
+  } else {
+    filterStartDate.value = '';
+    filterEndDate.value = '';
+  }
+  statementPage.value = 1;
   applyStatementFilters();
 }
 
 async function loadInvoices() {
   loadingTab.value = true;
   try {
-    invoices.value = await clientService.getClientInvoices(clientId.value);
+    const res = await clientService.getClientInvoices(clientId.value, {
+      page: invoicePage.value,
+      limit: invoiceLimit.value,
+      startDate: filterStartDate.value || undefined,
+      endDate: filterEndDate.value || undefined,
+    });
+    invoices.value = res.items;
+    invoiceTotal.value = res.pagination.total;
+    invoiceTotalPages.value = res.pagination.totalPages;
   } catch (err) {
     console.error('Failed to load invoices', err);
   } finally {
@@ -124,12 +180,29 @@ async function loadInvoices() {
 async function loadPayments() {
   loadingTab.value = true;
   try {
-    payments.value = await clientService.getClientPayments(clientId.value);
+    const res = await clientService.getClientPayments(clientId.value, {
+      page: paymentPage.value,
+      limit: paymentLimit.value,
+      startDate: filterStartDate.value || undefined,
+      endDate: filterEndDate.value || undefined,
+    });
+    payments.value = res.items;
+    paymentTotal.value = res.pagination.total;
+    paymentTotalPages.value = res.pagination.totalPages;
   } catch (err) {
     console.error('Failed to load payments', err);
   } finally {
     loadingTab.value = false;
   }
+}
+
+function goToSalesJournal() {
+  router.push({
+    path: '/sales',
+    query: {
+      search: client.value?.code || 'CLT-COMPTOIR'
+    }
+  });
 }
 
 async function exportCsv() {
@@ -415,7 +488,7 @@ async function submitAdjustment() {
       <div class="statement-filter-bar no-print">
         <div class="filter-group">
           <label>Dépôt / Entrepôt</label>
-          <select v-model="filterWarehouseId" class="filter-select" @change="applyStatementFilters">
+          <select v-model="filterWarehouseId" class="filter-select" @change="handleStatementFilterChange">
             <option :value="undefined">Tous les Dépôts (Global)</option>
             <option v-for="w in warehouseStore.warehouses" :key="w.id" :value="w.id">
               {{ w.name }} ({{ w.code }})
@@ -425,12 +498,12 @@ async function submitAdjustment() {
 
         <div class="filter-group">
           <label>Date Début</label>
-          <input v-model="filterStartDate" type="date" class="filter-input" @change="applyStatementFilters" />
+          <input v-model="filterStartDate" type="date" class="filter-input" @change="handleStatementFilterChange" />
         </div>
 
         <div class="filter-group">
           <label>Date Fin</label>
-          <input v-model="filterEndDate" type="date" class="filter-input" @change="applyStatementFilters" />
+          <input v-model="filterEndDate" type="date" class="filter-input" @change="handleStatementFilterChange" />
         </div>
 
         <div class="filter-actions">
@@ -543,6 +616,16 @@ async function submitAdjustment() {
             </tfoot>
           </table>
         </div>
+        <div v-if="statementTotalPages > 1" class="tab-pagination no-print">
+          <AppPagination
+            v-model:page="statementPage"
+            v-model:limit="statementLimit"
+            :total="statementTotal"
+            :total-pages="statementTotalPages"
+            :loading="loadingTab"
+            @change="applyStatementFilters"
+          />
+        </div>
       </div>
     </div>
 
@@ -599,6 +682,16 @@ async function submitAdjustment() {
             </tbody>
           </table>
         </div>
+        <div v-if="invoiceTotalPages > 1" class="tab-pagination no-print">
+          <AppPagination
+            v-model:page="invoicePage"
+            v-model:limit="invoiceLimit"
+            :total="invoiceTotal"
+            :total-pages="invoiceTotalPages"
+            :loading="loadingTab"
+            @change="loadInvoices"
+          />
+        </div>
       </div>
     </div>
 
@@ -650,6 +743,16 @@ async function submitAdjustment() {
               </tr>
             </tbody>
           </table>
+        </div>
+        <div v-if="paymentTotalPages > 1" class="tab-pagination no-print">
+          <AppPagination
+            v-model:page="paymentPage"
+            v-model:limit="paymentLimit"
+            :total="paymentTotal"
+            :total-pages="paymentTotalPages"
+            :loading="loadingTab"
+            @change="loadPayments"
+          />
         </div>
       </div>
     </div>
@@ -1293,5 +1396,53 @@ async function submitAdjustment() {
     padding: 6px 8px !important;
     border: 1px solid #ddd !important;
   }
+}
+
+.passager-advisory-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(217, 119, 6, 0.04) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+
+.passager-advisory-banner .banner-icon {
+  color: #d97706;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.passager-advisory-banner .banner-body {
+  flex: 1;
+}
+
+.passager-advisory-banner .banner-title {
+  margin: 0 0 4px 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.passager-advisory-banner .banner-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #b45309;
+  line-height: 1.4;
+}
+
+.passager-advisory-banner .banner-action {
+  flex-shrink: 0;
+}
+
+.tab-pagination {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-surface, #ffffff);
 }
 </style>

@@ -385,6 +385,12 @@ export interface StatementOfAccount {
   totalCredit: number;
   closingBalance: number;
   currentTotalBalance: number;
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
   transactions: ClientTransaction[];
 }
 
