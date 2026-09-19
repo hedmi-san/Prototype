@@ -1,0 +1,254 @@
+import api from './api';
+import type {
+  ApiResponse,
+  Client,
+  ClientDetail,
+  ClientKPIs,
+  ClientPayment,
+  ClientRefund,
+  CreateClientRefundPayload,
+  CounterCreditNote,
+  CreditNoteReceiptPayload,
+  PaginationMeta,
+  PaymentAllocation,
+  StatementOfAccount,
+  Sale,
+  PaginationParams,
+  PaginatedData,
+} from '../types';
+import { downloadCsvResponse } from '../utils/export';
+
+export interface ClientQueryParams extends PaginationParams {
+  search?: string;
+  balanceFilter?: 'all' | 'debtors' | 'advance' | 'settled';
+  activeOnly?: boolean | string;
+  skipKpis?: boolean;
+}
+
+export interface ClientListResponse {
+  items: Client[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+  kpis?: ClientKPIs;
+}
+
+export interface CreateClientDto {
+  code?: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  rc?: string;
+  nif?: string;
+  art?: string;
+  activite?: string;
+  nis?: string;
+  openingBalance?: number;
+  warehouseId?: number;
+}
+
+export interface UpdateClientDto {
+  name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  rc?: string;
+  nif?: string;
+  art?: string;
+  activite?: string;
+  nis?: string;
+  active?: boolean;
+}
+
+export interface StatementQueryParams {
+  warehouseId?: number;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ClientHistoryQueryParams extends PaginationParams {
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface PaginatedInvoicesResponse {
+  items: Sale[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface PaginatedPaymentsResponse {
+  items: ClientPayment[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface CreatePaymentDto {
+  clientId: number;
+  warehouseId: number;
+  amount: number;
+  paymentMethod: string;
+  referenceNumber?: string;
+  paymentDate?: string;
+  notes?: string;
+  allocations?: { saleId: number; amount: number }[];
+}
+
+export interface AdjustBalanceDto {
+  amount: number;
+  direction: 'DEBIT' | 'CREDIT';
+  description: string;
+  warehouseId?: number;
+}
+
+export const clientService = {
+  async getClients(params?: ClientQueryParams): Promise<ClientListResponse> {
+    const response = await api.get<ApiResponse<ClientListResponse>>('/clients', { params });
+    return response.data.data;
+  },
+
+  async getClientKpis(): Promise<ClientKPIs> {
+    const response = await api.get<ApiResponse<ClientKPIs>>('/clients/kpis');
+    return response.data.data;
+  },
+
+  async getClientById(id: number): Promise<ClientDetail> {
+    const response = await api.get<ApiResponse<ClientDetail>>(`/clients/${id}`);
+    return response.data.data;
+  },
+
+  async createClient(data: CreateClientDto): Promise<Client> {
+    const response = await api.post<ApiResponse<Client>>('/clients', data);
+    return response.data.data;
+  },
+
+  async updateClient(id: number, data: UpdateClientDto): Promise<Client> {
+    const response = await api.put<ApiResponse<Client>>(`/clients/${id}`, data);
+    return response.data.data;
+  },
+
+  async getClientStatement(id: number, params?: StatementQueryParams): Promise<StatementOfAccount> {
+    const response = await api.get<ApiResponse<StatementOfAccount>>(`/clients/${id}/statement`, { params });
+    return response.data.data;
+  },
+
+  async exportStatementCsv(id: number, params?: StatementQueryParams, clientCode = 'client'): Promise<void> {
+    const response = await api.get(`/clients/${id}/statement/csv`, {
+      params,
+      responseType: 'blob',
+    });
+    const dateStr = new Date().toISOString().split('T')[0];
+    downloadCsvResponse(response, `extrait_compte_${clientCode}_${dateStr}.csv`);
+  },
+
+  async getClientInvoices(id: number, params?: ClientHistoryQueryParams): Promise<PaginatedInvoicesResponse> {
+    const response = await api.get<ApiResponse<PaginatedInvoicesResponse>>(`/clients/${id}/invoices`, { params });
+    return response.data.data;
+  },
+
+  async getClientPayments(id: number, params?: ClientHistoryQueryParams): Promise<PaginatedPaymentsResponse> {
+    const response = await api.get<ApiResponse<PaginatedPaymentsResponse>>(`/clients/${id}/payments`, { params });
+    return response.data.data;
+  },
+
+  async adjustClientBalance(id: number, data: AdjustBalanceDto): Promise<any> {
+    const response = await api.post<ApiResponse<any>>(`/clients/${id}/adjustment`, data);
+    return response.data.data;
+  },
+
+  // Payment receipts & general payments
+  async getPayments(params?: {
+    warehouseId?: number;
+    clientId?: number;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: ClientPayment[]; pagination: any; summary: { totalAmountSum: number } }> {
+    const response = await api.get<ApiResponse<any>>('/client-payments', { params });
+    return response.data.data;
+  },
+
+  async getPaymentById(id: number): Promise<ClientPayment> {
+    const response = await api.get<ApiResponse<ClientPayment>>(`/client-payments/${id}`);
+    return response.data.data;
+  },
+
+  async createPayment(data: CreatePaymentDto): Promise<ClientPayment> {
+    const response = await api.post<ApiResponse<ClientPayment>>('/client-payments', data);
+    return response.data.data;
+  },
+
+  async refundClientAdvance(clientId: number, data: CreateClientRefundPayload): Promise<ClientRefund> {
+    const response = await api.post<ApiResponse<ClientRefund>>(`/clients/${clientId}/refund`, data);
+    return response.data.data;
+  },
+
+  async getClientRefunds(clientId: number, warehouseId?: number): Promise<ClientRefund[]> {
+    const response = await api.get<ApiResponse<ClientRefund[]>>(`/clients/${clientId}/refunds`, {
+      params: warehouseId ? { warehouseId } : undefined,
+    });
+    return response.data.data;
+  },
+
+  async getClientRefundById(clientId: number, refundId: number): Promise<ClientRefund> {
+    const response = await api.get<ApiResponse<ClientRefund>>(`/clients/${clientId}/refunds/${refundId}`);
+    return response.data.data;
+  },
+
+  async getCreditNotes(params?: {
+    clientId?: number;
+    warehouseId?: number;
+    status?: string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: CounterCreditNote[]; pagination: PaginationMeta }> {
+    const response = await api.get<ApiResponse<{ items: CounterCreditNote[]; pagination: PaginationMeta }>>('/credit-notes', {
+      params,
+    });
+    return response.data.data;
+  },
+
+  async getCreditNoteById(id: number): Promise<CounterCreditNote> {
+    const response = await api.get<ApiResponse<CounterCreditNote>>(`/credit-notes/${id}`);
+    return response.data.data;
+  },
+
+  async getCreditNoteReceipt(id: number): Promise<CreditNoteReceiptPayload> {
+    const response = await api.get<ApiResponse<CreditNoteReceiptPayload>>(`/credit-notes/${id}/receipt`);
+    return response.data.data;
+  },
+
+  async reactivateCreditNote(id: number, justification?: string): Promise<any> {
+    const response = await api.post<ApiResponse<any>>(`/credit-notes/${id}/reactivate`, {
+      justification,
+    });
+    return response.data.data;
+  },
+
+  async forfeitCreditNote(id: number, justification?: string): Promise<any> {
+    const response = await api.post<ApiResponse<any>>(`/credit-notes/${id}/forfeit`, {
+      justification,
+    });
+    return response.data.data;
+  },
+};
+

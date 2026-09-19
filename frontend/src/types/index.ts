@@ -116,6 +116,19 @@ export interface Sale {
   warehousePhone?: string;
   warehouseAddress?: string;
   invoiceNumber: string;
+<<<<<<< Updated upstream
+=======
+  clientId?: number | null;
+  clientName?: string | null;
+  clientCode?: string | null;
+  clientIsDefault?: boolean;
+  clientAddress?: string | null;
+  clientRc?: string | null;
+  clientNif?: string | null;
+  clientArt?: string | null;
+  clientActivite?: string | null;
+  clientNis?: string | null;
+>>>>>>> Stashed changes
   customerName: string | null;
   customerPhone: string | null;
   totalAmount: number;
@@ -132,6 +145,232 @@ export interface Sale {
   updatedAt: string;
 }
 
+<<<<<<< Updated upstream
+=======
+export interface Client {
+  id: number;
+  code: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  rc?: string | null;
+  nif?: string | null;
+  art?: string | null;
+  activite?: string | null;
+  nis?: string | null;
+  openingBalance: number;
+  currentBalance: number;
+  isDefault: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClientStats {
+  salesCount: number;
+  totalInvoiced: number;
+  totalPaid: number;
+  openInvoicesCount: number;
+}
+
+export interface ClientDetail extends Client {
+  stats?: ClientStats;
+}
+
+export interface ClientKPIs {
+  totalClients: number;
+  totalDebtors: number;
+  totalDebt: number;
+  totalAdvance: number;
+}
+
+export type TransactionType = 'INVOICE' | 'PAYMENT' | 'CREDIT_NOTE' | 'ADJUSTMENT' | 'OPENING_BALANCE' | 'REFUND';
+
+export interface ClientTransaction {
+  id: number;
+  clientId: number;
+  warehouseId: number;
+  warehouseName?: string;
+  warehouseCode?: string;
+  type: TransactionType;
+  referenceType?: string | null;
+  referenceId?: number | null;
+  debit: number;
+  credit: number;
+  runningBalance: number;
+  storedRunningBalance?: number;
+  description: string;
+  transactionDate: string;
+  createdById?: number | null;
+  createdByName?: string | null;
+  createdAt: string;
+}
+
+export interface PaymentAllocation {
+  id?: number;
+  paymentId?: number;
+  saleId: number;
+  invoiceNumber?: string;
+  allocatedAmount: number;
+  saleTotal?: number;
+  saleDate?: string;
+}
+
+export type PaymentMethod = 'CASH' | 'CHECK' | 'BANK_TRANSFER' | 'CARD';
+
+export interface ClientPayment {
+  id: number;
+  paymentNumber: string;
+  clientId: number;
+  clientName?: string;
+  clientCode?: string;
+  clientPhone?: string;
+  clientAddress?: string;
+  warehouseId: number;
+  warehouseName?: string;
+  warehouseCode?: string;
+  warehousePhone?: string;
+  warehouseLocation?: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  referenceNumber?: string;
+  paymentDate: string;
+  notes?: string;
+  transactionId?: number;
+  createdById?: number;
+  createdByName?: string;
+  createdAt: string;
+  allocations?: PaymentAllocation[];
+}
+
+export type CreditNoteStatus = 'PENDING' | 'PARTIALLY_REFUNDED' | 'FULLY_REFUNDED' | 'EXPIRED' | 'FORFEITED';
+
+export interface CounterCreditNote {
+  id: number;
+  creditNoteNumber: string;
+  saleId: number;
+  saleInvoiceNumber?: string;
+  saleDate?: string;
+  saleTotalAmount?: number;
+  clientId: number;
+  clientName?: string;
+  clientCode?: string;
+  clientPhone?: string;
+  clientAddress?: string;
+  clientIsDefault?: boolean;
+  warehouseId: number;
+  warehouseName?: string;
+  warehouseCode?: string;
+  warehouseLocation?: string;
+  warehousePhone?: string;
+  totalAmount: number;
+  refundedAmount: number;
+  remainingAmount: number;
+  status: CreditNoteStatus;
+  issueDate: string;
+  expiryDate: string;
+  reactivatedAt?: string | null;
+  reactivatedByName?: string | null;
+  forfeitedAt?: string | null;
+  forfeitedByName?: string | null;
+  forfeitedTransactionId?: number | null;
+  notes?: string;
+  createdById?: number;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+  refunds?: ClientRefund[];
+}
+
+export interface CreditNoteReceiptPayload {
+  id: number;
+  creditNoteNumber: string;
+  saleInvoiceNumber: string;
+  saleDate?: string;
+  clientName: string;
+  clientCode: string;
+  clientPhone?: string;
+  warehouseName?: string;
+  warehouseCode?: string;
+  warehouseLocation?: string;
+  warehousePhone?: string;
+  totalAmount: number;
+  remainingAmount: number;
+  status: CreditNoteStatus;
+  issueDate: string;
+  expiryDate: string;
+  createdByName?: string;
+  notes?: string;
+}
+
+export interface ClientRefund {
+  id: number;
+  refundNumber: string;
+  clientId: number;
+  clientName?: string;
+  clientCode?: string;
+  clientPhone?: string;
+  clientAddress?: string;
+  clientIsDefault?: boolean;
+  creditNoteId?: number | null;
+  creditNoteNumber?: string | null;
+  saleInvoiceNumber?: string | null;
+  saleDate?: string | null;
+  recipientName?: string | null;
+  recipientPhone?: string | null;
+  recipientIdCard?: string | null;
+  warehouseId: number;
+  warehouseName?: string;
+  warehouseCode?: string;
+  warehousePhone?: string;
+  warehouseLocation?: string;
+  amount: number;
+  refundMethod: 'CASH';
+  notes?: string;
+  transactionId?: number;
+  createdById?: number;
+  createdByName?: string;
+  createdAt: string;
+  snapshotRunningBalance?: number | null;
+  priorBalance?: number | null;
+  newBalance?: number | null;
+  availableAdvanceBefore?: number | null;
+  availableAdvanceAfter?: number | null;
+}
+
+export interface CreateClientRefundPayload {
+  amount: number;
+  warehouseId?: number;
+  notes?: string;
+  creditNoteId?: number | null;
+  recipientName?: string;
+  recipientPhone?: string;
+  recipientIdCard?: string;
+}
+
+export interface StatementOfAccount {
+  client: Client;
+  filter: {
+    warehouseId: number | null;
+    startDate: string | null;
+    endDate: string | null;
+  };
+  periodOpeningBalance: number;
+  totalDebit: number;
+  totalCredit: number;
+  closingBalance: number;
+  currentTotalBalance: number;
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+  transactions: ClientTransaction[];
+}
+
+>>>>>>> Stashed changes
 export type TransferStatus = 'REQUESTED' | 'APPROVED' | 'CONFIRMED' | 'DECLINED' | 'CANCELLED';
 
 export interface TransferItem {

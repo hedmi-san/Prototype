@@ -44,6 +44,8 @@ app.use('/api/operations', inventoryRoutes);
 app.use('/operations', inventoryRoutes);
 app.use('/api/sales', saleRoutes);
 app.use('/sales', saleRoutes);
+app.use('/api/credit-notes', creditNoteRoutes);
+app.use('/credit-notes', creditNoteRoutes);
 app.use('/api/transfers', transferRoutes);
 app.use('/transfers', transferRoutes);
 app.use('/api/expenses', expenseRoutes);

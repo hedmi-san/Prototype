@@ -93,8 +93,13 @@ export const saleService = {
     const response = await api.put<ApiResponse<Sale>>(`/sales/${id}`, data);
     return response.data.data;
   },
+<<<<<<< Updated upstream
   async cancelSale(id: number): Promise<Sale> {
     const response = await api.post<ApiResponse<Sale>>(`/sales/${id}/cancel`);
+=======
+  async cancelSale(id: number, data?: { notes?: string; isWalkinImmediateRefund?: boolean; recipientName?: string; recipientPhone?: string; recipientIdCard?: string }): Promise<any> {
+    const response = await api.post<ApiResponse<any>>(`/sales/${id}/cancel`, data);
+>>>>>>> Stashed changes
     return response.data.data;
   },
   async exportSalesCsv(params?: { warehouseId?: number; startDate?: string; endDate?: string; search?: string }): Promise<void> {

@@ -2,7 +2,20 @@ import { Router } from 'express';
 import { query, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { generateCsv, sendCsv, CsvColumn } from '../common/csv.js';
+<<<<<<< Updated upstream
 import { authenticate, AuthRequest, logAudit, validateWarehouseScope } from '../middleware/auth.js';
+=======
+import { authenticate, requireRole, AuthRequest, logAudit, validateWarehouseScope, enforceWarehouseScope, validateOriginWarehouseScope } from '../middleware/auth.js';
+import {
+  createStockReservation,
+  releaseStockReservation,
+  fulfillStockReservation,
+  reassignReservationWarehouse,
+  checkAndExpireReservations,
+} from '../common/reservation.js';
+import { createNotification } from '../common/notifications.js';
+import { generateCreditNoteNumber, getCreditNoteValidityDays } from './credit-note.routes.js';
+>>>>>>> Stashed changes
 
 const router = Router();
 
@@ -663,8 +676,296 @@ router.post('/:id/cancel', authenticate, async (req: AuthRequest, res) => {
     return sendError(res, 'Sale is already cancelled', 400);
   }
 
+<<<<<<< Updated upstream
   try {
     await runTransaction(async (client) => {
+=======
+async function handleClientSaleCancellationCredit(
+  dbClient: any,
+  currentSale: any,
+  cancelledAmount: number,
+  isPartial: boolean,
+  options: {
+    immediateRefund?: boolean;
+    recipientName?: string;
+    recipientPhone?: string;
+    recipientIdCard?: string;
+    refundWarehouseId?: number;
+    notes?: string;
+    user?: any;
+  }
+) {
+  if (!currentSale.client_id || cancelledAmount <= 0) return null;
+
+  const clientRes = await dbClient.query(
+    'SELECT id, name, code, is_default, current_balance FROM clients WHERE id = $1 FOR UPDATE',
+    [currentSale.client_id]
+  );
+  const clientRecord = clientRes.rows[0];
+  if (!clientRecord) return null;
+
+  const isDefault = Boolean(clientRecord.is_default);
+  const prevBal = Number(clientRecord.current_balance || 0);
+  const userId = options.user?.id || 1;
+
+  if (isDefault) {
+    const validityDays = await getCreditNoteValidityDays();
+    const creditNoteNumber = generateCreditNoteNumber();
+
+    if (options.immediateRefund) {
+      if (!options.recipientName || !options.recipientName.trim()) {
+        throw new Error('Le nom complet du bénéficiaire est obligatoire pour le remboursement immédiat du client passager.');
+      }
+      if (!options.recipientPhone || !options.recipientPhone.trim()) {
+        throw new Error('Le numéro de téléphone du bénéficiaire est obligatoire pour le remboursement immédiat du client passager.');
+      }
+
+      // 1. Insert counter_credit_notes as FULLY_REFUNDED
+      const cnRes = await dbClient.query(`
+        INSERT INTO counter_credit_notes (
+          credit_note_number, sale_id, client_id, warehouse_id,
+          total_amount, refunded_amount, remaining_amount,
+          status, issue_date, expiry_date, notes, created_by, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $5, 0.0, 'FULLY_REFUNDED', NOW(), NOW() + ($6 || ' days')::interval, $7, $8, NOW(), NOW())
+        RETURNING id, credit_note_number, status
+      `, [creditNoteNumber, currentSale.id, currentSale.client_id, currentSale.warehouse_id, cancelledAmount, validityDays, options.notes || null, userId]);
+      const creditNoteId = cnRes.rows[0].id;
+
+      // 2. Insert CREDIT_NOTE transaction
+      const refType = isPartial ? 'SALES_PARTIAL_CANCEL' : 'SALES_CANCEL';
+      await dbClient.query(`
+        INSERT INTO client_transactions (
+          client_id, warehouse_id, type, reference_type, reference_id,
+          debit, credit, running_balance, description, transaction_date, created_by, created_at
+        ) VALUES ($1, $2, 'CREDIT_NOTE', $3, $4, 0, $5, $6, $7, NOW(), $8, NOW())
+      `, [currentSale.client_id, currentSale.warehouse_id, refType, currentSale.id, cancelledAmount, prevBal - cancelledAmount, `[${creditNoteNumber}] Avoir annulation vente ${currentSale.invoice_number}`, userId]);
+
+      // 3. Insert REFUND transaction (brings balance back to prevBal)
+      const refundTargetWh = Number(options.refundWarehouseId) || currentSale.warehouse_id;
+      const d = new Date();
+      const refundNumber = `REF-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const txRefundRes = await dbClient.query(`
+        INSERT INTO client_transactions (
+          client_id, warehouse_id, type, reference_type, reference_id,
+          debit, credit, running_balance, description, transaction_date, created_by, created_at
+        ) VALUES ($1, $2, 'REFUND', 'REFUND', $3, $4, 0, $5, $6, NOW(), $7, NOW())
+        RETURNING id
+      `, [currentSale.client_id, refundTargetWh, creditNoteId, cancelledAmount, prevBal, `Remboursement espèces guichet [${refundNumber}] suite annulation vente ${currentSale.invoice_number}`, userId]);
+      const txRefundId = txRefundRes.rows[0].id;
+
+      // 4. Insert client_refunds
+      const cleanNotes = typeof options.notes === 'string' ? options.notes.trim() : '';
+      const rfRes = await dbClient.query(`
+        INSERT INTO client_refunds (
+          refund_number, client_id, warehouse_id, credit_note_id,
+          amount, refund_method, recipient_name, recipient_phone, recipient_id_card,
+          notes, transaction_id, created_by, created_at
+        ) VALUES ($1, $2, $3, $4, $5, 'CASH', $6, $7, $8, $9, $10, $11, NOW())
+        RETURNING id
+      `, [refundNumber, currentSale.client_id, refundTargetWh, creditNoteId, cancelledAmount, options.recipientName.trim(), options.recipientPhone.trim(), options.recipientIdCard?.trim() || null, cleanNotes, txRefundId, userId]);
+
+      return {
+        creditNoteId,
+        creditNoteNumber,
+        status: 'FULLY_REFUNDED',
+        totalAmount: cancelledAmount,
+        refundId: rfRes.rows[0].id,
+        refundNumber,
+        isImmediateRefund: true,
+      };
+    } else {
+      // Deferred credit note ticket
+      const newBal = prevBal - cancelledAmount;
+      const cnRes = await dbClient.query(`
+        INSERT INTO counter_credit_notes (
+          credit_note_number, sale_id, client_id, warehouse_id,
+          total_amount, refunded_amount, remaining_amount,
+          status, issue_date, expiry_date, notes, created_by, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, 0.0, $5, 'PENDING', NOW(), NOW() + ($6 || ' days')::interval, $7, $8, NOW(), NOW())
+        RETURNING id, credit_note_number, status, expiry_date
+      `, [creditNoteNumber, currentSale.id, currentSale.client_id, currentSale.warehouse_id, cancelledAmount, validityDays, options.notes || null, userId]);
+      const creditNoteId = cnRes.rows[0].id;
+
+      const refType = isPartial ? 'SALES_PARTIAL_CANCEL' : 'SALES_CANCEL';
+      await dbClient.query(`
+        INSERT INTO client_transactions (
+          client_id, warehouse_id, type, reference_type, reference_id,
+          debit, credit, running_balance, description, transaction_date, created_by, created_at
+        ) VALUES ($1, $2, 'CREDIT_NOTE', $3, $4, 0, $5, $6, $7, NOW(), $8, NOW())
+      `, [currentSale.client_id, currentSale.warehouse_id, refType, currentSale.id, cancelledAmount, newBal, `[${creditNoteNumber}] Avoir annulation vente ${currentSale.invoice_number}`, userId]);
+
+      await dbClient.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, currentSale.client_id]);
+
+      return {
+        creditNoteId,
+        creditNoteNumber,
+        status: 'PENDING',
+        totalAmount: cancelledAmount,
+        remainingAmount: cancelledAmount,
+        expiryDate: cnRes.rows[0].expiry_date,
+        isImmediateRefund: false,
+      };
+    }
+  } else {
+    // Nominative client
+    const newBal = prevBal - cancelledAmount;
+    const refType = isPartial ? 'SALES_PARTIAL_CANCEL' : 'SALES_CANCEL';
+    await dbClient.query(`
+      INSERT INTO client_transactions (
+        client_id, warehouse_id, type, reference_type, reference_id,
+        debit, credit, running_balance, description, transaction_date, created_by, created_at
+      ) VALUES ($1, $2, 'CREDIT_NOTE', $3, $4, 0, $5, $6, $7, NOW(), $8, NOW())
+    `, [currentSale.client_id, currentSale.warehouse_id, refType, currentSale.id, cancelledAmount, newBal, `${isPartial ? 'Annulation partielle' : 'Annulation complète'} vente ${currentSale.invoice_number}`, userId]);
+
+    await dbClient.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, currentSale.client_id]);
+    return null;
+  }
+}
+
+router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', 'MANAGER'), async (req: AuthRequest, res) => {
+  try {
+    const id = Number(req.params.id);
+    const currentRes = await query('SELECT * FROM sales WHERE id = $1', [id]);
+    const currentSale = currentRes.rows[0];
+    if (!currentSale) {
+      return sendError(res, `Sale not found with id ${id}`, 404);
+    }
+    if (req.user) {
+      try {
+        validateWarehouseScope(req.user, currentSale.warehouse_id);
+      } catch (err: any) {
+        return sendError(res, err.message, 403);
+      }
+    }
+    if (currentSale.status === 'CANCELLED') {
+      return sendError(res, 'Sale is already cancelled', 400);
+    }
+
+    const {
+      immediateRefund = false,
+      recipientName,
+      recipientPhone,
+      recipientIdCard,
+      refundWarehouseId,
+      notes,
+    } = req.body || {};
+
+    const cancelOptions = {
+      immediateRefund: Boolean(immediateRefund),
+      recipientName: typeof recipientName === 'string' ? recipientName.trim() : '',
+      recipientPhone: typeof recipientPhone === 'string' ? recipientPhone.trim() : '',
+      recipientIdCard: typeof recipientIdCard === 'string' ? recipientIdCard.trim() : '',
+      refundWarehouseId: refundWarehouseId ? Number(refundWarehouseId) : currentSale.warehouse_id,
+      notes: typeof notes === 'string' ? notes.trim() : '',
+      user: req.user,
+    };
+
+    // Check fulfillment lines
+    const linesRes = await query('SELECT * FROM sale_fulfillment_lines WHERE sale_id = $1', [id]);
+    const fulfillmentLines = linesRes.rows;
+
+    if (fulfillmentLines.length > 0) {
+      const fulfilledLines = fulfillmentLines.filter((l: any) => l.fulfillment_status === 'FULFILLED');
+      const pendingLines = fulfillmentLines.filter((l: any) => l.fulfillment_status === 'PENDING_PICKUP');
+
+      // 1. If ALL lines are fulfilled -> reject cancellation, direct to return workflow
+      if (fulfilledLines.length > 0 && pendingLines.length === 0) {
+        return sendError(res, 'All items have already been fulfilled and dispensed from warehouse(s). Cancellation is not allowed. Please use the returns and refunds workflow.', 400);
+      }
+
+      // 2. If ALL lines are pending -> Full cancellation
+      if (fulfilledLines.length === 0 && pendingLines.length > 0) {
+        const result = await runTransaction(async (client) => {
+          for (const line of pendingLines) {
+            const resQuery = await client.query(
+              "SELECT id FROM stock_reservations WHERE fulfillment_line_id = $1 AND status = 'ACTIVE'",
+              [line.id]
+            );
+            if (resQuery.rows[0]) {
+              await releaseStockReservation(client, resQuery.rows[0].id, 'CANCELLED');
+            }
+
+            await client.query(`
+              UPDATE sale_fulfillment_lines
+              SET fulfillment_status = 'CANCELLED', updated_at = NOW()
+              WHERE id = $1
+            `, [line.id]);
+          }
+
+          const saleTotal = Number(currentSale.total_amount);
+          const creditResult = await handleClientSaleCancellationCredit(client, currentSale, saleTotal, false, cancelOptions);
+
+          await client.query('DELETE FROM payment_allocations WHERE sale_id = $1', [id]);
+          await client.query("UPDATE sales SET status = 'CANCELLED', payment_status = 'CANCELLED', updated_at = NOW() WHERE id = $1", [id]);
+
+          return {
+            id,
+            status: 'CANCELLED',
+            paymentStatus: 'CANCELLED',
+            creditNote: creditResult,
+          };
+        });
+
+        await logAudit(req.user, 'SALE_CANCELLED_FULL', 'SALE', id, `Full cancellation of sale ${currentSale.invoice_number} (all pending lines released)`, currentSale.warehouse_id);
+        return sendSuccess(res, result, 'Sale cancelled and all pending reservations released successfully');
+      }
+
+      // 3. Mixed state -> Partial cancellation
+      if (fulfilledLines.length > 0 && pendingLines.length > 0) {
+        const result = await runTransaction(async (client) => {
+          for (const line of pendingLines) {
+            const resQuery = await client.query(
+              "SELECT id FROM stock_reservations WHERE fulfillment_line_id = $1 AND status = 'ACTIVE'",
+              [line.id]
+            );
+            if (resQuery.rows[0]) {
+              await releaseStockReservation(client, resQuery.rows[0].id, 'CANCELLED');
+            }
+
+            await client.query(`
+              UPDATE sale_fulfillment_lines
+              SET fulfillment_status = 'CANCELLED', updated_at = NOW()
+              WHERE id = $1
+            `, [line.id]);
+          }
+
+          const cancelledAmount = pendingLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
+          const fulfilledAmount = fulfilledLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
+
+          let creditResult = null;
+          if (cancelledAmount > 0) {
+            creditResult = await handleClientSaleCancellationCredit(client, currentSale, cancelledAmount, true, cancelOptions);
+          }
+
+          // Adjust parent sale total to fulfilledAmount and status to PARTIALLY_CANCELLED
+          await client.query(`
+            UPDATE sales
+            SET status = 'PARTIALLY_CANCELLED',
+                total_amount = $1,
+                updated_at = NOW()
+            WHERE id = $2
+          `, [fulfilledAmount, id]);
+
+          return {
+            id,
+            status: 'PARTIALLY_CANCELLED',
+            cancelledAmount,
+            remainingTotal: fulfilledAmount,
+            cancelledLinesCount: pendingLines.length,
+            fulfilledLinesCount: fulfilledLines.length,
+            creditNote: creditResult,
+          };
+        });
+
+        await logAudit(req.user, 'SALE_CANCELLED_PARTIAL', 'SALE', id, `Partial cancellation of sale ${currentSale.invoice_number} (cancelled ${result.cancelledLinesCount} pending lines)`, currentSale.warehouse_id);
+        return sendSuccess(res, result, 'Partial cancellation successful. Pending lines cancelled and fulfilled lines retained.');
+      }
+    }
+
+    // Standard legacy sale cancellation (no fulfillment lines)
+    const result = await runTransaction(async (client) => {
+      // 1. Reverse stock
+>>>>>>> Stashed changes
       const itemsRes = await client.query('SELECT * FROM sale_items WHERE sale_id = $1', [id]);
       for (const item of itemsRes.rows) {
         await client.query(`
@@ -678,11 +979,33 @@ router.post('/:id/cancel', authenticate, async (req: AuthRequest, res) => {
         `, [currentSale.warehouse_id, item.product_id, item.quantity, currentSale.invoice_number]);
       }
 
+<<<<<<< Updated upstream
       await client.query("UPDATE sales SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1", [id]);
     });
 
     await logAudit(req.user, 'SALE_CANCELLED', 'SALE', id, `Voided sale ${currentSale.invoice_number} and reversed stock`, currentSale.warehouse_id);
     return sendSuccess(res, { id, status: 'CANCELLED' }, 'Sale cancelled and stock reversed successfully');
+=======
+      const saleTotal = Number(currentSale.total_amount);
+      const creditResult = await handleClientSaleCancellationCredit(client, currentSale, saleTotal, false, cancelOptions);
+
+      // 3. Remove payment allocations associated with this cancelled sale so payments become unallocated
+      await client.query('DELETE FROM payment_allocations WHERE sale_id = $1', [id]);
+
+      // 4. Update Sale Status
+      await client.query("UPDATE sales SET status = 'CANCELLED', payment_status = 'CANCELLED', updated_at = NOW() WHERE id = $1", [id]);
+
+      return {
+        id,
+        status: 'CANCELLED',
+        paymentStatus: 'CANCELLED',
+        creditNote: creditResult,
+      };
+    });
+
+    await logAudit(req.user, 'SALE_CANCELLED', 'SALE', id, `Voided sale ${currentSale.invoice_number} and reversed stock/ledger`, currentSale.warehouse_id);
+    return sendSuccess(res, result, 'Sale cancelled and reversed successfully');
+>>>>>>> Stashed changes
   } catch (err: any) {
     return sendError(res, err.message, 500);
   }

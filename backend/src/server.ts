@@ -16,6 +16,12 @@ import salaryRoutes from './routes/salary.routes.js';
 import reportRoutes from './routes/report.routes.js';
 import auditRoutes from './routes/audit.routes.js';
 import userRoutes from './routes/user.routes.js';
+<<<<<<< Updated upstream
+=======
+import notificationRoutes from './routes/notification.routes.js';
+import factureRoutes from './routes/facture.routes.js';
+import creditNoteRoutes from './routes/credit-note.routes.js';
+>>>>>>> Stashed changes
 
 const app = express();
 const PORT = Number(process.env.PORT) || 10000;
@@ -54,6 +60,9 @@ app.use('/operations', inventoryRoutes);
 
 app.use('/api/sales', saleRoutes);
 app.use('/sales', saleRoutes);
+
+app.use('/api/credit-notes', creditNoteRoutes);
+app.use('/credit-notes', creditNoteRoutes);
 
 app.use('/api/transfers', transferRoutes);
 app.use('/transfers', transferRoutes);
