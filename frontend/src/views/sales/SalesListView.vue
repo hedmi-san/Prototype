@@ -161,19 +161,32 @@ const situationFacture = ref<Facture | null>(null);
 const situationForm = ref({ situation: 'ACTIVE' as FactureSituation, situationNotes: '' });
 const updatingSituation = ref(false);
 
+const cancelError = ref('');
+
+const isCancelBlocked = computed(() => {
+  if (!cancellingSale.value) return false;
+  if (cancellingSale.value.hasInterWarehouseFulfillment) {
+    const lines = cancellingSale.value.fulfillmentLines || [];
+    const fulfilled = lines.filter((l) => l.fulfillmentStatus === 'FULFILLED');
+    const pending = lines.filter((l) => l.fulfillmentStatus === 'PENDING_PICKUP');
+    return fulfilled.length > 0 && pending.length === 0;
+  }
+  return false;
+});
+
 const cancelDialogMessage = computed(() => {
   if (!cancellingSale.value) return '';
-  if (cancellingSale.value.hasInterWarehouseFulfillment || (cancellingSale.value.fulfillmentLines && cancellingSale.value.fulfillmentLines.length > 0)) {
+  if (cancellingSale.value.hasInterWarehouseFulfillment) {
     const lines = cancellingSale.value.fulfillmentLines || [];
     const fulfilled = lines.filter((l) => l.fulfillmentStatus === 'FULFILLED');
     const pending = lines.filter((l) => l.fulfillmentStatus === 'PENDING_PICKUP');
 
     if (fulfilled.length > 0 && pending.length === 0) {
-      return 'Tous les articles de cette vente ont déjà été délivrés et retirés physiquement par le client. L\'annulation n\'est pas autorisée. Veuillez utiliser la gestion des retours clients.';
+      return 'Tous les articles de cette vente inter-dépôts ont déjà été délivrés et retirés physiquement par le client. L\'annulation directe n\'est pas autorisée. Veuillez utiliser la gestion des retours clients.';
     } else if (fulfilled.length > 0 && pending.length > 0) {
       return `Attention : cette vente comporte ${fulfilled.length} article(s) déjà retiré(s) et ${pending.length} article(s) encore en attente de retrait. L'annulation va libérer les réservations des articles en attente et faire passer la vente en statut PARTIELLEMENT ANNULÉE (PARTIALLY_CANCELLED). Les articles retirés restent définitifs.`;
     } else {
-      return `Cette vente comporte des articles en attente de retrait. L'annulation va libérer toutes les réservations de stock et annuler intégralement la vente.`;
+      return `Cette vente inter-dépôts comporte des articles en attente de retrait. L'annulation va libérer toutes les réservations de stock et annuler intégralement la vente.`;
     }
   }
   return `Êtes-vous sûr de vouloir annuler la vente ${cancellingSale.value.invoiceNumber} ? Le stock physique sera réintégré et les écritures financières compensées.`;
@@ -416,6 +429,7 @@ async function handleSaveEdit() {
 }
 
 async function promptCancelSale(sale: Sale) {
+  cancelError.value = '';
   try {
     const full = await saleService.getSaleById(sale.id);
     cancellingSale.value = full;
@@ -428,12 +442,14 @@ async function promptCancelSale(sale: Sale) {
 async function handleConfirmCancel() {
   if (!cancellingSale.value) return;
   cancelling.value = true;
+  cancelError.value = '';
   try {
     await saleService.cancelSale(cancellingSale.value.id);
     showCancelDialog.value = false;
     await fetchSales();
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to cancel sale', err);
+    cancelError.value = err.response?.data?.message || err.message || 'Échec de l\'annulation de la vente';
   } finally {
     cancelling.value = false;
   }
@@ -1711,8 +1727,10 @@ async function handleConfirmCancelLine() {
       v-model="showCancelDialog"
       title="Annuler & Invalider la Facture de Vente"
       :message="cancelDialogMessage"
-      confirm-text="Annuler la Vente & Réconcilier le Stock"
-      cancel-text="Conserver la Vente"
+      :confirm-text="isCancelBlocked ? '' : 'Annuler la Vente & Réconcilier le Stock'"
+      :cancel-text="isCancelBlocked ? 'Fermer' : 'Conserver la Vente'"
+      :hide-confirm="isCancelBlocked"
+      :error="cancelError"
       variant="danger"
       :loading="cancelling"
       @confirm="handleConfirmCancel"
