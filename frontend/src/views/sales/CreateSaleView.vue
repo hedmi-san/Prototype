@@ -250,6 +250,25 @@ const totalAmount = computed(() => {
   }, 0);
 });
 
+const collectOnPickupTotal = computed(() => {
+  let sum = 0;
+  for (const item of lineItems.value) {
+    if (item.allocations && item.allocations.length > 0) {
+      const price = item.unitPrice !== undefined && item.unitPrice !== null ? Number(item.unitPrice) : (getProductById(item.productId)?.salePrice || 0);
+      for (const a of item.allocations) {
+        if (a.fulfillmentWarehouseId !== selectedWarehouseId.value && a.paymentStatus === 'COLLECT_ON_PICKUP') {
+          sum += (Number(a.quantity) || 0) * price;
+        }
+      }
+    }
+  }
+  return sum;
+});
+
+const originPayableTotal = computed(() => {
+  return Math.max(0, totalAmount.value - collectOnPickupTotal.value);
+});
+
 const clientAvailableAdvance = computed(() => {
   if (!selectedClient.value || selectedClient.value.isDefault) return 0;
   const bal = Number(selectedClient.value.currentBalance || 0);
@@ -264,11 +283,11 @@ const effectiveAdvanceDeduction = computed(() => {
   if (!isAdvanceCreditAvailable.value || !useAdvanceCredit.value) {
     return 0;
   }
-  return Math.min(totalAmount.value, clientAvailableAdvance.value);
+  return Math.min(originPayableTotal.value, clientAvailableAdvance.value);
 });
 
 const netRemainingAfterAdvance = computed(() => {
-  return Math.max(0, totalAmount.value - effectiveAdvanceDeduction.value);
+  return Math.max(0, originPayableTotal.value - effectiveAdvanceDeduction.value);
 });
 
 const isFullyCoveredByAdvance = computed(() => {
@@ -693,8 +712,8 @@ function closeVouchersAndNavigate() {
               <label class="condition-radio">
                 <input v-model="paymentCondition" type="radio" value="FULL_CASH" />
                 <div class="radio-content">
-                  <strong>{{ effectiveAdvanceDeduction > 0 ? 'Comptant sur le reste' : 'Comptant (Payé à 100%)' }}</strong>
-                  <span>{{ effectiveAdvanceDeduction > 0 ? `Règlement immédiat de ${formatCurrency(netRemainingAfterAdvance)}` : 'Règlement immédiat' }}</span>
+                  <strong>{{ collectOnPickupTotal > 0 ? 'Comptant local / prépayé' : (effectiveAdvanceDeduction > 0 ? 'Comptant sur le reste' : 'Comptant (Payé à 100%)') }}</strong>
+                  <span>{{ effectiveAdvanceDeduction > 0 || collectOnPickupTotal > 0 ? `Règlement immédiat de ${formatCurrency(netRemainingAfterAdvance)}` : 'Règlement immédiat' }}</span>
                 </div>
               </label>
 
@@ -765,6 +784,16 @@ function closeVouchersAndNavigate() {
             <span class="font-mono text-h2 font-bold">{{ formatCurrency(totalAmount) }}</span>
           </div>
 
+          <div v-if="collectOnPickupTotal > 0" class="summary-row text-warning">
+            <span>À payer au retrait (Dépôt destinataire) :</span>
+            <strong class="font-mono font-bold">- {{ formatCurrency(collectOnPickupTotal) }}</strong>
+          </div>
+
+          <div v-if="collectOnPickupTotal > 0" class="summary-row">
+            <span>Dû au comptoir aujourd'hui :</span>
+            <strong class="font-mono font-bold">{{ formatCurrency(originPayableTotal) }}</strong>
+          </div>
+
           <div v-if="effectiveAdvanceDeduction > 0" class="summary-row text-success">
             <span>Imputation Avoir Client :</span>
             <strong class="font-mono font-bold">- {{ formatCurrency(effectiveAdvanceDeduction) }}</strong>
@@ -776,12 +805,12 @@ function closeVouchersAndNavigate() {
           </div>
 
           <div class="summary-row">
-            <span>Total Règlement Vente :</span>
+            <span>Total Règlement Immédiat :</span>
             <strong class="font-mono text-success font-bold">{{ formatCurrency(calculatedPaidAmount) }}</strong>
           </div>
 
           <div v-if="calculatedRemainingDebt > 0" class="summary-row">
-            <span>Créance Restante (Dette) :</span>
+            <span>Reste à percevoir (Retrait / Dette) :</span>
             <strong class="text-danger font-bold font-mono">{{ formatCurrency(calculatedRemainingDebt) }}</strong>
           </div>
           <div v-else class="summary-row">

@@ -487,12 +487,19 @@ router.post('/fulfillment-lines/:id/fulfill', authenticate, async (req: AuthRequ
       `, [line.fulfillment_warehouse_id, line.product_id, -Number(line.quantity), line.invoice_number, `Inter-warehouse pickup fulfillment (Voucher ${line.pickup_voucher_code})`]);
 
       // 3. Handle payment collection if needed
-      let linePaidAmount = 0;
       if (line.payment_status === 'COLLECT_ON_PICKUP') {
-        linePaidAmount = Number(line.subtotal);
-        const payNumber = `PAY-${Date.now().toString().slice(-8)}`;
+        const saleTotal = Number(line.total_amount || 0);
+        const currentSalePaid = Number(line.paid_amount || 0);
+        const remainingSaleDue = Math.max(0, saleTotal - currentSalePaid);
+        // Collect line subtotal capped by what is actually remaining unpaid on the parent sale
+        const linePaidAmount = Math.min(Number(line.subtotal), remainingSaleDue);
 
-        if (line.client_id) {
+        if (line.client_id && linePaidAmount > 0) {
+          const clRes = await client.query('SELECT current_balance FROM clients WHERE id = $1', [line.client_id]);
+          const currentBal = Number(clRes.rows[0]?.current_balance || 0);
+          const newBal = currentBal - linePaidAmount;
+
+          const payNumber = `PAY-${Date.now().toString().slice(-8)}`;
           const payRes = await client.query(`
             INSERT INTO client_payments (
               payment_number, client_id, warehouse_id, amount, payment_method,
@@ -511,10 +518,31 @@ router.post('/fulfillment-lines/:id/fulfill', authenticate, async (req: AuthRequ
           ]);
           const paymentId = payRes.rows[0].id;
 
+          const payTxRes = await client.query(`
+            INSERT INTO client_transactions (
+              client_id, warehouse_id, type, reference_type, reference_id,
+              debit, credit, running_balance, description, transaction_date, created_by, created_at
+            ) VALUES ($1, $2, 'PAYMENT', 'CLIENT_PAYMENT', $3, 0, $4, $5, $6, NOW(), $7, NOW())
+            RETURNING id
+          `, [
+            line.client_id,
+            line.fulfillment_warehouse_id,
+            paymentId,
+            linePaidAmount,
+            newBal,
+            `Encaissement au retrait (${paymentMethod || 'CASH'}) - Bon ${line.pickup_voucher_code}`,
+            req.user?.id || 1,
+          ]);
+          const payTxId = payTxRes.rows[0].id;
+
+          await client.query('UPDATE client_payments SET transaction_id = $1 WHERE id = $2', [payTxId, paymentId]);
+
           await client.query(`
             INSERT INTO payment_allocations (payment_id, sale_id, allocated_amount)
             VALUES ($1, $2, $3)
           `, [paymentId, line.sale_id, linePaidAmount]);
+
+          await client.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, line.client_id]);
         }
 
         // Update line payment status
@@ -524,9 +552,9 @@ router.post('/fulfillment-lines/:id/fulfill', authenticate, async (req: AuthRequ
           WHERE id = $1
         `, [lineId]);
 
-        // Update parent sale paid amount and payment status
-        const newSalePaid = Number(line.paid_amount || 0) + linePaidAmount;
-        const newPayStatus = newSalePaid >= Number(line.total_amount) ? 'PAID' : (newSalePaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
+        // Update parent sale paid amount (capped to saleTotal) and payment status
+        const newSalePaid = Math.min(saleTotal, currentSalePaid + linePaidAmount);
+        const newPayStatus = newSalePaid >= saleTotal && saleTotal > 0 ? 'PAID' : (newSalePaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
         await client.query(`
           UPDATE sales
           SET paid_amount = $1, payment_status = $2, updated_at = NOW()
@@ -730,10 +758,27 @@ router.put('/fulfillment-lines/:id', authenticate, async (req: AuthRequest, res)
           WHERE id = $3
         `, [newQty, newSubtotal, lineId]);
 
-        // Recompute parent total
+        // Recompute parent total and cap paid_amount
         const sumRes = await client.query('SELECT SUM(subtotal) as total FROM sale_fulfillment_lines WHERE sale_id = $1', [line.sale_id]);
         const newTotal = Number(sumRes.rows[0]?.total || 0);
-        await client.query('UPDATE sales SET total_amount = $1, updated_at = NOW() WHERE id = $2', [newTotal, line.sale_id]);
+        await client.query(`
+          UPDATE sales
+          SET total_amount = $1,
+              paid_amount = LEAST(paid_amount, $1),
+              payment_status = CASE
+                WHEN LEAST(paid_amount, $1) >= $1 AND $1 > 0 THEN 'PAID'
+                WHEN LEAST(paid_amount, $1) > 0 THEN 'PARTIALLY_PAID'
+                ELSE 'UNPAID'
+              END,
+              updated_at = NOW()
+          WHERE id = $2
+        `, [newTotal, line.sale_id]);
+
+        await client.query(`
+          UPDATE payment_allocations
+          SET allocated_amount = LEAST(allocated_amount, $1)
+          WHERE sale_id = $2
+        `, [newTotal, line.sale_id]);
       }
 
       // Update payment mode
@@ -1004,6 +1049,7 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       }
 
       // 2. Validate and process stock & pricing
+      let collectOnPickupTotal = 0;
       if (hasAllocations) {
         // Multi-warehouse allocation path
         for (const alloc of fulfillmentAllocations) {
@@ -1015,7 +1061,12 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
           if (isNaN(unitPrice) || unitPrice < 0) {
             throw new Error(`Prix unitaire invalide pour le produit ${product.name}`);
           }
-          totalAmount += Number(alloc.quantity) * unitPrice;
+          const lineSubtotal = Number(alloc.quantity) * unitPrice;
+          totalAmount += lineSubtotal;
+
+          if (Number(alloc.fulfillmentWarehouseId) !== Number(targetWarehouseId) && alloc.paymentStatus === 'COLLECT_ON_PICKUP') {
+            collectOnPickupTotal += lineSubtotal;
+          }
 
           if (Number(alloc.fulfillmentWarehouseId) === Number(targetWarehouseId)) {
             // Local stock deduction
@@ -1089,6 +1140,8 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       }
 
       // 3. Determine Payment Amount, Advance Deduction, and Status
+      const originPayableTotal = Math.max(0, totalAmount - collectOnPickupTotal);
+
       if (clientRecord?.is_default && paymentCondition && paymentCondition !== 'FULL_CASH') {
         throw new Error('Les ventes au Client Passager / Comptoir doivent être obligatoirement réglées au comptant (100%). Pour accorder un crédit ou un acompte, veuillez sélectionner ou enregistrer un compte client nominatif.');
       }
@@ -1105,11 +1158,11 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
           isOptedOut = true;
           advanceDeducted = 0;
         } else {
-          advanceDeducted = Math.min(totalAmount, availableAdvance);
+          advanceDeducted = Math.min(originPayableTotal, availableAdvance);
         }
       }
 
-      const netRemaining = Math.max(0, totalAmount - advanceDeducted);
+      const netRemaining = Math.max(0, originPayableTotal - advanceDeducted);
 
       let cashPaid = 0;
       if (advanceDeducted > 0 && netRemaining === 0) {

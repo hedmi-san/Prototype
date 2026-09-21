@@ -430,11 +430,17 @@ router.post('/fulfillment-lines/:id/fulfill', authenticate, async (req, res) => 
         VALUES ($1, $2, 'SALE', $3, $4, $5)
       `, [line.fulfillment_warehouse_id, line.product_id, -Number(line.quantity), line.invoice_number, `Inter-warehouse pickup fulfillment (Voucher ${line.pickup_voucher_code})`]);
             // 3. Handle payment collection if needed
-            let linePaidAmount = 0;
             if (line.payment_status === 'COLLECT_ON_PICKUP') {
-                linePaidAmount = Number(line.subtotal);
-                const payNumber = `PAY-${Date.now().toString().slice(-8)}`;
-                if (line.client_id) {
+                const saleTotal = Number(line.total_amount || 0);
+                const currentSalePaid = Number(line.paid_amount || 0);
+                const remainingSaleDue = Math.max(0, saleTotal - currentSalePaid);
+                // Collect line subtotal capped by what is actually remaining unpaid on the parent sale
+                const linePaidAmount = Math.min(Number(line.subtotal), remainingSaleDue);
+                if (line.client_id && linePaidAmount > 0) {
+                    const clRes = await client.query('SELECT current_balance FROM clients WHERE id = $1', [line.client_id]);
+                    const currentBal = Number(clRes.rows[0]?.current_balance || 0);
+                    const newBal = currentBal - linePaidAmount;
+                    const payNumber = `PAY-${Date.now().toString().slice(-8)}`;
                     const payRes = await client.query(`
             INSERT INTO client_payments (
               payment_number, client_id, warehouse_id, amount, payment_method,
@@ -452,10 +458,28 @@ router.post('/fulfillment-lines/:id/fulfill', authenticate, async (req, res) => 
                         req.user?.id || 1,
                     ]);
                     const paymentId = payRes.rows[0].id;
+                    const payTxRes = await client.query(`
+            INSERT INTO client_transactions (
+              client_id, warehouse_id, type, reference_type, reference_id,
+              debit, credit, running_balance, description, transaction_date, created_by, created_at
+            ) VALUES ($1, $2, 'PAYMENT', 'CLIENT_PAYMENT', $3, 0, $4, $5, $6, NOW(), $7, NOW())
+            RETURNING id
+          `, [
+                        line.client_id,
+                        line.fulfillment_warehouse_id,
+                        paymentId,
+                        linePaidAmount,
+                        newBal,
+                        `Encaissement au retrait (${paymentMethod || 'CASH'}) - Bon ${line.pickup_voucher_code}`,
+                        req.user?.id || 1,
+                    ]);
+                    const payTxId = payTxRes.rows[0].id;
+                    await client.query('UPDATE client_payments SET transaction_id = $1 WHERE id = $2', [payTxId, paymentId]);
                     await client.query(`
             INSERT INTO payment_allocations (payment_id, sale_id, allocated_amount)
             VALUES ($1, $2, $3)
           `, [paymentId, line.sale_id, linePaidAmount]);
+                    await client.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, line.client_id]);
                 }
                 // Update line payment status
                 await client.query(`
@@ -463,9 +487,9 @@ router.post('/fulfillment-lines/:id/fulfill', authenticate, async (req, res) => 
           SET payment_status = 'PAID'
           WHERE id = $1
         `, [lineId]);
-                // Update parent sale paid amount and payment status
-                const newSalePaid = Number(line.paid_amount || 0) + linePaidAmount;
-                const newPayStatus = newSalePaid >= Number(line.total_amount) ? 'PAID' : (newSalePaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
+                // Update parent sale paid amount (capped to saleTotal) and payment status
+                const newSalePaid = Math.min(saleTotal, currentSalePaid + linePaidAmount);
+                const newPayStatus = newSalePaid >= saleTotal && saleTotal > 0 ? 'PAID' : (newSalePaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
                 await client.query(`
           UPDATE sales
           SET paid_amount = $1, payment_status = $2, updated_at = NOW()
@@ -640,10 +664,26 @@ router.put('/fulfillment-lines/:id', authenticate, async (req, res) => {
           SET quantity = $1, subtotal = $2, updated_at = NOW()
           WHERE id = $3
         `, [newQty, newSubtotal, lineId]);
-                // Recompute parent total
+                // Recompute parent total and cap paid_amount
                 const sumRes = await client.query('SELECT SUM(subtotal) as total FROM sale_fulfillment_lines WHERE sale_id = $1', [line.sale_id]);
                 const newTotal = Number(sumRes.rows[0]?.total || 0);
-                await client.query('UPDATE sales SET total_amount = $1, updated_at = NOW() WHERE id = $2', [newTotal, line.sale_id]);
+                await client.query(`
+          UPDATE sales
+          SET total_amount = $1,
+              paid_amount = LEAST(paid_amount, $1),
+              payment_status = CASE
+                WHEN LEAST(paid_amount, $1) >= $1 AND $1 > 0 THEN 'PAID'
+                WHEN LEAST(paid_amount, $1) > 0 THEN 'PARTIALLY_PAID'
+                ELSE 'UNPAID'
+              END,
+              updated_at = NOW()
+          WHERE id = $2
+        `, [newTotal, line.sale_id]);
+                await client.query(`
+          UPDATE payment_allocations
+          SET allocated_amount = LEAST(allocated_amount, $1)
+          WHERE sale_id = $2
+        `, [newTotal, line.sale_id]);
             }
             // Update payment mode
             if (paymentStatus && paymentStatus !== line.payment_status) {
@@ -889,6 +929,7 @@ router.post('/', authenticate, async (req, res) => {
                 }
             }
             // 2. Validate and process stock & pricing
+            let collectOnPickupTotal = 0;
             if (hasAllocations) {
                 // Multi-warehouse allocation path
                 for (const alloc of fulfillmentAllocations) {
@@ -900,7 +941,11 @@ router.post('/', authenticate, async (req, res) => {
                     if (isNaN(unitPrice) || unitPrice < 0) {
                         throw new Error(`Prix unitaire invalide pour le produit ${product.name}`);
                     }
-                    totalAmount += Number(alloc.quantity) * unitPrice;
+                    const lineSubtotal = Number(alloc.quantity) * unitPrice;
+                    totalAmount += lineSubtotal;
+                    if (Number(alloc.fulfillmentWarehouseId) !== Number(targetWarehouseId) && alloc.paymentStatus === 'COLLECT_ON_PICKUP') {
+                        collectOnPickupTotal += lineSubtotal;
+                    }
                     if (Number(alloc.fulfillmentWarehouseId) === Number(targetWarehouseId)) {
                         // Local stock deduction
                         const stockRes = await client.query('SELECT * FROM stock WHERE warehouse_id = $1 AND product_id = $2 FOR UPDATE', [targetWarehouseId, alloc.productId]);
@@ -955,6 +1000,7 @@ router.post('/', authenticate, async (req, res) => {
                 }
             }
             // 3. Determine Payment Amount, Advance Deduction, and Status
+            const originPayableTotal = Math.max(0, totalAmount - collectOnPickupTotal);
             if (clientRecord?.is_default && paymentCondition && paymentCondition !== 'FULL_CASH') {
                 throw new Error('Les ventes au Client Passager / Comptoir doivent être obligatoirement réglées au comptant (100%). Pour accorder un crédit ou un acompte, veuillez sélectionner ou enregistrer un compte client nominatif.');
             }
@@ -969,10 +1015,10 @@ router.post('/', authenticate, async (req, res) => {
                     advanceDeducted = 0;
                 }
                 else {
-                    advanceDeducted = Math.min(totalAmount, availableAdvance);
+                    advanceDeducted = Math.min(originPayableTotal, availableAdvance);
                 }
             }
-            const netRemaining = Math.max(0, totalAmount - advanceDeducted);
+            const netRemaining = Math.max(0, originPayableTotal - advanceDeducted);
             let cashPaid = 0;
             if (advanceDeducted > 0 && netRemaining === 0) {
                 cashPaid = 0;
@@ -1717,8 +1763,7 @@ router.delete('/:id', authenticate, requireRole('ADMIN', 'SUPER_MANAGER'), async
             }
         }
         // Check if sale has inter-warehouse fulfillment lines or has_inter_warehouse_fulfillment flag
-        const linesRes = await query('SELECT COUNT(*) as count FROM sale_fulfillment_lines WHERE sale_id = $1', [id]);
-        const hasInterWarehouseLines = Number(linesRes.rows[0]?.count || 0) > 0 || Boolean(currentSale.has_inter_warehouse_fulfillment);
+        const hasInterWarehouseLines = Boolean(currentSale.has_inter_warehouse_fulfillment);
         if (hasInterWarehouseLines) {
             return sendError(res, 'Hard delete is prohibited for sales with inter-warehouse fulfillment lines. Use line-level cancellation or returns workflow instead.', 400);
         }
@@ -1756,122 +1801,142 @@ router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', '
         if (currentSale.status === 'CANCELLED') {
             return sendError(res, 'Sale is already cancelled', 400);
         }
-        // Check fulfillment lines
-        const linesRes = await query('SELECT * FROM sale_fulfillment_lines WHERE sale_id = $1', [id]);
-        const fulfillmentLines = linesRes.rows;
-        if (fulfillmentLines.length > 0) {
-            const fulfilledLines = fulfillmentLines.filter((l) => l.fulfillment_status === 'FULFILLED');
-            const pendingLines = fulfillmentLines.filter((l) => l.fulfillment_status === 'PENDING_PICKUP');
-            // 1. If ALL lines are fulfilled -> reject cancellation, direct to return workflow
-            if (fulfilledLines.length > 0 && pendingLines.length === 0) {
-                return sendError(res, 'All items have already been fulfilled and dispensed from warehouse(s). Cancellation is not allowed. Please use the returns and refunds workflow.', 400);
-            }
-            // 2. If ALL lines are pending -> Full cancellation
-            if (fulfilledLines.length === 0 && pendingLines.length > 0) {
-                const result = await runTransaction(async (client) => {
-                    for (const line of pendingLines) {
-                        const resQuery = await client.query("SELECT id FROM stock_reservations WHERE fulfillment_line_id = $1 AND status = 'ACTIVE'", [line.id]);
-                        if (resQuery.rows[0]) {
-                            await releaseStockReservation(client, resQuery.rows[0].id, 'CANCELLED');
-                        }
-                        await client.query(`
-              UPDATE sale_fulfillment_lines
-              SET fulfillment_status = 'CANCELLED', updated_at = NOW()
-              WHERE id = $1
-            `, [line.id]);
-                    }
-                    // Compensating ledger entry if attached to a client
-                    if (currentSale.client_id) {
-                        const clientRes = await client.query('SELECT id, current_balance FROM clients WHERE id = $1 FOR UPDATE', [currentSale.client_id]);
-                        if (clientRes.rowCount && clientRes.rowCount > 0) {
-                            const prevBal = Number(clientRes.rows[0].current_balance || 0);
-                            const saleTotal = Number(currentSale.total_amount);
-                            const newBal = prevBal - saleTotal;
+        // Inter-warehouse sales lifecycle
+        if (currentSale.has_inter_warehouse_fulfillment) {
+            const linesRes = await query('SELECT * FROM sale_fulfillment_lines WHERE sale_id = $1', [id]);
+            const fulfillmentLines = linesRes.rows;
+            if (fulfillmentLines.length > 0) {
+                const fulfilledLines = fulfillmentLines.filter((l) => l.fulfillment_status === 'FULFILLED');
+                const pendingLines = fulfillmentLines.filter((l) => l.fulfillment_status === 'PENDING_PICKUP');
+                // 1. If ALL lines are fulfilled -> reject cancellation, direct to return workflow
+                if (fulfilledLines.length > 0 && pendingLines.length === 0) {
+                    return sendError(res, 'All items have already been fulfilled and dispensed from warehouse(s). Cancellation is not allowed. Please use the returns and refunds workflow.', 400);
+                }
+                // 2. If ALL lines are pending -> Full cancellation
+                if (fulfilledLines.length === 0 && pendingLines.length > 0) {
+                    const result = await runTransaction(async (client) => {
+                        for (const line of pendingLines) {
+                            const resQuery = await client.query("SELECT id FROM stock_reservations WHERE fulfillment_line_id = $1 AND status = 'ACTIVE'", [line.id]);
+                            if (resQuery.rows[0]) {
+                                await releaseStockReservation(client, resQuery.rows[0].id, 'CANCELLED');
+                            }
                             await client.query(`
-                INSERT INTO client_transactions (
-                  client_id, warehouse_id, type, reference_type, reference_id,
-                  debit, credit, running_balance, description, transaction_date, created_by, created_at
-                ) VALUES ($1, $2, 'CREDIT_NOTE', 'SALES_CANCEL', $3, 0, $4, $5, $6, NOW(), $7, NOW())
-              `, [
-                                currentSale.client_id,
-                                currentSale.warehouse_id,
-                                id,
-                                saleTotal,
-                                newBal,
-                                `Annulation complète vente ${currentSale.invoice_number}`,
-                                req.user?.id || 1,
-                            ]);
-                            await client.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, currentSale.client_id]);
+                UPDATE sale_fulfillment_lines
+                SET fulfillment_status = 'CANCELLED', updated_at = NOW()
+                WHERE id = $1
+              `, [line.id]);
                         }
-                    }
-                    await client.query('DELETE FROM payment_allocations WHERE sale_id = $1', [id]);
-                    await client.query("UPDATE sales SET status = 'CANCELLED', payment_status = 'CANCELLED', updated_at = NOW() WHERE id = $1", [id]);
-                    return { id, status: 'CANCELLED', paymentStatus: 'CANCELLED' };
-                });
-                await logAudit(req.user, 'SALE_CANCELLED_FULL', 'SALE', id, `Full cancellation of sale ${currentSale.invoice_number} (all pending lines released)`, currentSale.warehouse_id);
-                return sendSuccess(res, result, 'Sale cancelled and all pending reservations released successfully');
-            }
-            // 3. Mixed state -> Partial cancellation
-            if (fulfilledLines.length > 0 && pendingLines.length > 0) {
-                const result = await runTransaction(async (client) => {
-                    for (const line of pendingLines) {
-                        const resQuery = await client.query("SELECT id FROM stock_reservations WHERE fulfillment_line_id = $1 AND status = 'ACTIVE'", [line.id]);
-                        if (resQuery.rows[0]) {
-                            await releaseStockReservation(client, resQuery.rows[0].id, 'CANCELLED');
-                        }
+                        // Cancel pending inter-warehouse settlements
                         await client.query(`
-              UPDATE sale_fulfillment_lines
-              SET fulfillment_status = 'CANCELLED', updated_at = NOW()
-              WHERE id = $1
-            `, [line.id]);
-                    }
-                    const cancelledAmount = pendingLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
-                    const fulfilledAmount = fulfilledLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
-                    // Compensating ledger entry for the cancelled portion only
-                    if (currentSale.client_id && cancelledAmount > 0) {
-                        const clientRes = await client.query('SELECT id, current_balance FROM clients WHERE id = $1 FOR UPDATE', [currentSale.client_id]);
-                        if (clientRes.rowCount && clientRes.rowCount > 0) {
-                            const prevBal = Number(clientRes.rows[0].current_balance || 0);
-                            const newBal = prevBal - cancelledAmount;
-                            await client.query(`
-                INSERT INTO client_transactions (
-                  client_id, warehouse_id, type, reference_type, reference_id,
-                  debit, credit, running_balance, description, transaction_date, created_by, created_at
-                ) VALUES ($1, $2, 'CREDIT_NOTE', 'SALES_PARTIAL_CANCEL', $3, 0, $4, $5, $6, NOW(), $7, NOW())
-              `, [
-                                currentSale.client_id,
-                                currentSale.warehouse_id,
-                                id,
-                                cancelledAmount,
-                                newBal,
-                                `Annulation partielle vente ${currentSale.invoice_number} (lignes non retirées)`,
-                                req.user?.id || 1,
-                            ]);
-                            await client.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, currentSale.client_id]);
+              UPDATE inter_warehouse_settlements
+              SET status = 'CANCELLED', notes = notes || ' (Annulé suite à annulation de la vente)'
+              WHERE status = 'PENDING' AND notes LIKE '%' || $1 || '%'
+            `, [currentSale.invoice_number]);
+                        // Compensating ledger entry if attached to a client
+                        if (currentSale.client_id) {
+                            const clientRes = await client.query('SELECT id, current_balance FROM clients WHERE id = $1 FOR UPDATE', [currentSale.client_id]);
+                            if (clientRes.rowCount && clientRes.rowCount > 0) {
+                                const prevBal = Number(clientRes.rows[0].current_balance || 0);
+                                const saleTotal = Number(currentSale.total_amount);
+                                const newBal = prevBal - saleTotal;
+                                await client.query(`
+                  INSERT INTO client_transactions (
+                    client_id, warehouse_id, type, reference_type, reference_id,
+                    debit, credit, running_balance, description, transaction_date, created_by, created_at
+                  ) VALUES ($1, $2, 'CREDIT_NOTE', 'SALES_CANCEL', $3, 0, $4, $5, $6, NOW(), $7, NOW())
+                `, [
+                                    currentSale.client_id,
+                                    currentSale.warehouse_id,
+                                    id,
+                                    saleTotal,
+                                    newBal,
+                                    `Annulation complète vente ${currentSale.invoice_number}`,
+                                    req.user?.id || 1,
+                                ]);
+                                await client.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, currentSale.client_id]);
+                            }
                         }
-                    }
-                    // Adjust parent sale total to fulfilledAmount and status to PARTIALLY_CANCELLED
-                    await client.query(`
-            UPDATE sales
-            SET status = 'PARTIALLY_CANCELLED',
-                total_amount = $1,
-                updated_at = NOW()
-            WHERE id = $2
-          `, [fulfilledAmount, id]);
-                    return {
-                        id,
-                        status: 'PARTIALLY_CANCELLED',
-                        cancelledAmount,
-                        remainingTotal: fulfilledAmount,
-                        cancelledLinesCount: pendingLines.length,
-                        fulfilledLinesCount: fulfilledLines.length,
-                    };
-                });
-                await logAudit(req.user, 'SALE_CANCELLED_PARTIAL', 'SALE', id, `Partial cancellation of sale ${currentSale.invoice_number} (cancelled ${result.cancelledLinesCount} pending lines)`, currentSale.warehouse_id);
-                return sendSuccess(res, result, 'Partial cancellation successful. Pending lines cancelled and fulfilled lines retained.');
+                        // Cancel linked active facture if present
+                        await client.query(`
+              UPDATE factures
+              SET situation = 'ANNULEE', situation_notes = 'Annulée suite à l''annulation de la vente', situation_date = NOW(), updated_at = NOW()
+              WHERE sale_id = $1 AND situation = 'ACTIVE'
+            `, [id]);
+                        await client.query('DELETE FROM payment_allocations WHERE sale_id = $1', [id]);
+                        await client.query("UPDATE sales SET status = 'CANCELLED', payment_status = 'CANCELLED', updated_at = NOW() WHERE id = $1", [id]);
+                        return { id, status: 'CANCELLED', paymentStatus: 'CANCELLED' };
+                    });
+                    await logAudit(req.user, 'SALE_CANCELLED_FULL', 'SALE', id, `Full cancellation of sale ${currentSale.invoice_number} (all pending lines released)`, currentSale.warehouse_id);
+                    return sendSuccess(res, result, 'Sale cancelled and all pending reservations released successfully');
+                }
+                // 3. Mixed state -> Partial cancellation
+                if (fulfilledLines.length > 0 && pendingLines.length > 0) {
+                    const result = await runTransaction(async (client) => {
+                        for (const line of pendingLines) {
+                            const resQuery = await client.query("SELECT id FROM stock_reservations WHERE fulfillment_line_id = $1 AND status = 'ACTIVE'", [line.id]);
+                            if (resQuery.rows[0]) {
+                                await releaseStockReservation(client, resQuery.rows[0].id, 'CANCELLED');
+                            }
+                            await client.query(`
+                UPDATE sale_fulfillment_lines
+                SET fulfillment_status = 'CANCELLED', updated_at = NOW()
+                WHERE id = $1
+              `, [line.id]);
+                        }
+                        // Cancel pending inter-warehouse settlements related to this sale
+                        await client.query(`
+              UPDATE inter_warehouse_settlements
+              SET status = 'CANCELLED', notes = notes || ' (Annulé suite à annulation partielle de la vente)'
+              WHERE status = 'PENDING' AND notes LIKE '%' || $1 || '%'
+            `, [currentSale.invoice_number]);
+                        const cancelledAmount = pendingLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
+                        const fulfilledAmount = fulfilledLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
+                        // Compensating ledger entry for the cancelled portion only
+                        if (currentSale.client_id && cancelledAmount > 0) {
+                            const clientRes = await client.query('SELECT id, current_balance FROM clients WHERE id = $1 FOR UPDATE', [currentSale.client_id]);
+                            if (clientRes.rowCount && clientRes.rowCount > 0) {
+                                const prevBal = Number(clientRes.rows[0].current_balance || 0);
+                                const newBal = prevBal - cancelledAmount;
+                                await client.query(`
+                  INSERT INTO client_transactions (
+                    client_id, warehouse_id, type, reference_type, reference_id,
+                    debit, credit, running_balance, description, transaction_date, created_by, created_at
+                  ) VALUES ($1, $2, 'CREDIT_NOTE', 'SALES_PARTIAL_CANCEL', $3, 0, $4, $5, $6, NOW(), $7, NOW())
+                `, [
+                                    currentSale.client_id,
+                                    currentSale.warehouse_id,
+                                    id,
+                                    cancelledAmount,
+                                    newBal,
+                                    `Annulation partielle vente ${currentSale.invoice_number} (lignes non retirées)`,
+                                    req.user?.id || 1,
+                                ]);
+                                await client.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, currentSale.client_id]);
+                            }
+                        }
+                        // Adjust parent sale total to fulfilledAmount and status to PARTIALLY_CANCELLED
+                        await client.query(`
+              UPDATE sales
+              SET status = 'PARTIALLY_CANCELLED',
+                  total_amount = $1,
+                  updated_at = NOW()
+              WHERE id = $2
+            `, [fulfilledAmount, id]);
+                        return {
+                            id,
+                            status: 'PARTIALLY_CANCELLED',
+                            cancelledAmount,
+                            remainingTotal: fulfilledAmount,
+                            cancelledLinesCount: pendingLines.length,
+                            fulfilledLinesCount: fulfilledLines.length,
+                        };
+                    });
+                    await logAudit(req.user, 'SALE_CANCELLED_PARTIAL', 'SALE', id, `Partial cancellation of sale ${currentSale.invoice_number} (cancelled ${result.cancelledLinesCount} pending lines)`, currentSale.warehouse_id);
+                    return sendSuccess(res, result, 'Partial cancellation successful. Pending lines cancelled and fulfilled lines retained.');
+                }
             }
         }
-        // Standard legacy sale cancellation (no fulfillment lines)
+        // Standard sale cancellation (single-warehouse direct sale)
         await runTransaction(async (client) => {
             // 1. Reverse stock
             const itemsRes = await client.query('SELECT * FROM sale_items WHERE sale_id = $1', [id]);
@@ -1909,9 +1974,21 @@ router.post('/:id/cancel', authenticate, requireRole('ADMIN', 'SUPER_MANAGER', '
                     await client.query('UPDATE clients SET current_balance = $1, updated_at = NOW() WHERE id = $2', [newBal, currentSale.client_id]);
                 }
             }
-            // 3. Remove payment allocations associated with this cancelled sale so payments become unallocated
+            // 3. Mark any fulfillment lines tied to this sale as CANCELLED
+            await client.query(`
+        UPDATE sale_fulfillment_lines
+        SET fulfillment_status = 'CANCELLED', updated_at = NOW()
+        WHERE sale_id = $1
+      `, [id]);
+            // 4. Cancel linked active facture if present
+            await client.query(`
+        UPDATE factures
+        SET situation = 'ANNULEE', situation_notes = 'Annulée suite à l''annulation de la vente', situation_date = NOW(), updated_at = NOW()
+        WHERE sale_id = $1 AND situation = 'ACTIVE'
+      `, [id]);
+            // 5. Remove payment allocations associated with this cancelled sale so payments become unallocated
             await client.query('DELETE FROM payment_allocations WHERE sale_id = $1', [id]);
-            // 4. Update Sale Status
+            // 6. Update Sale Status
             await client.query("UPDATE sales SET status = 'CANCELLED', payment_status = 'CANCELLED', updated_at = NOW() WHERE id = $1", [id]);
         });
         await logAudit(req.user, 'SALE_CANCELLED', 'SALE', id, `Voided sale ${currentSale.invoice_number} and reversed stock/ledger`, currentSale.warehouse_id);

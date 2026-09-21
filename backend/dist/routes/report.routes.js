@@ -579,24 +579,34 @@ router.get('/financial', authenticate, async (req, res) => {
             const whRes = await query('SELECT name FROM warehouses WHERE id = $1', [warehouseId]);
             currentWarehouse = whRes.rows[0];
         }
-        // Revenue & COGS
+        // 1. Revenue
         let revQuery = `
-      SELECT SUM(s.total_amount) as revenue,
-             SUM(si.quantity * p.purchase_price) as cogs
-      FROM sales s
-      JOIN sale_items si ON s.id = si.sale_id
-      JOIN products p ON si.product_id = p.id
-      WHERE s.status = 'COMPLETED' AND TO_CHAR(s.created_at, 'YYYY-MM') = $1
+      SELECT SUM(total_amount) as revenue
+      FROM sales
+      WHERE status = 'COMPLETED' AND TO_CHAR(created_at, 'YYYY-MM') = $1
     `;
         const revParams = [period];
         if (warehouseId) {
             revParams.push(warehouseId);
-            revQuery += ` AND s.warehouse_id = $${revParams.length}`;
+            revQuery += ` AND warehouse_id = $${revParams.length}`;
         }
         const revRes = await query(revQuery, revParams);
-        const revStats = revRes.rows[0];
-        const totalRevenue = Number(revStats?.revenue || 0);
-        const totalCogs = Number(revStats?.cogs || 0);
+        const totalRevenue = Number(revRes.rows[0]?.revenue || 0);
+        // 2. Cost of Goods Sold (COGS)
+        let cogsQuery = `
+      SELECT SUM(si.quantity * p.purchase_price) as cogs
+      FROM sale_items si
+      JOIN sales s ON si.sale_id = s.id
+      JOIN products p ON si.product_id = p.id
+      WHERE s.status = 'COMPLETED' AND TO_CHAR(s.created_at, 'YYYY-MM') = $1
+    `;
+        const cogsParams = [period];
+        if (warehouseId) {
+            cogsParams.push(warehouseId);
+            cogsQuery += ` AND s.warehouse_id = $${cogsParams.length}`;
+        }
+        const cogsRes = await query(cogsQuery, cogsParams);
+        const totalCogs = Number(cogsRes.rows[0]?.cogs || 0);
         const grossProfit = totalRevenue - totalCogs;
         // Categorized Expenses
         let expQuery = `

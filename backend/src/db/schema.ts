@@ -347,6 +347,8 @@ export async function initSchema(): Promise<void> {
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS origin_warehouse_id INTEGER REFERENCES warehouses(id);
     ALTER TABLE sales ADD COLUMN IF NOT EXISTS has_inter_warehouse_fulfillment BOOLEAN NOT NULL DEFAULT FALSE;
     UPDATE sales SET paid_amount = total_amount WHERE paid_amount = 0 AND status = 'COMPLETED';
+    UPDATE sales SET paid_amount = total_amount WHERE paid_amount > total_amount;
+    UPDATE payment_allocations pa SET allocated_amount = LEAST(pa.allocated_amount, s.total_amount) FROM sales s WHERE pa.sale_id = s.id;
     ALTER TABLE employees ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE';
     UPDATE employees SET status = CASE WHEN active = FALSE THEN 'TERMINATED' ELSE 'ACTIVE' END WHERE status IS NULL OR status = '';
     ALTER TABLE products ADD COLUMN IF NOT EXISTS box_size INTEGER NOT NULL DEFAULT 0;
