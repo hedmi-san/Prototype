@@ -255,6 +255,7 @@ export interface Client {
   art?: string | null;
   activite?: string | null;
   nis?: string | null;
+  numFiscal?: string | null;
   openingBalance: number;
   currentBalance: number;
   isDefault: boolean;

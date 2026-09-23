@@ -3,6 +3,7 @@ import { query, runTransaction } from '../db/database.js';
 import { sendSuccess, sendError } from '../common/response.js';
 import { generateCsv, sendCsv, CsvColumn } from '../common/csv.js';
 import { authenticate, requireRole, AuthRequest, logAudit, validateWarehouseScope, enforceWarehouseScope } from '../middleware/auth.js';
+import { analyzeClientImports, RawImportRow } from '../services/client-import.service.js';
 
 const router = Router();
 
@@ -19,6 +20,7 @@ function mapClientRow(c: any) {
     art: c.art || '',
     activite: c.activite || '',
     nis: c.nis || '',
+    numFiscal: c.num_fiscal || '',
     openingBalance: Number(c.opening_balance || 0),
     currentBalance: Number(c.current_balance || 0),
     isDefault: Boolean(c.is_default),
@@ -187,7 +189,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
 // POST /api/clients - Create new client
 router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { code, name, phone, email, address, rc, nif, art, activite, nis, openingBalance, warehouseId } = req.body;
+    const { code, name, phone, email, address, rc, nif, art, activite, nis, numFiscal, openingBalance, warehouseId } = req.body;
     if (!name || typeof name !== 'string' || !name.trim()) {
       return sendError(res, 'Le nom du client est obligatoire', 400);
     }
@@ -203,6 +205,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
     const cleanNif = nif ? String(nif).trim() : null;
     const cleanActivite = activite ? String(activite).trim() : null;
     const cleanNis = nis ? String(nis).trim() : null;
+    const cleanNumFiscal = numFiscal ? String(numFiscal).trim() : null;
 
     const opBal = Number(openingBalance) || 0.0;
     const targetWhId = warehouseId || req.user?.warehouseId || 1;
@@ -216,12 +219,12 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 
         const insertRes = await dbClient.query(`
           INSERT INTO clients (
-            id, code, name, phone, email, address, rc, nif, art, activite, nis,
+            id, code, name, phone, email, address, rc, nif, art, activite, nis, num_fiscal,
             opening_balance, current_balance, is_default, active
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, FALSE, TRUE)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, FALSE, TRUE)
           RETURNING *
-        `, [nextId, clientCode, name.trim(), phone || '', email || '', address || '', cleanRc, cleanNif, cleanArt, cleanActivite, cleanNis, opBal]);
+        `, [nextId, clientCode, name.trim(), phone || '', email || '', address || '', cleanRc, cleanNif, cleanArt, cleanActivite, cleanNis, cleanNumFiscal, opBal]);
         const newClient = insertRes.rows[0];
 
         if (opBal !== 0) {
@@ -244,12 +247,12 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 
         const insertRes = await dbClient.query(`
           INSERT INTO clients (
-            code, name, phone, email, address, rc, nif, art, activite, nis,
+            code, name, phone, email, address, rc, nif, art, activite, nis, num_fiscal,
             opening_balance, current_balance, is_default, active
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, FALSE, TRUE)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, FALSE, TRUE)
           RETURNING *
-        `, [clientCode, name.trim(), phone || '', email || '', address || '', cleanRc, cleanNif, cleanArt, cleanActivite, cleanNis, opBal]);
+        `, [clientCode, name.trim(), phone || '', email || '', address || '', cleanRc, cleanNif, cleanArt, cleanActivite, cleanNis, cleanNumFiscal, opBal]);
         const newClient = insertRes.rows[0];
 
         if (opBal !== 0) {
@@ -278,7 +281,7 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
-    const { name, phone, email, address, rc, nif, art, activite, nis, active } = req.body;
+    const { name, phone, email, address, rc, nif, art, activite, nis, numFiscal, active } = req.body;
 
     const currentRes = await query('SELECT * FROM clients WHERE id = $1', [id]);
     const current = currentRes.rows[0];
@@ -295,14 +298,15 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
     const updatedArt = art !== undefined ? (art ? String(art).trim() : null) : current.art;
     const updatedActivite = activite !== undefined ? (activite ? String(activite).trim() : null) : current.activite;
     const updatedNis = nis !== undefined ? (nis ? String(nis).trim() : null) : current.nis;
+    const updatedNumFiscal = numFiscal !== undefined ? (numFiscal ? String(numFiscal).trim() : null) : current.num_fiscal;
     const updatedActive = active !== undefined ? Boolean(active) : Boolean(current.active);
 
     const updateRes = await query(`
       UPDATE clients
-      SET name = $1, phone = $2, email = $3, address = $4, rc = $5, nif = $6, art = $7, activite = $8, nis = $9, active = $10, updated_at = NOW()
-      WHERE id = $11
+      SET name = $1, phone = $2, email = $3, address = $4, rc = $5, nif = $6, art = $7, activite = $8, nis = $9, num_fiscal = $10, active = $11, updated_at = NOW()
+      WHERE id = $12
       RETURNING *
-    `, [updatedName, updatedPhone, updatedEmail, updatedAddress, updatedRc, updatedNif, updatedArt, updatedActivite, updatedNis, updatedActive, id]);
+    `, [updatedName, updatedPhone, updatedEmail, updatedAddress, updatedRc, updatedNif, updatedArt, updatedActivite, updatedNis, updatedNumFiscal, updatedActive, id]);
 
     const updated = updateRes.rows[0];
     await logAudit(req.user, 'CLIENT_UPDATED', 'CLIENT', id, `Mise à jour client ${updatedName} (${current.code})`);
@@ -1069,6 +1073,167 @@ router.get('/:id/refunds/:refundId', authenticate, async (req: AuthRequest, res:
       availableAdvanceBefore: priorBal !== null ? Math.abs(priorBal) : null,
       availableAdvanceAfter: snapRunning !== null ? Math.abs(Math.min(0, snapRunning)) : null,
     });
+  } catch (err: any) {
+    return sendError(res, err.message, 500);
+  }
+});
+
+// POST /api/clients/import/analyze - Dry run multi-warehouse entity matching
+router.post('/import/analyze', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const rows = req.body.rows as RawImportRow[];
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return sendError(res, 'Aucune ligne de client fournie pour analyse', 400);
+    }
+
+    const result = analyzeClientImports(rows);
+    return sendSuccess(res, result, 'Analyse multi-dépôts effectuée avec succès');
+  } catch (err: any) {
+    return sendError(res, err.message, 500);
+  }
+});
+
+// POST /api/clients/import/commit - Atomic commit of consolidated clients
+router.post('/import/commit', authenticate, requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res: Response) => {
+  try {
+    const clientsToImport = req.body.clients as Array<{
+      name: string;
+      phone?: string;
+      email?: string;
+      address?: string;
+      rc?: string;
+      nif?: string;
+      art?: string;
+      activite?: string;
+      nis?: string;
+      numFiscal?: string;
+      openingBalance: number;
+      warehouseBalances?: Array<{
+        warehouseId: number;
+        warehouseName: string;
+        balance: number;
+      }>;
+    }>;
+
+    if (!Array.isArray(clientsToImport) || clientsToImport.length === 0) {
+      return sendError(res, 'La liste des clients à importer est vide', 400);
+    }
+
+    const defaultWarehouseId = req.user?.warehouseId || 1;
+    const userId = req.user?.id || 1;
+
+    const commitResult = await runTransaction(async (dbClient) => {
+      let importedCount = 0;
+      let totalOpeningDebt = 0.0;
+      const createdClients: any[] = [];
+
+      for (const clientItem of clientsToImport) {
+        const cleanName = (clientItem.name || '').trim();
+        if (!cleanName) continue;
+
+        const cleanPhone = (clientItem.phone || '').trim();
+        const cleanEmail = (clientItem.email || '').trim();
+        const cleanAddress = (clientItem.address || '').trim();
+        const cleanRc = clientItem.rc ? String(clientItem.rc).trim() : null;
+        const cleanNif = clientItem.nif ? String(clientItem.nif).trim() : null;
+        const cleanArt = clientItem.art ? String(clientItem.art).trim() : null;
+        const cleanActivite = clientItem.activite ? String(clientItem.activite).trim() : null;
+        const cleanNis = clientItem.nis ? String(clientItem.nis).trim() : null;
+        const cleanNumFiscal = clientItem.numFiscal ? String(clientItem.numFiscal).trim() : null;
+        const totalBal = Math.round((Number(clientItem.openingBalance) || 0.0) * 100) / 100;
+
+        // Auto-generate universal CLT-XXXX code
+        const nextIdRes = await dbClient.query("SELECT nextval(pg_get_serial_sequence('clients', 'id')) as next_id");
+        const nextId = nextIdRes.rows[0].next_id;
+        const clientCode = `CLT-${String(nextId).padStart(4, '0')}`;
+
+        const insertRes = await dbClient.query(`
+          INSERT INTO clients (
+            id, code, name, phone, email, address, rc, nif, art, activite, nis, num_fiscal,
+            opening_balance, current_balance, is_default, active
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, FALSE, TRUE)
+          RETURNING *
+        `, [
+          nextId,
+          clientCode,
+          cleanName,
+          cleanPhone,
+          cleanEmail,
+          cleanAddress,
+          cleanRc,
+          cleanNif,
+          cleanArt,
+          cleanActivite,
+          cleanNis,
+          cleanNumFiscal,
+          totalBal,
+        ]);
+
+        const newClient = insertRes.rows[0];
+        createdClients.push(newClient);
+        importedCount++;
+        totalOpeningDebt += totalBal;
+
+        // Insert per-warehouse opening ledger transactions
+        const whBalances = clientItem.warehouseBalances || [];
+        const nonZeroWhBalances = whBalances.filter((wb) => Math.abs(wb.balance) > 0.001);
+
+        if (nonZeroWhBalances.length > 0) {
+          for (const wb of nonZeroWhBalances) {
+            const b = Math.round(wb.balance * 100) / 100;
+            const debit = b > 0 ? b : 0;
+            const credit = b < 0 ? Math.abs(b) : 0;
+            await dbClient.query(`
+              INSERT INTO client_transactions (
+                client_id, warehouse_id, type, reference_type, reference_id,
+                debit, credit, running_balance, description, transaction_date, created_by, created_at
+              ) VALUES ($1, $2, 'OPENING_BALANCE', 'CLIENT', $1, $3, $4, $5, $6, NOW(), $7, NOW())
+            `, [
+              nextId,
+              wb.warehouseId || defaultWarehouseId,
+              debit,
+              credit,
+              b,
+              `Solde initial d'ouverture (${wb.warehouseName || 'Import'})`,
+              userId,
+            ]);
+          }
+        } else if (totalBal !== 0) {
+          // If no specific warehouse breakdown provided but overall balance is non-zero
+          const debit = totalBal > 0 ? totalBal : 0;
+          const credit = totalBal < 0 ? Math.abs(totalBal) : 0;
+          await dbClient.query(`
+            INSERT INTO client_transactions (
+              client_id, warehouse_id, type, reference_type, reference_id,
+              debit, credit, running_balance, description, transaction_date, created_by, created_at
+            ) VALUES ($1, $2, 'OPENING_BALANCE', 'CLIENT', $1, $3, $4, $5, 'Solde initial d''ouverture (Import global)', NOW(), $6, NOW())
+          `, [
+            nextId,
+            defaultWarehouseId,
+            debit,
+            credit,
+            totalBal,
+            userId,
+          ]);
+        }
+      }
+
+      return {
+        importedCount,
+        totalOpeningDebt: Math.round(totalOpeningDebt * 100) / 100,
+      };
+    });
+
+    await logAudit(
+      req.user,
+      'CLIENTS_IMPORTED_BATCH',
+      'CLIENT',
+      0,
+      `Importation par lot de ${commitResult.importedCount} clients (Dette totale: ${commitResult.totalOpeningDebt} DZD)`
+    );
+
+    return sendSuccess(res, commitResult, `${commitResult.importedCount} clients importés avec succès`);
   } catch (err: any) {
     return sendError(res, err.message, 500);
   }

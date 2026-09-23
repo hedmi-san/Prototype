@@ -177,7 +177,7 @@ export async function initSchema(): Promise<void> {
       id SERIAL PRIMARY KEY,
       code VARCHAR(50) NOT NULL UNIQUE,
       name VARCHAR(255) NOT NULL,
-      phone VARCHAR(50),
+      phone VARCHAR(150),
       email VARCHAR(100),
       address TEXT,
       rc VARCHAR(100),
@@ -185,6 +185,7 @@ export async function initSchema(): Promise<void> {
       art VARCHAR(100),
       activite TEXT,
       nis VARCHAR(100),
+      num_fiscal VARCHAR(100),
       opening_balance NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       current_balance NUMERIC(14, 2) NOT NULL DEFAULT 0.0,
       is_default BOOLEAN NOT NULL DEFAULT FALSE,
@@ -361,6 +362,8 @@ export async function initSchema(): Promise<void> {
     ALTER TABLE clients ADD COLUMN IF NOT EXISTS art VARCHAR(100);
     ALTER TABLE clients ADD COLUMN IF NOT EXISTS activite TEXT;
     ALTER TABLE clients ADD COLUMN IF NOT EXISTS nis VARCHAR(100);
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS num_fiscal VARCHAR(100);
+    ALTER TABLE clients ALTER COLUMN phone TYPE VARCHAR(150);
     ALTER TABLE factures ADD COLUMN IF NOT EXISTS client_nis VARCHAR(100);
   `);
 
@@ -385,6 +388,7 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(active);
     CREATE INDEX IF NOT EXISTS idx_clients_rc ON clients(rc);
     CREATE INDEX IF NOT EXISTS idx_clients_art ON clients(art);
+    CREATE INDEX IF NOT EXISTS idx_clients_num_fiscal ON clients(num_fiscal);
     CREATE INDEX IF NOT EXISTS idx_client_transactions_client_date ON client_transactions(client_id, transaction_date);
     CREATE INDEX IF NOT EXISTS idx_client_transactions_client_wh_date ON client_transactions(client_id, warehouse_id, transaction_date);
     CREATE INDEX IF NOT EXISTS idx_clients_trgm_search ON clients USING gin ((name || ' ' || code || ' ' || COALESCE(phone, '')) gin_trgm_ops);

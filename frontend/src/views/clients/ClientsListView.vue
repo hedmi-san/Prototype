@@ -9,6 +9,7 @@ import AppPagination from '../../components/common/AppPagination.vue';
 import AppBadge from '../../components/common/AppBadge.vue';
 import ClientFormModal from '../../components/clients/ClientFormModal.vue';
 import ClientPaymentModal from '../../components/clients/ClientPaymentModal.vue';
+import ClientImportModal from '../../components/clients/ClientImportModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -33,6 +34,7 @@ const totalPages = ref(1);
 const showCreateModal = ref(false);
 const showEditModal = ref(false);
 const showPaymentModal = ref(false);
+const showImportModal = ref(false);
 const selectedClient = ref<Client | null>(null);
 
 let debounceTimer: any = null;
@@ -130,6 +132,10 @@ function onClientSaved() {
 function onPaymentSaved() {
   fetchClients();
 }
+
+function onImportSuccess() {
+  fetchClients(false);
+}
 </script>
 
 <template>
@@ -141,6 +147,14 @@ function onPaymentSaved() {
         <p class="view-subtitle">Suivi du grand livre financier, des créances, versements et soldes clients</p>
       </div>
       <div class="header-actions">
+        <AppButton variant="secondary" @click="showImportModal = true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Importer (Multi-Dépôt)
+        </AppButton>
         <AppButton variant="secondary" @click="openPaymentModal()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="1" x2="12" y2="23" />
@@ -387,6 +401,10 @@ function onPaymentSaved() {
       v-model="showPaymentModal"
       :client="selectedClient"
       @saved="onPaymentSaved"
+    />
+    <ClientImportModal
+      v-model="showImportModal"
+      @success="onImportSuccess"
     />
   </div>
 </template>

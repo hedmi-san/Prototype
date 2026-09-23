@@ -4,6 +4,7 @@ import { onMounted, onUnmounted } from 'vue';
 interface Props {
   modelValue: boolean;
   title: string;
+  subtitle?: string;
   maxWidth?: string;
 }
 
@@ -37,8 +38,11 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
       <div v-if="modelValue" class="modal-backdrop" @click.self="close">
         <div class="modal-card" :style="{ maxWidth: maxWidth }">
           <div class="modal-header">
-            <h3 class="modal-title">{{ title }}</h3>
-            <button class="close-btn" @click="close">
+            <div class="modal-header-text">
+              <h3 class="modal-title">{{ title }}</h3>
+              <p v-if="subtitle" class="modal-subtitle">{{ subtitle }}</p>
+            </div>
+            <button class="close-btn" @click="close" aria-label="Fermer">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -77,8 +81,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   width: 100%;
   background-color: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-modal);
+  border-radius: 16px;
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
   max-height: 90vh;
@@ -90,15 +94,29 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 18px 24px;
   border-bottom: 1px solid var(--color-border);
   background-color: var(--color-bg);
 }
 
+.modal-header-text {
+  display: flex;
+  flex-direction: column;
+}
+
 .modal-title {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
-  color: var(--color-primary);
+  color: var(--color-text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.modal-subtitle {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 3px 0 0 0;
+  line-height: 1.3;
 }
 
 .close-btn {
@@ -106,8 +124,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   border: none;
   color: var(--color-text-secondary);
   cursor: pointer;
-  padding: 4px;
-  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -115,12 +134,12 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 }
 
 .close-btn:hover {
-  background-color: var(--color-surface);
+  background-color: var(--color-surface, rgba(0, 0, 0, 0.06));
   color: var(--color-text-primary);
 }
 
 .modal-body {
-  padding: 20px;
+  padding: 24px;
   overflow-y: auto;
   flex: 1;
 }
@@ -129,11 +148,10 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 16px 20px;
+  gap: 12px;
+  padding: 16px 24px;
   border-top: 1px solid var(--color-border);
-  background-color: var(--color-bg-subtle);
+  background-color: var(--color-bg);
 }
 
 @keyframes modal-pop {
