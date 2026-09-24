@@ -392,7 +392,7 @@ function handleClose() {
                   </svg>
                 </div>
                 <div class="file-names">
-                  <span class="file-name">{{ entry.file.name }}</span>
+                  <span class="file-name" :title="entry.file.name">{{ entry.file.name }}</span>
                   <span class="file-size">{{ (entry.file.size / 1024).toFixed(1) }} KB</span>
                 </div>
               </div>
@@ -832,8 +832,11 @@ function handleClose() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  gap: 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--color-border, #f3f4f6);
+  flex-wrap: nowrap;
+  box-sizing: border-box;
 }
 
 .file-item:last-child {
@@ -843,51 +846,69 @@ function handleClose() {
 .file-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .excel-badge {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
   border-radius: 8px;
   background-color: #ecfdf5;
   color: #059669;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .file-names {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .file-name {
   font-size: 13px;
   font-weight: 500;
   color: var(--color-text-primary, #111827);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 .file-size {
   font-size: 11px;
   color: var(--color-text-secondary, #6b7280);
+  white-space: nowrap;
 }
 
 .file-actions {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
 }
 
 .warehouse-select-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .select-label {
   font-size: 12px;
   color: var(--color-text-secondary, #6b7280);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .warehouse-select {
@@ -898,14 +919,21 @@ function handleClose() {
   font-size: 12px;
   font-weight: 500;
   color: var(--color-text-primary, #111827);
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 210px;
 }
 
 .btn-remove-file {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  flex-shrink: 0;
   background: none;
   border: none;
   color: #9ca3af;
   cursor: pointer;
-  padding: 4px;
+  padding: 0;
   border-radius: 6px;
   display: flex;
   align-items: center;

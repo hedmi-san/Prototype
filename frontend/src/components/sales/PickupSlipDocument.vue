@@ -122,7 +122,7 @@ function printSlip() {
           <span v-if="line.customerPhone || sale?.customerPhone" class="cust-phone">
             Tél. {{ line.customerPhone || sale?.customerPhone }}
           </span>
-          <span v-if="line.clientCode" class="cust-code font-mono">
+          <span v-if="line.clientCode && line.clientCode !== 'CLT-COMPTOIR'" class="cust-code font-mono">
             Code: {{ line.clientCode }}
           </span>
         </div>

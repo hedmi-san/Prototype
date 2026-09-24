@@ -282,7 +282,8 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
     // Check if sale exists
     const saleRes = await query(`
       SELECT s.id, s.invoice_number, s.client_id, s.customer_name,
-             cl.name as client_db_name, cl.address as client_db_address,
+             cl.name as client_db_name, cl.code as client_db_code, cl.is_default as client_db_is_default,
+             cl.address as client_db_address,
              cl.rc as client_db_rc, cl.nif as client_db_nif, cl.art as client_db_art,
              cl.activite as client_db_activite, cl.nis as client_db_nis
       FROM sales s
@@ -323,10 +324,15 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
       }
     }
 
-    // Determine client info (prioritize payload, fallback to linked client in DB, then sale customerName)
-    const resolvedClientName = clientName || sale.client_db_name || sale.customer_name || 'Client Passager';
+    // Determine client info (prioritize payload, fallback to sale customerName if walk-in or custom, then linked client in DB)
+    const isWalkIn = sale.client_db_code === 'CLT-COMPTOIR' || Boolean(sale.client_db_is_default) || sale.client_id === 1;
+    const defaultName = isWalkIn
+      ? (sale.customer_name && !['CLIENT PASSAGER / COMPTOIR', 'CLIENT PASSAGER'].includes(sale.customer_name.toUpperCase()) ? sale.customer_name : (sale.client_db_name || 'Client Passager'))
+      : (sale.customer_name || sale.client_db_name || 'Client');
+
+    const resolvedClientName = clientName || defaultName || 'Client Passager';
     const resolvedClientId = sale.client_id || null;
-    const resolvedClientAddress = clientAddress || sale.client_db_address || null;
+    const resolvedClientAddress = clientAddress || ((isWalkIn && sale.client_db_address?.toLowerCase().includes('comptoir')) ? null : sale.client_db_address) || null;
     const resolvedClientRc = clientRc || sale.client_db_rc || null;
     const resolvedClientNif = clientNif || sale.client_db_nif || null;
     const resolvedClientArt = clientArt || sale.client_db_art || null;

@@ -214,6 +214,7 @@ export interface Sale {
   clientId?: number | null;
   clientName?: string | null;
   clientCode?: string | null;
+  clientIsDefault?: boolean;
   clientAddress?: string | null;
   clientRc?: string | null;
   clientNif?: string | null;

@@ -604,9 +604,20 @@ function openCreateFactureForSale(sale: Sale) {
     totalAmount: sale.totalAmount,
     saleDate: sale.saleDate || sale.createdAt || '',
   };
+  const isWalkIn =
+    sale.clientCode === 'CLT-COMPTOIR' ||
+    sale.clientId === 1 ||
+    Boolean((sale as any).clientIsDefault) ||
+    sale.clientName === 'Client Passager / Comptoir' ||
+    sale.clientName === 'Client Passager';
+
+  const defaultFactureClientName = isWalkIn
+    ? (sale.customerName && !['CLIENT PASSAGER / COMPTOIR', 'CLIENT PASSAGER'].includes(sale.customerName.toUpperCase()) ? sale.customerName : (sale.clientName || 'Client Passager'))
+    : (sale.customerName || sale.clientName || '');
+
   createFactureForm.value = {
-    clientName: sale.clientName || sale.customerName || '',
-    clientAddress: sale.clientAddress || '',
+    clientName: defaultFactureClientName,
+    clientAddress: (isWalkIn && sale.clientAddress?.toLowerCase().includes('comptoir')) ? '' : (sale.clientAddress || ''),
     clientRc: sale.clientRc || '',
     clientNif: sale.clientNif || '',
     clientArt: sale.clientArt || '',
@@ -623,8 +634,19 @@ function onSaleForFactureSelected(sale: SaleWithoutFacture) {
   selectedSaleForFacture.value = sale;
   saleSearchQuery.value = '';
   saleDropdownOpen.value = false;
-  createFactureForm.value.clientName = sale.clientName || sale.customerName || '';
-  createFactureForm.value.clientAddress = sale.clientAddress || '';
+
+  const isWalkIn =
+    sale.clientCode === 'CLT-COMPTOIR' ||
+    sale.clientId === 1 ||
+    sale.clientName === 'Client Passager / Comptoir' ||
+    sale.clientName === 'Client Passager';
+
+  const defaultFactureClientName = isWalkIn
+    ? (sale.customerName && !['CLIENT PASSAGER / COMPTOIR', 'CLIENT PASSAGER'].includes(sale.customerName.toUpperCase()) ? sale.customerName : (sale.clientName || 'Client Passager'))
+    : (sale.customerName || sale.clientName || '');
+
+  createFactureForm.value.clientName = defaultFactureClientName;
+  createFactureForm.value.clientAddress = (isWalkIn && sale.clientAddress?.toLowerCase().includes('comptoir')) ? '' : (sale.clientAddress || ''),
   createFactureForm.value.clientRc = sale.clientRc || '';
   createFactureForm.value.clientNif = sale.clientNif || '';
   createFactureForm.value.clientArt = sale.clientArt || '';
@@ -985,17 +1007,17 @@ async function handleConfirmCancelLine() {
             <td>{{ sale.warehouseName }}</td>
             <td>
               <router-link
-                v-if="sale.clientId && sale.clientId > 1"
+                v-if="sale.clientId && sale.clientId > 1 && sale.clientCode !== 'CLT-COMPTOIR' && !sale.clientIsDefault"
                 :to="`/clients/${sale.clientId}`"
                 class="client-link"
               >
-                <strong>{{ sale.clientName || sale.customerName }}</strong>
+                <strong>{{ (sale.customerName && sale.customerName !== sale.clientName) ? sale.customerName : (sale.clientName || sale.customerName) }}</strong>
                 <span v-if="sale.clientCode" class="client-code-tag">{{ sale.clientCode }}</span>
               </router-link>
               <div v-else>
-                <strong>{{ sale.customerName || 'Client Comptoir' }}</strong>
+                <strong>{{ sale.customerName || sale.clientName || 'Client Comptoir' }}</strong>
               </div>
-              <span v-if="sale.customerPhone" class="text-caption text-muted" style="display: block;">
+              <span v-if="sale.customerPhone && sale.customerPhone !== 'N/A'" class="text-caption text-muted" style="display: block;">
                 {{ sale.customerPhone }}
               </span>
             </td>
@@ -1798,7 +1820,7 @@ async function handleConfirmCancelLine() {
             <div class="selected-sale-card-body">
               <div class="sale-customer-name">
                 <strong>{{ selectedSaleForFacture.customerName || selectedSaleForFacture.clientName || 'Client Comptoir' }}</strong>
-                <span v-if="selectedSaleForFacture.clientCode" class="client-code-pill font-mono">{{ selectedSaleForFacture.clientCode }}</span>
+                <span v-if="selectedSaleForFacture.clientCode && selectedSaleForFacture.clientCode !== 'CLT-COMPTOIR'" class="client-code-pill font-mono">{{ selectedSaleForFacture.clientCode }}</span>
               </div>
               <div class="sale-amount-pill font-mono font-bold">
                 {{ formatCurrency(selectedSaleForFacture.totalAmount) }}
@@ -1879,7 +1901,7 @@ async function handleConfirmCancelLine() {
                     <div class="suggestion-bl font-mono font-bold">{{ s.invoiceNumber || '#' + s.id }}</div>
                     <div class="suggestion-client text-muted">
                       {{ s.customerName || s.clientName || 'Client' }}
-                      <span v-if="s.clientCode" class="client-mini-code font-mono">[{{ s.clientCode }}]</span>
+                      <span v-if="s.clientCode && s.clientCode !== 'CLT-COMPTOIR'" class="client-mini-code font-mono">[{{ s.clientCode }}]</span>
                     </div>
                   </div>
                   <div class="suggestion-right">

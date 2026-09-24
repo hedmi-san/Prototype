@@ -12,6 +12,7 @@ interface Props {
   loading?: boolean;
   hideConfirm?: boolean;
   error?: string;
+  maxWidth?: string;
 }
 
 withDefaults(defineProps<Props>(), {
@@ -21,6 +22,7 @@ withDefaults(defineProps<Props>(), {
   loading: false,
   hideConfirm: false,
   error: '',
+  maxWidth: '460px',
 });
 
 const emit = defineEmits<{
@@ -43,7 +45,7 @@ function onConfirm() {
   <AppModal
     :model-value="modelValue"
     :title="title"
-    max-width="440px"
+    :max-width="maxWidth"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div v-if="error" class="confirm-error-banner">
@@ -51,12 +53,25 @@ function onConfirm() {
     </div>
     <p class="confirm-message">{{ message }}</p>
     <template #footer>
-      <AppButton variant="secondary" :disabled="loading" @click="onCancel">
-        {{ cancelText }}
-      </AppButton>
-      <AppButton v-if="!hideConfirm" :variant="variant" :loading="loading" @click="onConfirm">
-        {{ confirmText }}
-      </AppButton>
+      <div class="confirm-footer">
+        <AppButton
+          class="confirm-btn confirm-btn-cancel"
+          variant="secondary"
+          :disabled="loading"
+          @click="onCancel"
+        >
+          {{ cancelText }}
+        </AppButton>
+        <AppButton
+          v-if="!hideConfirm"
+          class="confirm-btn confirm-btn-action"
+          :variant="variant"
+          :loading="loading"
+          @click="onConfirm"
+        >
+          {{ confirmText }}
+        </AppButton>
+      </div>
     </template>
   </AppModal>
 </template>
@@ -77,5 +92,51 @@ function onConfirm() {
   line-height: 1.4;
   margin-bottom: 12px;
   border: 1px solid var(--color-danger-border, #fca5a5);
+}
+
+.confirm-footer {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  flex: 1 1 100%;
+  box-sizing: border-box;
+}
+
+.confirm-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: auto !important;
+  min-height: 42px;
+  padding: 8px 12px !important;
+  white-space: normal !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-btn :deep(.btn-content) {
+  white-space: normal !important;
+  text-align: center;
+  line-height: 1.35;
+  word-break: normal;
+  overflow-wrap: break-word;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .confirm-footer {
+    flex-direction: column-reverse;
+    gap: 10px;
+  }
+
+  .confirm-btn {
+    width: 100%;
+    flex: none;
+    min-height: 44px;
+  }
 }
 </style>

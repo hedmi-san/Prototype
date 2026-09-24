@@ -152,6 +152,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
   padding: 16px 24px;
   border-top: 1px solid var(--color-border);
   background-color: var(--color-bg);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 @keyframes modal-pop {

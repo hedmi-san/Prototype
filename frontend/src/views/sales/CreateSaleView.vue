@@ -150,8 +150,8 @@ onMounted(async () => {
   if (clientStore.clients.length > 0) {
     const defaultCl = clientStore.clients.find((c) => c.isDefault) || clientStore.clients[0];
     selectedClientId.value = defaultCl.id;
-    customerName.value = defaultCl.name;
-    customerPhone.value = defaultCl.phone || '';
+    customerName.value = defaultCl.isDefault ? '' : defaultCl.name;
+    customerPhone.value = (defaultCl.phone && defaultCl.phone !== 'N/A') ? defaultCl.phone : '';
   }
 
   if (lineItems.value[0].productId === 0 && productStore.products.length > 0) {
@@ -163,8 +163,8 @@ onMounted(async () => {
 
 function onClientSelect(cl: Client | null) {
   if (cl) {
-    customerName.value = cl.name;
-    customerPhone.value = cl.phone || '';
+    customerName.value = cl.isDefault ? '' : cl.name;
+    customerPhone.value = (cl.phone && cl.phone !== 'N/A') ? cl.phone : '';
   } else {
     customerName.value = '';
     customerPhone.value = '';
@@ -175,8 +175,17 @@ watch(selectedClientId, (newId) => {
   if (newId) {
     const cl = clientStore.clients.find((c) => c.id === newId);
     if (cl) {
-      customerName.value = cl.name;
-      customerPhone.value = cl.phone || '';
+      if (cl.isDefault) {
+        if (!customerName.value || customerName.value === cl.name) {
+          customerName.value = '';
+        }
+        if (customerPhone.value === 'N/A') {
+          customerPhone.value = '';
+        }
+      } else {
+        customerName.value = cl.name;
+        customerPhone.value = (cl.phone && cl.phone !== 'N/A') ? cl.phone : '';
+      }
       useAdvanceCredit.value = true;
       if (cl.isDefault && paymentCondition.value !== 'FULL_CASH') {
         paymentCondition.value = 'FULL_CASH';
@@ -653,13 +662,13 @@ function closeVouchersAndNavigate() {
           <AppInput
             v-model="customerName"
             label="Nom sur Facture"
-            placeholder="Nom du Client"
+            :placeholder="selectedClient?.isDefault ? 'Nom du Client' : 'Nom du Client'"
           />
 
           <AppInput
             v-model="customerPhone"
             label="Téléphone"
-            placeholder="+213 550 00 00 00"
+            :placeholder="selectedClient?.isDefault ? 'Numéro du Client' : 'Numéro du Client'"
           />
 
           <!-- Payment Condition Section -->

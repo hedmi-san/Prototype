@@ -120,6 +120,57 @@ const computedCartonCount = computed(() => {
     return total;
   }, 0);
 });
+
+const isWalkInClient = computed(() => {
+  const code = (props.sale?.clientCode || '').toUpperCase().trim();
+  const name = (props.sale?.clientName || '').toUpperCase().trim();
+  return (
+    code === 'CLT-COMPTOIR' ||
+    name.includes('PASSAGER') ||
+    name.includes('COMPTOIR') ||
+    Boolean((props.sale as any)?.clientIsDefault) ||
+    props.sale?.clientId === 1
+  );
+});
+
+const displayClientName = computed(() => {
+  const custName = props.sale?.customerName?.trim();
+  const clName = props.sale?.clientName?.trim();
+
+  if (isWalkInClient.value) {
+    if (
+      custName &&
+      !['CLIENT PASSAGER / COMPTOIR', 'CLIENT PASSAGER', 'CLIENT COMPTOIR'].includes(custName.toUpperCase())
+    ) {
+      return custName;
+    }
+    return clName || custName || 'Client Passager / Comptoir';
+  }
+
+  return custName || clName || 'DIVERS';
+});
+
+const displayClientCode = computed(() => {
+  if (isWalkInClient.value) {
+    return '';
+  }
+  return props.sale?.clientCode ? `(${props.sale.clientCode})` : '';
+});
+
+const displayClientPhone = computed(() => {
+  const phone = (props.sale?.customerPhone || '').trim();
+  if (phone && phone !== 'N/A') return phone;
+  return '';
+});
+
+const displayClientAddress = computed(() => {
+  const addr = (props.sale?.clientAddress || '').trim();
+  if (!addr) return '';
+  if (isWalkInClient.value && addr.toLowerCase().includes('comptoir')) {
+    return '';
+  }
+  return addr;
+});
 </script>
 
 <template>
@@ -144,15 +195,18 @@ const computedCartonCount = computed(() => {
         </div>
         <div class="client-row">
           <span class="label">Client :</span>
-          <span class="value font-bold">{{ sale.clientName || sale.customerName || 'DIVERS' }} <span v-if="sale.clientCode">({{ sale.clientCode }})</span></span>
+          <span class="value font-bold">
+            {{ displayClientName }}
+            <span v-if="displayClientCode"> {{ displayClientCode }}</span>
+          </span>
         </div>
-        <div v-if="sale.customerPhone" class="client-phone-row text-caption">
+        <div v-if="displayClientPhone" class="client-phone-row text-caption">
           <span class="label">Tél :</span>
-          <span class="value">{{ sale.customerPhone }}</span>
+          <span class="value">{{ displayClientPhone }}</span>
         </div>
-        <div v-if="sale.clientAddress" class="client-addr-row text-caption">
+        <div v-if="displayClientAddress" class="client-addr-row text-caption">
           <span class="label">Adresse :</span>
-          <span class="value">{{ sale.clientAddress }}</span>
+          <span class="value">{{ displayClientAddress }}</span>
         </div>
       </div>
 
