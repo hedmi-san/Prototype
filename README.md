@@ -39,7 +39,5 @@ npm run dev
 Open `http://localhost:5173/` in your browser.
 
 ## Demo Credentials (Quick Login)
-- **Admin**: `admin` / `AdminPass123!` (Global Access)
 - **Manager (Algiers Hub)**: `manager_algiers` / `ManagerPass123!`
-- **Super Manager (Oran Hub)**: `super_oran` / `SuperPass123!`
 - **Accountant (Constantine)**: `accountant_constantine` / `AccountantPass123!`
