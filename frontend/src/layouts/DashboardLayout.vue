@@ -461,7 +461,10 @@ function handleLogout() {
   padding: 16px 8px;
   transition: width var(--transition-normal);
   overflow-y: auto;
-  min-height: calc(100vh - 60px);
+  position: sticky;
+  top: 60px;
+  height: calc(100vh - 60px);
+  align-self: flex-start;
 }
 
 .sidebar.is-collapsed {

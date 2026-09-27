@@ -259,6 +259,10 @@ const totalAmount = computed(() => {
   }, 0);
 });
 
+const totalQuantity = computed(() => {
+  return lineItems.value.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+});
+
 const collectOnPickupTotal = computed(() => {
   let sum = 0;
   for (const item of lineItems.value) {
@@ -588,6 +592,17 @@ function closeVouchersAndNavigate() {
               </template>
             </tbody>
           </table>
+        </div>
+        <!-- Persistent Cart Running Summary Footer -->
+        <div class="pos-cart-footer">
+          <div class="cart-summary-info">
+            <span class="cart-summary-badge">{{ lineItems.length }} {{ lineItems.length > 1 ? 'lignes' : 'ligne' }}</span>
+            <span class="cart-summary-units">({{ formatNumber(totalQuantity) }} {{ totalQuantity > 1 ? 'unités' : 'unité' }})</span>
+          </div>
+          <div class="cart-summary-total">
+            <span class="cart-summary-label">Cumul panier :</span>
+            <strong class="cart-summary-amount font-mono">{{ formatCurrency(totalAmount) }}</strong>
+          </div>
         </div>
       </div>
 
@@ -922,14 +937,18 @@ function closeVouchersAndNavigate() {
 
 .pos-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 340px;
   gap: 16px;
   align-items: start;
 }
 
 .pos-main {
-  position: relative;
-  overflow: visible;
+  position: sticky;
+  top: 76px;
+  max-height: calc(100vh - 92px);
+  display: flex;
+  flex-direction: column;
+  align-self: start;
   min-width: 0;
 }
 
@@ -937,7 +956,8 @@ function closeVouchersAndNavigate() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .card-header h3 {
@@ -964,7 +984,10 @@ function closeVouchersAndNavigate() {
 }
 
 .items-table-wrapper {
-  overflow: visible;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  min-height: 0;
 }
 
 .items-table {
@@ -974,12 +997,67 @@ function closeVouchersAndNavigate() {
 }
 
 .items-table th {
+  position: sticky;
+  top: 0;
+  background: var(--color-bg);
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--color-border);
   text-align: left;
   padding: 8px 6px;
   color: var(--color-text-secondary);
   font-weight: 600;
   font-size: 12px;
   border-bottom: 1px solid var(--color-border);
+}
+
+.pos-cart-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin-top: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.cart-summary-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cart-summary-badge {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: var(--color-primary-subtle, rgba(59, 130, 246, 0.1));
+  padding: 2px 8px;
+  border-radius: var(--radius-full, 9999px);
+}
+
+.cart-summary-units {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.cart-summary-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cart-summary-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.cart-summary-amount {
+  font-size: 15px;
+  color: var(--color-primary);
+  font-weight: 700;
 }
 
 .items-table td {
@@ -1644,5 +1722,20 @@ function closeVouchersAndNavigate() {
   display: flex;
   justify-content: flex-end;
   width: 100%;
+}
+
+@media (max-width: 1024px) {
+  .pos-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .pos-main {
+    position: static;
+    max-height: none;
+  }
+
+  .items-table-wrapper {
+    max-height: 480px;
+  }
 }
 </style>
